@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "banxia-strategy"
+version = "0.1.0"
+description = "A-share daily first-board to second-board research screener"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "akshare>=1.17.0",
+  "pandas>=2.0,<3",
+  "urllib3>=1.26,<2",
+]
+
+[project.scripts]
+banxia-strategy = "banxia_strategy.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

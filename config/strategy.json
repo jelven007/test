@@ -1,0 +1,21 @@
+{
+  "lookback_sessions": 5,
+  "max_candidates": 8,
+  "max_per_industry": 2,
+  "minimum_score": 58.0,
+  "minimum_amount_cny": 200000000,
+  "maximum_amount_cny": 3000000000,
+  "minimum_turnover_pct": 2.0,
+  "maximum_turnover_pct": 28.0,
+  "minimum_float_market_cap_cny": 1500000000,
+  "maximum_float_market_cap_cny": 30000000000,
+  "maximum_break_count": 3,
+  "exclude_st": true,
+  "main_board_only": true,
+  "position_limit_pct": 20,
+  "portfolio_risk_limit_pct": 60,
+  "hard_stop_pct": 4.0,
+  "entry_open_min_pct": 0.5,
+  "entry_open_max_pct": 5.0,
+  "report_timezone": "Asia/Shanghai"
+}

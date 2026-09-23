@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import argparse
+import sys
+from datetime import date, datetime
+from pathlib import Path
+from typing import Optional, Sequence
+
+from .strategy import AkshareProvider, StrategyConfig, StrategyEngine, write_report
+
+
+def _parse_date(value: Optional[str]):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("date must use YYYY-MM-DD") from exc
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="banxia-strategy",
+        description="Generate an A-share next-session conditional watchlist.",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    run = subparsers.add_parser("run", help="Fetch market data and create a daily report")
+    run.add_argument("--date", type=_parse_date, help="Analysis date, default: today")
+    run.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/strategy.json"),
+        help="Strategy JSON configuration",
+    )
+    run.add_argument(
+        "--output",
+        type=Path,
+        default=Path("reports"),
+        help="Output directory",
+    )
+
+    doctor = subparsers.add_parser("doctor", help="Check the market data connection")
+    doctor.add_argument(
+        "--config",
+        type=Path,
+        default=Path("config/strategy.json"),
+        help="Strategy JSON configuration",
+    )
+    return parser
+
+
+def _run(args: argparse.Namespace) -> int:
+    config = StrategyConfig.from_file(args.config)
+    report = StrategyEngine(AkshareProvider(), config).run(args.date)
+    paths = write_report(report, args.output)
+    print(
+        f"{report.as_of}: {report.market['regime']}, "
+        f"{len(report.candidates)} candidates, "
+        f"market score {report.market['score']}, "
+        f"next session {report.next_session or 'unknown'}"
+    )
+    for candidate in report.candidates:
+        print(
+            f"{candidate.rank}. {candidate.code} {candidate.name} "
+            f"{candidate.score:.1f} {candidate.strategy}"
+        )
+    print(f"Markdown: {paths['markdown'].resolve()}")
+    print(f"CSV: {paths['csv'].resolve()}")
+    print(f"JSON: {paths['json'].resolve()}")
+    return 0
+
+
+def _doctor(args: argparse.Namespace) -> int:
+    StrategyConfig.from_file(args.config)
+    provider = AkshareProvider()
+    dates = [session for session in provider.trading_dates() if session <= date.today()]
+    if not dates:
+        raise RuntimeError("Trading calendar is empty")
+    for session in reversed(dates[-15:]):
+        rows = provider.limit_up_pool(session)
+        if rows:
+            print(f"OK: {session.isoformat()}, limit-up rows={len(rows)}")
+            return 0
+    raise RuntimeError("No limit-up pool data found in the last 15 sessions")
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "run":
+            return _run(args)
+        if args.command == "doctor":
+            return _doctor(args)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    parser.error(f"unsupported command: {args.command}")
+    return 2
