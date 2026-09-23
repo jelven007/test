@@ -8,6 +8,7 @@ from typing import Optional, Sequence
 
 from .mootdx_provider import MootdxProvider
 from .strategy import StrategyConfig, StrategyEngine, write_report
+from .web_server import serve_dashboard
 
 
 def _parse_date(value: Optional[str]):
@@ -47,6 +48,17 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=Path("config/strategy.json"),
         help="Strategy JSON configuration",
+    )
+
+    serve = subparsers.add_parser("serve", help="Start the local strategy dashboard")
+    serve.add_argument("--host", default="127.0.0.1", help="Listening host")
+    serve.add_argument("--port", type=int, default=8765, help="Listening port")
+    serve.add_argument(
+        "--reports-dir",
+        action="append",
+        type=Path,
+        dest="report_dirs",
+        help="Report directory; can be supplied more than once",
     )
     return parser
 
@@ -89,6 +101,12 @@ def _doctor(args: argparse.Namespace) -> int:
     raise RuntimeError("No limit-up pool data found in the last 15 sessions")
 
 
+def _serve(args: argparse.Namespace) -> int:
+    report_dirs = args.report_dirs or [Path("scheduled_reports"), Path("reports")]
+    serve_dashboard(report_dirs, args.host, args.port)
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -97,6 +115,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return _run(args)
         if args.command == "doctor":
             return _doctor(args)
+        if args.command == "serve":
+            return _serve(args)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

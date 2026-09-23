@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f4f1e8">
+    <title>一进二 · 次日执行台</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="返回最新日报">
+        <span class="brand-mark" aria-hidden="true">B</span>
+        <span>
+          <strong>一进二</strong>
+          <small>次日执行台</small>
+        </span>
+      </a>
+      <div class="report-tools">
+        <label for="report-date">复盘日期</label>
+        <select id="report-date" aria-label="选择策略报告日期"></select>
+        <button id="refresh-button" type="button">刷新数据</button>
+      </div>
+      <div class="source-status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="source-label">连接日报</span>
+      </div>
+    </header>
+
+    <main id="dashboard" aria-live="polite">
+      <section class="loading-state" id="loading-state">
+        <span class="loading-rule"></span>
+        <p>正在读取策略日报</p>
+      </section>
+    </main>
+
+    <template id="dashboard-template">
+      <section class="market-band">
+        <div class="session-heading">
+          <p class="eyebrow">NEXT SESSION PLAYBOOK</p>
+          <h1><span data-field="next-session"></span> 次日执行计划</h1>
+          <p class="report-meta">
+            基于 <strong data-field="as-of"></strong> 收盘数据
+            <span aria-hidden="true">·</span>
+            <span data-field="generated-at"></span> 生成
+          </p>
+        </div>
+        <div class="regime-panel">
+          <span>接力环境</span>
+          <strong data-field="regime"></strong>
+          <p data-field="regime-guidance"></p>
+        </div>
+        <div class="market-score">
+          <span>环境评分</span>
+          <strong><span data-field="market-score"></span><small>/100</small></strong>
+          <div class="score-track" aria-hidden="true">
+            <span data-field="score-bar"></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="market-metrics" aria-label="市场概览">
+        <div>
+          <span>涨停家数</span>
+          <strong data-field="limit-up-count"></strong>
+          <small>主板样本</small>
+        </div>
+        <div>
+          <span>炸板家数</span>
+          <strong data-field="broken-count"></strong>
+          <small data-field="broken-note"></small>
+        </div>
+        <div>
+          <span>炸板率</span>
+          <strong data-field="break-rate"></strong>
+          <small>情绪脆弱度</small>
+        </div>
+        <div>
+          <span>连板高度</span>
+          <strong><span data-field="max-board"></span><em>板</em></strong>
+          <small>空间标杆</small>
+        </div>
+        <div>
+          <span>入选 / 淘汰</span>
+          <strong><span data-field="candidate-count"></span><em>/</em><span data-field="rejected-count"></span></strong>
+          <small>风控筛选结果</small>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <aside class="candidate-index" aria-label="候选股票索引">
+          <div class="index-heading">
+            <span>候选顺位</span>
+            <strong data-field="candidate-total"></strong>
+          </div>
+          <nav id="candidate-nav"></nav>
+          <div class="discipline-note">
+            <strong>执行纪律</strong>
+            <p>条件未触发不交易。放弃条件与止损规则优先于主观判断。</p>
+          </div>
+        </aside>
+
+        <section class="candidate-workbench">
+          <div class="section-title">
+            <div>
+              <p class="eyebrow">CONDITIONAL WATCHLIST</p>
+              <h2>逐股操作细则</h2>
+            </div>
+            <p>参考价格按昨收估算，实际下单前以券商行情核对。</p>
+          </div>
+          <div id="candidate-list"></div>
+        </section>
+      </section>
+
+      <footer class="report-footer">
+        <div>
+          <strong>数据口径</strong>
+          <p>
+            数据源 <span data-field="data-source"></span>；
+            有效交易日 <span data-field="data-sessions"></span>
+          </p>
+        </div>
+        <p data-field="disclaimer"></p>
+      </footer>
+    </template>
+
+    <template id="candidate-template">
+      <article class="candidate">
+        <header class="candidate-header">
+          <div class="candidate-identity">
+            <span class="rank" data-field="rank"></span>
+            <div>
+              <div class="name-row">
+                <h3 data-field="name"></h3>
+                <code data-field="code"></code>
+              </div>
+              <div class="tags">
+                <span data-field="strategy"></span>
+                <span data-field="industry"></span>
+              </div>
+            </div>
+          </div>
+          <div class="candidate-score">
+            <span>综合评分</span>
+            <strong data-field="score"></strong>
+          </div>
+        </header>
+
+        <div class="price-strip">
+          <div>
+            <span>昨收参考</span>
+            <strong data-field="latest-price"></strong>
+          </div>
+          <div class="positive">
+            <span>竞价观察区间</span>
+            <strong data-field="auction-range"></strong>
+            <small data-field="auction-percent"></small>
+          </div>
+          <div class="negative">
+            <span>竞价直接放弃</span>
+            <strong data-field="abandon-range"></strong>
+            <small data-field="abandon-percent"></small>
+          </div>
+          <div>
+            <span>单票仓位上限</span>
+            <strong><span data-field="position-limit"></span>%</strong>
+          </div>
+        </div>
+
+        <div class="candidate-body">
+          <section class="execution-plan">
+            <h4>次日执行顺序</h4>
+            <ol>
+              <li class="step-observe">
+                <div class="step-time">09:15—09:25</div>
+                <div>
+                  <strong>竞价过滤</strong>
+                  <p data-field="auction-action"></p>
+                </div>
+              </li>
+              <li class="step-entry">
+                <div class="step-time">09:30—10:00</div>
+                <div>
+                  <strong>确认入场</strong>
+                  <p data-field="entry-action"></p>
+                </div>
+              </li>
+              <li class="step-cancel">
+                <div class="step-time">盘中任一时点</div>
+                <div>
+                  <strong>触发即放弃</strong>
+                  <ul data-field="invalidation-list"></ul>
+                </div>
+              </li>
+              <li class="step-risk">
+                <div class="step-time">成交后 / 次日</div>
+                <div>
+                  <strong>仓位与退出</strong>
+                  <ul data-field="exit-list"></ul>
+                </div>
+              </li>
+            </ol>
+          </section>
+
+          <section class="evidence-panel">
+            <h4>入选依据</h4>
+            <ul class="reason-list" data-field="reasons"></ul>
+            <dl class="stock-metrics">
+              <div><dt>首封 / 末封</dt><dd data-field="seal-time"></dd></div>
+              <div><dt>炸板</dt><dd data-field="break-count"></dd></div>
+              <div><dt>换手率</dt><dd data-field="turnover"></dd></div>
+              <div><dt>封单 / 成交额</dt><dd data-field="seal-ratio"></dd></div>
+              <div><dt>成交额</dt><dd data-field="amount"></dd></div>
+              <div><dt>流通市值</dt><dd data-field="float-cap"></dd></div>
+              <div><dt>板块涨停</dt><dd data-field="industry-limit-ups"></dd></div>
+              <div><dt>板块高度</dt><dd data-field="industry-max-board"></dd></div>
+            </dl>
+          </section>
+        </div>
+      </article>
+    </template>
+  </body>
+</html>
