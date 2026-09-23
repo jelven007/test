@@ -40,6 +40,8 @@ def row(
 
 
 class FakeProvider:
+    source_name = "test"
+
     def __init__(self):
         self.sessions = [
             date(2026, 9, 21),
@@ -95,6 +97,7 @@ class StrategyEngineTest(unittest.TestCase):
     def test_filters_and_ranks_candidates(self):
         report = StrategyEngine(FakeProvider(), self.config).run(date(2026, 9, 23))
         self.assertEqual(report.as_of, "2026-09-23")
+        self.assertEqual(report.data_source, "test")
         self.assertIsNone(report.next_session)
         self.assertEqual([item.code for item in report.candidates], ["600001"])
         candidate = report.candidates[0]

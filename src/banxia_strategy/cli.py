@@ -6,7 +6,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional, Sequence
 
-from .strategy import AkshareProvider, StrategyConfig, StrategyEngine, write_report
+from .mootdx_provider import MootdxProvider
+from .strategy import StrategyConfig, StrategyEngine, write_report
 
 
 def _parse_date(value: Optional[str]):
@@ -52,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _run(args: argparse.Namespace) -> int:
     config = StrategyConfig.from_file(args.config)
-    report = StrategyEngine(AkshareProvider(), config).run(args.date)
+    report = StrategyEngine(MootdxProvider(), config).run(args.date)
     paths = write_report(report, args.output)
     print(
         f"{report.as_of}: {report.market['regime']}, "
@@ -73,14 +74,17 @@ def _run(args: argparse.Namespace) -> int:
 
 def _doctor(args: argparse.Namespace) -> int:
     StrategyConfig.from_file(args.config)
-    provider = AkshareProvider()
+    provider = MootdxProvider()
     dates = [session for session in provider.trading_dates() if session <= date.today()]
     if not dates:
         raise RuntimeError("Trading calendar is empty")
     for session in reversed(dates[-15:]):
         rows = provider.limit_up_pool(session)
         if rows:
-            print(f"OK: {session.isoformat()}, limit-up rows={len(rows)}")
+            print(
+                f"OK: source={provider.source_name}, "
+                f"{session.isoformat()}, limit-up rows={len(rows)}"
+            )
             return 0
     raise RuntimeError("No limit-up pool data found in the last 15 sessions")
 

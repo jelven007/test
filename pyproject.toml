@@ -9,9 +9,7 @@ description = "A-share daily first-board to second-board research screener"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-  "akshare>=1.17.0",
-  "pandas>=2.0,<3",
-  "urllib3>=1.26,<2",
+  "mootdx>=0.11.7,<0.12",
 ]
 
 [project.scripts]

@@ -53,45 +53,6 @@ class MarketDataProvider(Protocol):
         ...
 
 
-class AkshareProvider:
-    """Thin adapter around AkShare so the strategy core stays testable."""
-
-    def __init__(self) -> None:
-        try:
-            import akshare as ak
-        except ImportError as exc:
-            raise RuntimeError(
-                "AkShare is not installed. Run: python3 -m pip install -e ."
-            ) from exc
-        self.ak = ak
-
-    @staticmethod
-    def _records(frame: Any) -> List[Dict[str, Any]]:
-        if frame is None or getattr(frame, "empty", True):
-            return []
-        return frame.to_dict(orient="records")
-
-    def trading_dates(self) -> Sequence[date]:
-        frame = self.ak.tool_trade_date_hist_sina()
-        column = "trade_date" if "trade_date" in frame.columns else frame.columns[0]
-        result: List[date] = []
-        for value in frame[column].tolist():
-            if hasattr(value, "date"):
-                value = value.date()
-            elif isinstance(value, str):
-                value = datetime.strptime(value[:10], "%Y-%m-%d").date()
-            result.append(value)
-        return sorted(set(result))
-
-    def limit_up_pool(self, session: date) -> List[Dict[str, Any]]:
-        frame = self.ak.stock_zt_pool_em(date=session.strftime("%Y%m%d"))
-        return self._records(frame)
-
-    def broken_board_pool(self, session: date) -> List[Dict[str, Any]]:
-        frame = self.ak.stock_zt_pool_zbgc_em(date=session.strftime("%Y%m%d"))
-        return self._records(frame)
-
-
 @dataclass
 class Candidate:
     rank: int
@@ -123,6 +84,7 @@ class DailyReport:
     as_of: str
     next_session: Optional[str]
     generated_at: str
+    data_source: str
     data_sessions: List[str]
     market: Dict[str, Any]
     candidates: List[Candidate]
@@ -294,6 +256,7 @@ class StrategyEngine:
                 None,
             ),
             generated_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+            data_source=str(getattr(self.provider, "source_name", "custom")),
             data_sessions=[session.isoformat() for session, _ in pools],
             market=market,
             candidates=selected,
@@ -597,6 +560,7 @@ def _render_markdown(report: DailyReport) -> str:
             else "- 炸板：数据源不可用，市场评分已按中性值降级"
         ),
         f"- 连板高度：{market['max_board']} 板",
+        f"- 数据来源：{report.data_source}",
         f"- 数据交易日：{', '.join(report.data_sessions)}",
         "",
         "## 次日候选",
