@@ -211,6 +211,16 @@ class PostgresStorage:
                     )
                     plan_id = str(cursor.fetchone()[0])
                     cursor.execute(
+                        """
+                        UPDATE banxia.strategy_plan
+                        SET status = 'expired'
+                        WHERE trade_date = %s
+                          AND plan_id <> %s
+                          AND status = 'active'
+                        """,
+                        (str(report["next_session"]), plan_id),
+                    )
+                    cursor.execute(
                         "DELETE FROM banxia.candidate WHERE plan_id = %s",
                         (plan_id,),
                     )
@@ -762,7 +772,7 @@ class PostgresStorage:
                       ON version.strategy_version_id = plan.strategy_version_id
                     WHERE plan.status = 'active'
                       {date_filter}
-                    ORDER BY plan.trade_date DESC
+                    ORDER BY plan.trade_date DESC, plan.created_at DESC
                     LIMIT 1
                     """,
                     params,

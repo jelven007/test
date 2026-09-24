@@ -20,6 +20,7 @@ class ApiServices:
     api_token: Optional[str] = None
     kafka_ready: Optional[Callable[[], bool]] = None
     clickhouse_ready: Optional[Callable[[], bool]] = None
+    strategy_version: str = "v1"
 
 
 def _now() -> str:
@@ -516,7 +517,7 @@ def create_api_app(services: ApiServices):
         selected = selected[:limit]
         return {
             "items": [
-                _report_summary(item)
+                _report_summary(item, services.strategy_version)
                 for item in selected
             ],
             "next_cursor": (
@@ -531,7 +532,7 @@ def create_api_app(services: ApiServices):
         value = services.reports.get(tradeDate)
         if value is None:
             raise HTTPException(status_code=404, detail="report not found")
-        return _report_payload(value)
+        return _report_payload(value, services.strategy_version)
 
     @app.get("/api/v1/reports/{tradeDate}/assets/{format}")
     def report_asset(tradeDate: str, format: str):

@@ -4,7 +4,7 @@ import csv
 import json
 import math
 import re
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
@@ -15,15 +15,17 @@ from zoneinfo import ZoneInfo
 class StrategyConfig:
     lookback_sessions: int = 5
     max_candidates: int = 8
-    max_per_industry: int = 2
+    max_per_industry: int = 1
     minimum_score: float = 58.0
+    minimum_industry_limit_up_count: int = 2
     minimum_amount_cny: float = 200_000_000
     maximum_amount_cny: float = 3_000_000_000
     minimum_turnover_pct: float = 2.0
     maximum_turnover_pct: float = 28.0
     minimum_float_market_cap_cny: float = 1_500_000_000
     maximum_float_market_cap_cny: float = 30_000_000_000
-    maximum_break_count: int = 3
+    maximum_break_count: int = 1
+    missing_seal_amount_penalty: float = 6.0
     exclude_st: bool = True
     main_board_only: bool = True
     position_limit_pct: int = 20
@@ -70,6 +72,7 @@ class Candidate:
     last_seal_time: str
     break_count: int
     seal_amount_ratio: float
+    seal_amount_data_available: bool
     industry_limit_up_count: int
     industry_active_days: int
     industry_max_board: int
@@ -91,6 +94,14 @@ class DailyReport:
     candidates: List[Candidate]
     rejected_count: int
     disclaimer: str
+    constraints: Dict[str, Any] = field(
+        default_factory=lambda: {
+            "max_candidates": 8,
+            "max_per_industry": 1,
+            "position_limit_pct": 20,
+            "portfolio_risk_limit_pct": 60,
+        }
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         result = asdict(self)
@@ -174,6 +185,12 @@ def _normalize(row: Dict[str, Any]) -> Dict[str, Any]:
         key: _first(row, aliases)
         for key, aliases in COLUMN_ALIASES.items()
     }
+    seal_amount_data_available = bool(
+        row.get(
+            "_seal_amount_available",
+            data["seal_amount"] not in (None, ""),
+        )
+    )
     data.update(
         code=str(data["code"] or "").zfill(6),
         name=str(data["name"] or "").strip(),
@@ -183,6 +200,7 @@ def _normalize(row: Dict[str, Any]) -> Dict[str, Any]:
         float_market_cap=_number(data["float_market_cap"]),
         turnover=_number(data["turnover"]),
         seal_amount=_number(data["seal_amount"]),
+        seal_amount_data_available=seal_amount_data_available,
         first_seal_minutes=_time_minutes(data["first_seal_time"]),
         last_seal_minutes=_time_minutes(data["last_seal_time"]),
         break_count=_integer(data["break_count"]),
@@ -262,6 +280,12 @@ class StrategyEngine:
             data_source=str(getattr(self.provider, "source_name", "custom")),
             data_sessions=[session.isoformat() for session, _ in pools],
             market=market,
+            constraints={
+                "max_candidates": self.config.max_candidates,
+                "max_per_industry": self.config.max_per_industry,
+                "position_limit_pct": self.config.position_limit_pct,
+                "portfolio_risk_limit_pct": self.config.portfolio_risk_limit_pct,
+            },
             candidates=selected,
             rejected_count=max(
                 0,
@@ -365,7 +389,15 @@ class StrategyEngine:
         industry_stats: Dict[str, Dict[str, Any]],
         market: Dict[str, Any],
     ) -> List[Candidate]:
-        eligible = [row for row in rows if self._passes_filters(row)]
+        eligible = [
+            row
+            for row in rows
+            if self._passes_filters(row)
+            and int(
+                industry_stats.get(row["industry"], {}).get("today_count", 0)
+            )
+            >= self.config.minimum_industry_limit_up_count
+        ]
         industry_order: Dict[str, List[str]] = {}
         for industry in {row["industry"] for row in eligible}:
             members = [row for row in eligible if row["industry"] == industry]
@@ -388,7 +420,11 @@ class StrategyEngine:
             persistence_score = _clamp(1.0 - reseal_delay / 240)
             persistence_score *= _clamp(1.0 - row["break_count"] / 5)
             seal_ratio = row["seal_amount"] / max(row["amount"], 1)
-            seal_score = _clamp(seal_ratio / 0.18)
+            seal_score = (
+                _clamp(seal_ratio / 0.18)
+                if row["seal_amount_data_available"]
+                else 0.0
+            )
             board_quality = 12 * early_score + 8 * persistence_score + 10 * seal_score
 
             turnover_score = _range_score(
@@ -433,8 +469,10 @@ class StrategyEngine:
             penalty = 0.0
             if first_minutes >= 14 * 60 + 30:
                 penalty += 8
-            if row["break_count"] >= 2:
-                penalty += 4
+            if row["break_count"] == 1:
+                penalty += 3
+            if not row["seal_amount_data_available"]:
+                penalty += self.config.missing_seal_amount_penalty
             score = round(
                 board_quality + liquidity + theme + leadership + market_component - penalty,
                 1,
@@ -450,8 +488,17 @@ class StrategyEngine:
             reasons = [
                 f"{row['industry']}涨停{today_count}只，近{self.config.lookback_sessions}日活跃{active_days}日",
                 f"首封{_format_time(row['first_seal_time'])}，炸板{row['break_count']}次",
-                f"封单/成交额{seal_ratio:.1%}，换手{row['turnover']:.1f}%",
             ]
+            if row["seal_amount_data_available"]:
+                reasons.append(
+                    f"封单/成交额{seal_ratio:.1%}，换手{row['turnover']:.1f}%"
+                )
+            else:
+                reasons.append(
+                    "历史封单不可核验，已扣除"
+                    f"{self.config.missing_seal_amount_penalty:g}分数据质量分；"
+                    f"换手{row['turnover']:.1f}%"
+                )
             if max_board >= 3:
                 reasons.append(f"板块已有{max_board}板高度，具备补涨参照")
             if momentum > 0.8:
@@ -459,12 +506,14 @@ class StrategyEngine:
 
             entry_trigger = (
                 f"次日竞价涨幅位于{self.config.entry_open_min_pct:.1f}%～"
-                f"{self.config.entry_open_max_pct:.1f}%，板块仍有前排助攻；"
-                "仅在10:00前放量封二板或首次炸板后快速回封时观察"
+                f"{self.config.entry_open_max_pct:.1f}%；9:25按竞价强弱重排，"
+                "同题材有效样本上涨比例不低于50%；"
+                "仅在10:00前放量封二板或首次炸板后快速回封并封稳时观察"
             )
             invalidation = (
                 f"竞价低于-2%或高于{self.config.entry_open_max_pct + 2:.1f}%、"
-                "板块无助攻、开盘快速跌破昨日收盘价、回封超过两次则放弃"
+                "板块上涨比例低于50%、开盘快速跌破昨日收盘价、"
+                "二次炸板或10:00前未封稳则放弃"
             )
             exit_plan = (
                 f"单票不超过{self.config.position_limit_pct}%；成本回撤"
@@ -488,6 +537,7 @@ class StrategyEngine:
                     last_seal_time=_format_time(row["last_seal_time"]),
                     break_count=row["break_count"],
                     seal_amount_ratio=round(seal_ratio, 4),
+                    seal_amount_data_available=row["seal_amount_data_available"],
                     industry_limit_up_count=today_count,
                     industry_active_days=active_days,
                     industry_max_board=max_board,
@@ -598,9 +648,11 @@ def _render_markdown(report: DailyReport) -> str:
             "## 组合约束",
             "",
             f"- 候选数量：{len(report.candidates)}",
-            f"- 单票仓位上限：{report.candidates[0].position_limit_pct if report.candidates else '-'}%",
+            f"- 单票仓位上限：{report.constraints['position_limit_pct']}%",
+            f"- 组合仓位上限：{report.constraints['portfolio_risk_limit_pct']}%",
             "- 未触发入场条件的候选不应买入。",
-            "- 同一题材最多选择两只，优先评分更高且先封板的标的。",
+            f"- 同一题材最多选择{report.constraints['max_per_industry']}只，"
+            "优先评分更高且先封板的标的。",
             "",
         ]
     )

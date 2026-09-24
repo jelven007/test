@@ -45,7 +45,7 @@ class StorageSettings:
     minio_secret_key: str = "banxia-local-secret"
     minio_secure: bool = False
     minio_report_bucket: str = "strategy-reports"
-    strategy_version: str = "v1"
+    strategy_version: str = "v2"
     code_commit: str = "unknown"
     monitor_snapshot_ttl_seconds: int = 172800
     writer_queue_size: int = 1024

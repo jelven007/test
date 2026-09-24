@@ -114,6 +114,7 @@ def _extract_pools(
                 "流通市值": 0.0,
                 "换手率": 0.0,
                 "封板资金": 0.0,
+                "_seal_amount_available": False,
                 "首次封板时间": None,
                 "最后封板时间": None,
                 "炸板次数": 0,
@@ -518,6 +519,8 @@ class MootdxProvider:
             row["炸板次数"] = breaks
 
             quote = detail.get("quote") or {}
+            if "bid1" in quote and "bid_vol1" in quote:
+                row["_seal_amount_available"] = True
             if _at_price_limit(quote.get("bid1"), row["_limit_price"]):
                 bid_hands = float(quote.get("bid_vol1") or 0)
                 row["封板资金"] = bid_hands * 100 * row["_limit_price"]

@@ -132,6 +132,52 @@ class StrategyEngineTest(unittest.TestCase):
         self.assertFalse(report.market["broken_board_data_available"])
         self.assertIsNone(report.market["break_rate_pct"])
 
+    def test_isolated_theme_and_repeated_breaks_are_hard_rejected(self):
+        provider = FakeProvider()
+        provider.pools[date(2026, 9, 23)].extend(
+            [
+                row("600030", "孤立首板", "孤立题材"),
+                row("600031", "反复炸板", "人工智能", breaks=2),
+            ]
+        )
+        config = StrategyConfig(
+            lookback_sessions=3,
+            max_candidates=10,
+            max_per_industry=10,
+            minimum_score=0,
+            position_limit_pct=10,
+            portfolio_risk_limit_pct=100,
+        )
+        report = StrategyEngine(provider, config).run(date(2026, 9, 23))
+        codes = {item.code for item in report.candidates}
+        self.assertNotIn("600030", codes)
+        self.assertNotIn("600031", codes)
+
+    def test_missing_seal_amount_is_explicit_and_penalized(self):
+        provider = FakeProvider()
+        provider.pools[date(2026, 9, 23)] = [
+            row("600001", "封单可核验", "人工智能", seal=60_000_000),
+            row("600002", "封单缺失", "人工智能", seal=None),
+        ]
+        config = StrategyConfig(
+            lookback_sessions=3,
+            max_candidates=2,
+            max_per_industry=2,
+            minimum_score=0,
+            position_limit_pct=10,
+            portfolio_risk_limit_pct=20,
+        )
+        report = StrategyEngine(provider, config).run(date(2026, 9, 23))
+        candidates = {item.code: item for item in report.candidates}
+        verified = candidates["600001"]
+        missing = candidates["600002"]
+        self.assertTrue(verified.seal_amount_data_available)
+        self.assertFalse(missing.seal_amount_data_available)
+        self.assertGreater(verified.score, missing.score)
+        self.assertTrue(
+            any("历史封单不可核验" in reason for reason in missing.reasons)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

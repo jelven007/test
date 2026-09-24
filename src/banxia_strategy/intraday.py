@@ -258,7 +258,7 @@ class MootdxLiveSource:
 
 
 class IntradayMonitor:
-    def __init__(self, report, codes=WATCH_CODES, source=None, interval=None, log_dir=None, clock=None,
+    def __init__(self, report, codes=None, source=None, interval=None, log_dir=None, clock=None,
                  supplements=None, quote_interval=1, bar_interval=60, idle_interval=60,
                  storage_sink=None):
         self.report = copy.deepcopy(report or {})
@@ -270,8 +270,11 @@ class IntradayMonitor:
             for item in self.report.get("candidates", [])
         }
         additions = copy.deepcopy(supplements or [])
+        report_codes = tuple(candidates) if codes is None else tuple(codes)
         # 盘中重筛名单优先展示，原日报股票仍保留在后面追踪。
-        self.codes = tuple(dict.fromkeys([*(item["code"] for item in additions), *codes]))
+        self.codes = tuple(
+            dict.fromkeys([*(item["code"] for item in additions), *report_codes])
+        )
         for item in additions:
             # 同代码优先沿用原日报，避免补充配置覆盖原评分与规则。
             candidates.setdefault(item["code"], item)

@@ -45,7 +45,7 @@ def write_report(root: Path, payload):
 
 
 class ReportStoreTest(unittest.TestCase):
-    def test_watch_report_selection_requires_only_original_stocks(self):
+    def test_watch_report_selection_uses_latest_dynamic_candidates(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             baseline = report("2026-09-23", "2026-09-23T16:20:00+08:00")
@@ -53,7 +53,7 @@ class ReportStoreTest(unittest.TestCase):
             write_report(root, baseline)
             write_report(root, report("2026-09-24", "2026-09-24T16:20:00+08:00"))
             store = ReportStore([root])
-            self.assertEqual(select_watch_report(store)["as_of"], "2026-09-23")
+            self.assertEqual(select_watch_report(store)["as_of"], "2026-09-24")
             self.assertEqual(select_watch_report(store, "2026-09-24")["as_of"], "2026-09-24")
             self.assertIsNone(select_watch_report(store, "2026-09-20"))
 

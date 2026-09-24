@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
-from ..intraday import WATCH_CODES, load_watchlist
+from ..intraday import load_watchlist
 from ..web_server import ReportStore, select_watch_report
 
 
@@ -41,17 +41,12 @@ def load_active_plan(
         dict.fromkeys(
             [
                 *(str(item["code"]) for item in supplements),
-                *WATCH_CODES,
+                *report_candidates,
             ]
         )
     )
     for item in supplements:
         report_candidates.setdefault(str(item["code"]), item)
-    missing = sorted(set(ordered_codes) - set(report_candidates))
-    if missing:
-        raise RuntimeError(
-            f"strategy report and watchlist do not contain: {', '.join(missing)}"
-        )
     return ActivePlan(
         report=report,
         candidates=tuple(report_candidates[code] for code in ordered_codes),

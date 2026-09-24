@@ -378,6 +378,7 @@ class PostgresAdapterTest(unittest.TestCase):
         )
         statements = "\n".join(call[0] for call in cursor.calls)
         self.assertIn("INSERT INTO banxia.strategy_run", statements)
+        self.assertIn("SET status = 'expired'", statements)
         self.assertIn("DELETE FROM banxia.candidate", statements)
         self.assertIn("INSERT INTO banxia.report_asset", statements)
         asset_params = cursor.calls[-1][1]

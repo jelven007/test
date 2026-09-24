@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib.parse import unquote, urlparse
 
 from .application.persistence import build_market_persistence
-from .intraday import IntradayMonitor, WATCH_CODES, load_watchlist
+from .intraday import IntradayMonitor, load_watchlist
 from .storage_config import StorageSettings
 
 
@@ -186,12 +186,7 @@ def make_server(
 def select_watch_report(store, watch_date=None):
     if watch_date is not None:
         return store.get(watch_date)
-    # 补充股票有独立的昨收及计划，不要求它们出现在原日报。
-    for summary in store.list_reports():
-        report = store.get(summary["as_of"])
-        if set(WATCH_CODES).issubset(item["code"] for item in report["candidates"]):
-            return report
-    return None
+    return store.latest()
 
 
 def serve_dashboard(

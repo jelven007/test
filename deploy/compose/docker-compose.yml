@@ -29,7 +29,7 @@ x-app-common: &app-common
     BANXIA_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-banxia-local-secret}
     BANXIA_MINIO_SECURE: "false"
     BANXIA_MINIO_REPORT_BUCKET: strategy-reports
-    BANXIA_STRATEGY_VERSION: ${BANXIA_STRATEGY_VERSION:-v1}
+    BANXIA_STRATEGY_VERSION: ${BANXIA_STRATEGY_VERSION:-v2}
     BANXIA_CODE_COMMIT: ${BANXIA_CODE_COMMIT:-local}
   volumes:
     - ../../config:/app/config:ro

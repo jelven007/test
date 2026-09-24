@@ -138,6 +138,7 @@ class ApiV1Test(unittest.TestCase):
             cache=FakeCache(),
             kafka_ready=lambda: True,
             clickhouse_ready=lambda: True,
+            strategy_version="v2",
         )
         self.client = TestClient(create_api_app(self.services))
 
@@ -165,8 +166,10 @@ class ApiV1Test(unittest.TestCase):
 
         reports = self.client.get("/api/v1/reports").json()
         self.assertEqual(reports["items"][0]["trade_date"], "2026-09-23")
+        self.assertEqual(reports["items"][0]["strategy_version"], "v2")
         report = self.client.get("/api/v1/reports/2026-09-23").json()
         self.assertEqual(report["candidates"][0]["symbol"], "002635")
+        self.assertEqual(report["strategy_version"], "v2")
 
     def test_web_assets_are_not_served_from_stale_browser_cache(self):
         dashboard = self.client.get("/")
