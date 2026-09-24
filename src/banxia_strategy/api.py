@@ -196,6 +196,11 @@ def create_api_app(services: ApiServices):
                 return response
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
+        if (
+            request.url.path in {"/", "/monitor"}
+            or request.url.path.endswith((".css", ".js"))
+        ):
+            response.headers["Cache-Control"] = "no-store"
         route = request.scope.get("route")
         path = getattr(route, "path", request.url.path)
         request_total.labels(

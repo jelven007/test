@@ -168,6 +168,16 @@ class ApiV1Test(unittest.TestCase):
         report = self.client.get("/api/v1/reports/2026-09-23").json()
         self.assertEqual(report["candidates"][0]["symbol"], "002635")
 
+    def test_web_assets_are_not_served_from_stale_browser_cache(self):
+        dashboard = self.client.get("/")
+        self.assertEqual(dashboard.headers["Cache-Control"], "no-store")
+        self.assertIn("/styles.css?v=20260924.1", dashboard.text)
+
+        stylesheet = self.client.get("/styles.css?v=20260924.1")
+        self.assertEqual(stylesheet.status_code, 200)
+        self.assertEqual(stylesheet.headers["Cache-Control"], "no-store")
+        self.assertIn("@media (max-width: 480px)", stylesheet.text)
+
     def test_token_protects_non_health_api(self):
         self.services.api_token = "secret"
         client = TestClient(create_api_app(self.services))
