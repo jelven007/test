@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import threading
 import unittest
@@ -111,6 +112,27 @@ class DashboardServerTest(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2)
+
+
+class SharedNavigationTest(unittest.TestCase):
+    def test_dashboard_pages_use_the_same_primary_menu(self):
+        web_root = Path(__file__).resolve().parents[1] / "src/banxia_strategy/web"
+        blocks = []
+        for filename in ("index.html", "monitor.html"):
+            html = (web_root / filename).read_text(encoding="utf-8")
+            match = re.search(
+                r'<nav class="primary-nav" aria-label="主导航">(.*?)</nav>',
+                html,
+                re.DOTALL,
+            )
+            self.assertIsNotNone(match)
+            block = match.group(1).replace(' aria-current="page"', "")
+            blocks.append(re.sub(r"\s+", " ", block).strip())
+        self.assertEqual(blocks[0], blocks[1])
+        self.assertEqual(
+            blocks[0],
+            '<a href="/">次日计划</a> <a href="/monitor">盘中监控</a>',
+        )
 
 
 if __name__ == "__main__":

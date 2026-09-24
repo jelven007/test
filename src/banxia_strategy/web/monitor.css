@@ -1,8 +1,5 @@
 .monitor-body { background: #f4f1e8; }
 .monitor-header { display: flex; align-items: center; gap: 48px; padding: 15px 4vw; border-bottom: 1px solid var(--line-dark); }
-.monitor-header nav { display: flex; align-self: stretch; gap: 28px; align-items: center; }
-.monitor-header nav a { color: var(--muted); text-decoration: none; font-size: 13px; padding: 7px 0; transition: color .15s; }
-.monitor-header nav a:hover, .monitor-header nav a[aria-current] { color: var(--green); border-bottom: 2px solid var(--green); }
 .feed-label { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
 .monitor-main { max-width: 1500px; margin: auto; padding: 32px 4vw; }
 .monitor-title { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 24px; }
@@ -96,7 +93,6 @@
 }
 @media (max-width: 600px) {
   .monitor-header { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 14px 18px; }
-  .monitor-header nav { gap: 20px; }
   .feed-label { display: none; }
   .monitor-main { padding: 23px 18px; }
   .monitor-title { display: block; }
