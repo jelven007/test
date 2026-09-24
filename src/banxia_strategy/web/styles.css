@@ -109,11 +109,14 @@ a:focus-visible {
 
 .report-tools {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
 
 .report-tools label {
+  flex: 0 0 auto;
   margin-right: 4px;
   color: var(--muted);
   font-size: 12px;
@@ -130,10 +133,10 @@ a:focus-visible {
 
 .report-tools input[type="date"] {
   box-sizing: border-box;
-  flex: 0 0 168px;
-  width: 168px;
-  min-width: 168px;
-  max-width: 168px;
+  flex: 0 0 148px;
+  width: 148px;
+  min-width: 148px;
+  max-width: 148px;
   padding: 0 10px;
   font-family: var(--mono);
   font-size: 12px;
@@ -898,6 +901,7 @@ h1 {
     grid-template-columns: 1fr;
     gap: 10px;
     padding-block: 12px;
+    padding-inline: 14px;
   }
 
   .brand {
@@ -905,20 +909,21 @@ h1 {
   }
 
   .report-tools {
-    display: grid;
-    grid-template-columns: 168px 82px;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
     min-width: 0;
     width: 100%;
   }
 
   .report-tools label {
-    grid-column: 1 / -1;
+    margin-right: 0;
   }
 
   .report-tools input[type="date"] {
-    width: 168px;
-    min-width: 168px;
-    max-width: 168px;
+    width: 148px;
+    min-width: 148px;
+    max-width: 148px;
   }
 
   .report-tools button {
