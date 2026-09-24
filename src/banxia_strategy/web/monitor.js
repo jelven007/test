@@ -211,7 +211,7 @@ function markDisconnected(message) {
     }
   }
   byId("monitor-error").hidden = false;
-  write("monitor-error", `${message}；页面每5秒重连，旧报价仅供核对。`);
+  write("monitor-error", `${message}；页面每1秒重连，旧报价仅供核对。`);
   write("connection", "连接中断 · 暂停判断");
   byId("connection").dataset.error = "true";
   for (const label of document.querySelectorAll(".advice-label, #detail-advice")) {
@@ -257,12 +257,18 @@ async function sync() {
 }
 
 setInterval(() => {
-  if (connected && Date.now() - lastPageSync > 15000) markDisconnected("页面同步超时");
+  if (connected && Date.now() - lastPageSync > 5000) markDisconnected("页面同步超时");
   if (!connected) { write("countdown", "正在重连监控服务"); return; }
   const remaining = latest?.next_poll_at ? Math.ceil((new Date(latest.next_poll_at).valueOf() - Date.now() - serverOffset) / 1000) : null;
-  write("countdown", remaining === null ? "首次采集中" : remaining <= 0 ? "正在等待本轮采集结果" : `下次行情采集 ${remaining}秒 · 页面每5秒同步`);
+  const cadence = latest?.active_interval_seconds === latest?.quote_interval_seconds
+    ? `盘口每${latest.quote_interval_seconds}秒`
+    : `非交易时段每${latest?.active_interval_seconds ?? 60}秒`;
+  const status = remaining === null
+    ? "首次采集中"
+    : remaining <= 0 ? "正在等待本轮采集结果" : `下次采集 ${remaining}秒`;
+  write("countdown", `${status} · ${cadence} · 分时每${latest?.bar_interval_seconds ?? 60}秒`);
 }, 1000);
-setInterval(sync, 5000);
+setInterval(sync, 1000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) sync(); });
 byId("sync-button").addEventListener("click", sync);
 sync();

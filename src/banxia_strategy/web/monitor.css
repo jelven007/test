@@ -95,8 +95,8 @@
   .decision-section { padding-left: 0; }
 }
 @media (max-width: 600px) {
-  .monitor-header { flex-wrap: wrap; gap: 15px; padding: 14px 18px; }
-  .monitor-header nav { margin-left: auto; gap: 17px; }
+  .monitor-header { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 14px 18px; }
+  .monitor-header nav { gap: 20px; }
   .feed-label { display: none; }
   .monitor-main { padding: 23px 18px; }
   .monitor-title { display: block; }
@@ -109,24 +109,23 @@
   .session-strip strong { font-size: 15px; }
   .monitor-section-title { display: block; }
   .monitor-section-title p { margin-top: 5px; }
-  .watch-table { min-width: 0; table-layout: auto; }
+  .watch-table { display: block; min-width: 0; width: 100%; table-layout: auto; }
   .watch-table thead { display: none; }
-  .watch-table tbody, .watch-table tr { display: block; }
-  .watch-table tr { padding: 14px 12px; border-bottom: 1px solid var(--line-dark); }
-  .watch-table td { display: inline-block; padding: 7px 0; border: 0; vertical-align: top; }
-  .watch-table td:first-child { width: 48%; }
+  .watch-table tbody { display: block; width: 100%; }
+  .watch-table tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); width: 100%; box-sizing: border-box; padding: 14px 12px; border-bottom: 1px solid var(--line-dark); }
+  .watch-table td { display: block; width: auto; min-width: 0; padding: 7px 0; border: 0; vertical-align: top; }
+  .watch-table td:first-child { grid-column: 1 / -1; }
   .watch-table tr.selected { box-shadow: inset 3px 0 var(--green); }
   .watch-table tr.selected td:first-child { box-shadow: none; }
-  .watch-table td:nth-child(2) { width: 27%; text-align: right; }
-  .watch-table td:nth-child(3) { width: 25%; text-align: right; }
+  .watch-table td:nth-child(2), .watch-table td:nth-child(3) { text-align: right; }
   .watch-table td:nth-child(2)::before, .watch-table td:nth-child(3)::before { display: block; color: var(--muted); font: 9px var(--sans); margin-bottom: 5px; }
   .watch-table td:nth-child(2)::before { content: "最新价"; }
   .watch-table td:nth-child(3)::before { content: "涨跌幅"; }
-  .watch-table td:nth-child(4), .watch-table td:nth-child(5) { width: 50%; font-size: 11px; }
+  .watch-table td:nth-child(4), .watch-table td:nth-child(5) { font-size: 11px; }
   .watch-table td:nth-child(5) { text-align: right; }
   .watch-table td:nth-child(4)::before { content: "今开 "; color: var(--muted); }
   .watch-table td:nth-child(5)::before { content: "盘口 "; color: var(--muted); }
-  .watch-table td:last-child { display: block; width: 100%; }
+  .watch-table td:last-child { grid-column: 1 / -1; }
   .detail-metrics { grid-template-columns: 1fr 1fr; gap: 18px; }
   .chart-legend { flex-wrap: wrap; }
   .execution-values dd { font-size: 13px; }

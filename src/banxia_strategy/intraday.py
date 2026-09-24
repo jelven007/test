@@ -18,6 +18,7 @@ from .mootdx_provider import MootdxProvider
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 WATCH_CODES = ("002635", "603328", "002849")
+ACTIVE_PHASES = {"auction", "pause", "morning", "afternoon"}
 PHASE_LABELS = {
     "pre": "盘前等待", "auction": "集合竞价", "pause": "竞价结束，等待开盘",
     "morning": "早盘交易", "lunch": "午间休市", "afternoon": "午盘交易",
@@ -92,12 +93,13 @@ def phase_at(now):
 
 
 def quote_time(raw, now):
-    match = re.fullmatch(r"(\d{1,2}):(\d{2}):(\d{2})(?:\.\d+)?", str(raw or ""))
+    match = re.fullmatch(r"(\d{1,2}):(\d{2}):(\d{2})(?:\.(\d+))?", str(raw or ""))
     if not match:
         return None
     try:
         return now.replace(
-            hour=int(match[1]), minute=int(match[2]), second=int(match[3]), microsecond=0
+            hour=int(match[1]), minute=int(match[2]), second=int(match[3]),
+            microsecond=int((match[4] or "").ljust(6, "0")[:6]),
         )
     except ValueError:
         return None
@@ -180,7 +182,9 @@ def normalize_quote(raw, bars, now, plan):
         "bid": number(raw.get("bid1")),
         "ask": number(raw.get("ask1")),
         "bid_volume": number(raw.get("bid_vol1")),
-        "quote_time": source_time.isoformat(timespec="seconds") if source_time else None,
+        "quote_time": source_time.isoformat(
+            timespec="milliseconds" if source_time.microsecond else "seconds"
+        ) if source_time else None,
         "quote_age_seconds": quote_age,
         "bar_time": candles[-1]["time"] if candles else None,
         "fresh": fresh, "candles": candles,
@@ -244,39 +248,78 @@ def evaluate(quote, plan, now, plan_date):
 
 
 class MootdxLiveSource:
+    """Reuse one quote connection and refresh minute bars on their native cadence."""
+
+    def __init__(self, provider=None, bar_interval=60, clock=None):
+        self.provider = provider or MootdxProvider(
+            servers=[("117.34.114.14", 7709), ("117.34.114.15", 7709)]
+        )
+        self.bar_interval = max(1, bar_interval)
+        self.clock = clock or time.monotonic
+        self.client = None
+        self.next_server_index = 0
+        self.bars = {}
+        self.bars_updated_at = None
+
+    def close(self):
+        if self.client is not None:
+            self.provider._close(self.client)
+            self.client = None
+
+    def _fetch_from_client(self, codes):
+        frame = self.client.quotes(symbol=list(codes))
+        if frame is None or frame.empty:
+            raise RuntimeError("未返回盘口数据")
+        rows = {str(row["code"]): row for row in frame.to_dict(orient="records")}
+        now = self.clock()
+        refresh_bars = (
+            self.bars_updated_at is None
+            or now - self.bars_updated_at >= self.bar_interval
+            or any(code not in self.bars for code in codes)
+        )
+        if refresh_bars:
+            for code in codes:
+                try:
+                    frame = self.client.bars(symbol=code, frequency=8, offset=240)
+                    records = frame.to_dict(orient="records") if frame is not None else []
+                    if records or code not in self.bars:
+                        self.bars[code] = records
+                except Exception:
+                    self.bars.setdefault(code, [])
+            self.bars_updated_at = now
+        return {
+            code: (
+                {"quote": rows[code], "bars": self.bars.get(code, [])}
+                if code in rows else {"error": "未返回该股票盘口"}
+            )
+            for code in codes
+        }
+
     def fetch(self, codes):
-        provider = MootdxProvider(servers=[("117.34.114.14", 7709), ("117.34.114.15", 7709)])
-        client = None
-        for server in provider.servers:
+        last_error = None
+        if self.client is not None:
             try:
-                client = provider._client(server)
-                frame = client.quotes(symbol=list(codes))
-                if frame is None or frame.empty:
-                    raise RuntimeError("未返回盘口数据")
-                rows = {str(row["code"]): row for row in frame.to_dict(orient="records")}
-                result = {}
-                for code in codes:
-                    if code not in rows:
-                        result[code] = {"error": "未返回该股票盘口"}
-                        continue
-                    try:
-                        bars = client.bars(symbol=code, frequency=8, offset=240)
-                        records = bars.to_dict(orient="records") if bars is not None else []
-                        result[code] = {"quote": rows[code], "bars": records}
-                    except Exception:
-                        result[code] = {"quote": rows[code], "bars": []}
-                return result
+                return self._fetch_from_client(codes)
             except Exception as exc:
                 last_error = exc
-            finally:
-                if client is not None:
-                    provider._close(client)
+                self.close()
+
+        start_index = self.next_server_index
+        for offset in range(len(self.provider.servers)):
+            index = (start_index + offset) % len(self.provider.servers)
+            try:
+                self.client = self.provider._client(self.provider.servers[index])
+                self.next_server_index = (index + 1) % len(self.provider.servers)
+                return self._fetch_from_client(codes)
+            except Exception as exc:
+                last_error = exc
+                self.close()
         raise RuntimeError(f"mootdx 行情连接失败：{last_error}")
 
 
 class IntradayMonitor:
-    def __init__(self, report, codes=WATCH_CODES, source=None, interval=60, log_dir=None, clock=None,
-                 supplements=None):
+    def __init__(self, report, codes=WATCH_CODES, source=None, interval=None, log_dir=None, clock=None,
+                 supplements=None, quote_interval=1, bar_interval=60, idle_interval=60):
         self.report = copy.deepcopy(report or {})
         candidates = {
             item["code"]: {
@@ -292,8 +335,13 @@ class IntradayMonitor:
             # 同代码优先沿用原日报，避免补充配置覆盖原评分与规则。
             candidates.setdefault(item["code"], item)
         self.candidates = [candidates[code] for code in self.codes if code in candidates]
-        self.source = source or MootdxLiveSource()
-        self.interval = interval
+        if interval is not None:
+            quote_interval = interval
+        self.quote_interval = max(1, quote_interval)
+        self.bar_interval = max(1, bar_interval)
+        self.idle_interval = max(self.quote_interval, idle_interval)
+        self.interval = self.quote_interval
+        self.source = source or MootdxLiveSource(bar_interval=self.bar_interval)
         self.log_dir = Path(log_dir) if log_dir is not None else None
         self.clock = clock or now_shanghai
         self.lock = threading.Lock()
@@ -313,17 +361,39 @@ class IntradayMonitor:
     def stop(self):
         self.stop_event.set()
         if self.thread is not None:
-            self.thread.join(timeout=2)
+            self.thread.join(timeout=6)
+        close = getattr(self.source, "close", None)
+        if close is not None:
+            close()
+
+    def _collection_interval(self, now):
+        return self.quote_interval if phase_at(now) in ACTIVE_PHASES else self.idle_interval
+
+    def _next_delay(self, now):
+        delay = self._collection_interval(now)
+        boundary = None
+        phase = phase_at(now)
+        if phase == "pre":
+            boundary = now.replace(hour=9, minute=15, second=0, microsecond=0)
+        elif phase == "lunch":
+            boundary = now.replace(hour=13, minute=0, second=0, microsecond=0)
+        if boundary is not None and boundary > now:
+            delay = min(delay, (boundary - now).total_seconds())
+        return max(0.1, delay)
 
     def _run(self):
         while not self.stop_event.is_set():
+            started_at = self.clock()
             started = time.monotonic()
             self.poll_once()
-            self.stop_event.wait(max(1, self.interval - (time.monotonic() - started)))
+            delay = self._next_delay(started_at) - (time.monotonic() - started)
+            self.stop_event.wait(max(0.05, delay))
 
     def poll_once(self):
         started = self.clock()
-        next_poll = (started + timedelta(seconds=self.interval)).isoformat(timespec="seconds")
+        next_poll = (started + timedelta(seconds=self._next_delay(started))).isoformat(
+            timespec="seconds"
+        )
         try:
             if len(self.candidates) != len(self.codes):
                 missing = sorted(set(self.codes) - {item["code"] for item in self.candidates})
@@ -388,11 +458,17 @@ class IntradayMonitor:
             events = list(self.events)
         collected = data["collected_at"]
         age = (now - datetime.fromisoformat(collected)).total_seconds() if collected else None
-        delayed = age is not None and age > self.interval + 30
         phase = phase_at(now)
+        active_interval = self._collection_interval(now)
+        delayed = age is not None and age > active_interval + max(5, active_interval / 2)
         data.update(
             server_time=now.isoformat(timespec="seconds"),
-            interval_seconds=self.interval, phase=phase, phase_label=PHASE_LABELS[phase],
+            interval_seconds=active_interval,
+            active_interval_seconds=active_interval,
+            quote_interval_seconds=self.quote_interval,
+            bar_interval_seconds=self.bar_interval,
+            idle_interval_seconds=self.idle_interval,
+            phase=phase, phase_label=PHASE_LABELS[phase],
             report_date=self.report.get("as_of"), plan_date=self.report.get("next_session"),
             source="mootdx", age_seconds=round(age, 1) if age is not None else None,
             delayed=delayed, events=events, requested_codes=list(self.codes),
@@ -407,9 +483,10 @@ class IntradayMonitor:
                 stock["quote"]["fresh"] = False
             elif stock["advice"]["state"] != "unavailable":
                 quote = stock["quote"]
-                stamp = quote_time(
-                    quote["quote_time"][11:19] if quote["quote_time"] else None, now
-                )
+                try:
+                    stamp = datetime.fromisoformat(quote["quote_time"])
+                except (TypeError, ValueError):
+                    stamp = None
                 quote_age = (now - stamp).total_seconds() if stamp else None
                 bar_age = (
                     (now - datetime.fromisoformat(quote["bar_time"])).total_seconds()

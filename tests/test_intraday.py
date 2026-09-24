@@ -9,7 +9,8 @@ from pathlib import Path
 from urllib.request import urlopen
 
 from banxia_strategy.intraday import (
-    SHANGHAI, WATCH_CODES, IntradayMonitor, evaluate, load_watchlist, normalize_quote, phase_at, plan_for,
+    SHANGHAI, WATCH_CODES, IntradayMonitor, MootdxLiveSource, evaluate, load_watchlist,
+    normalize_quote, phase_at, plan_for,
 )
 from banxia_strategy.web_server import make_server
 
@@ -131,17 +132,107 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(q["minute_volume_ratio"], 2)
         self.assertEqual(plan_for({**candidate(), "latest_price": 23})["auction_low"], 23.12)
 
+    def test_quote_time_keeps_millisecond_precision(self):
+        q = normalize_quote(
+            {**raw_quote(), "servertime": "9:45:00.125"}, bars(), self.now, self.plan
+        )
+        self.assertEqual(q["quote_time"], "2026-09-24T09:45:00.125+08:00")
+
 
 class FakeSource:
     def __init__(self):
         self.calls = 0
         self.fail = False
+        self.closed = False
 
     def fetch(self, codes):
         self.calls += 1
         if self.fail:
             raise RuntimeError("测试断线")
         return {code: {"quote": raw_quote(), "bars": bars()} for code in codes}
+
+    def close(self):
+        self.closed = True
+
+
+class FakeFrame:
+    def __init__(self, rows):
+        self.rows = rows
+        self.empty = not rows
+
+    def to_dict(self, orient):
+        assert orient == "records"
+        return self.rows
+
+
+class FakeQuoteClient:
+    def __init__(self, fail_quotes=False):
+        self.fail_quotes = fail_quotes
+        self.quote_calls = 0
+        self.bar_calls = []
+        self.closed = False
+
+    def quotes(self, symbol):
+        self.quote_calls += 1
+        if self.fail_quotes:
+            raise RuntimeError("连接失效")
+        return FakeFrame([{"code": code, **raw_quote()} for code in symbol])
+
+    def bars(self, symbol, frequency, offset):
+        self.bar_calls.append((symbol, frequency, offset))
+        return FakeFrame(bars())
+
+    def close(self):
+        self.closed = True
+
+
+class FakeProvider:
+    def __init__(self, clients):
+        self.servers = tuple((f"server-{index}", 7709) for index in range(len(clients)))
+        self.clients = list(clients)
+        self.created = []
+
+    def _client(self, server):
+        index = self.servers.index(server)
+        self.created.append(index)
+        return self.clients[index]
+
+    @staticmethod
+    def _close(client):
+        client.close()
+
+
+class LiveSourceTest(unittest.TestCase):
+    def test_connection_is_reused_and_minute_bars_refresh_every_sixty_seconds(self):
+        now = [100.0]
+        client = FakeQuoteClient()
+        source = MootdxLiveSource(
+            provider=FakeProvider([client]), bar_interval=60, clock=lambda: now[0],
+        )
+
+        source.fetch(["002635", "603328"])
+        now[0] += 1
+        second = source.fetch(["002635", "603328"])
+        self.assertEqual(client.quote_calls, 2)
+        self.assertEqual(len(client.bar_calls), 2)
+        self.assertEqual(second["002635"]["bars"], bars())
+
+        now[0] += 59
+        source.fetch(["002635", "603328"])
+        self.assertEqual(len(client.bar_calls), 4)
+        source.close()
+        self.assertTrue(client.closed)
+
+    def test_quote_failure_closes_connection_and_fails_over(self):
+        failed = FakeQuoteClient(fail_quotes=True)
+        healthy = FakeQuoteClient()
+        provider = FakeProvider([failed, healthy])
+        source = MootdxLiveSource(provider=provider)
+
+        result = source.fetch(["002635"])
+        self.assertTrue(failed.closed)
+        self.assertEqual(provider.created, [0, 1])
+        self.assertEqual(result["002635"]["quote"]["price"], 17.5)
 
 
 class MonitorTest(unittest.TestCase):
@@ -185,9 +276,17 @@ class MonitorTest(unittest.TestCase):
 
     def test_elapsed_time_invalidates_cached_advice(self):
         self.monitor.poll_once()
-        self.now += timedelta(seconds=91)
+        self.now += timedelta(seconds=7)
         self.assertTrue(self.monitor.snapshot()["delayed"])
         self.assertEqual(self.monitor.snapshot()["stocks"][0]["advice"]["state"], "stale")
+
+    def test_idle_phase_uses_sixty_second_collection_interval(self):
+        self.now = self.now.replace(hour=11, minute=30)
+        self.monitor.poll_once()
+        state = self.monitor.snapshot()
+        self.assertEqual(state["quote_interval_seconds"], 1)
+        self.assertEqual(state["bar_interval_seconds"], 60)
+        self.assertEqual(state["active_interval_seconds"], 60)
 
     def test_market_phase_changes_between_two_polls(self):
         self.now = self.now.replace(minute=14, second=50)
@@ -244,6 +343,7 @@ class MonitorTest(unittest.TestCase):
             monitor.stop()
         self.assertFalse(monitor.thread.is_alive())
         self.assertEqual(source.calls, 1)
+        self.assertTrue(source.closed)
 
     def test_poll_log_persists_quotes_and_rules_without_curve_duplication(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -297,7 +397,9 @@ class SupplementalWatchlistTest(unittest.TestCase):
         ])
         self.assertEqual(len(state["stocks"]), 8)
         self.assertEqual(len(state["watchlist"]), 8)
-        self.assertEqual(state["interval_seconds"], 60)
+        self.assertEqual(state["interval_seconds"], 1)
+        self.assertEqual(state["quote_interval_seconds"], 1)
+        self.assertEqual(state["bar_interval_seconds"], 60)
         self.assertEqual(state["stocks"][5]["score"], candidate()["score"])
         for stock in state["stocks"][:5]:
             self.assertIsNone(stock["score"])

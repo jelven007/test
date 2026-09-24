@@ -13,7 +13,7 @@
     <header class="monitor-header">
       <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">B</span><span><strong>一进二</strong><small>策略观察工作台</small></span></a>
       <nav aria-label="主导航"><a href="/">次日计划</a><a href="/monitor" aria-current="page">盘中监控</a></nav>
-      <span class="feed-label">mootdx · 60秒采集</span>
+      <span class="feed-label">mootdx · 盘口1秒 / 分时1分钟</span>
     </header>
     <main class="monitor-main">
       <section class="monitor-title">
@@ -22,7 +22,7 @@
         <div class="sync-tools">
           <span id="connection" role="status">正在连接监控</span>
           <button id="sync-button" type="button">同步页面</button>
-          <small id="countdown">后台每60秒更新，页面自动同步</small>
+          <small id="countdown">盘口每1秒更新，分钟线每60秒刷新</small>
         </div>
       </section>
       <div id="monitor-error" role="alert" hidden></div>
@@ -66,7 +66,7 @@
             <div><dt>原计划单票仓位上限</dt><dd id="detail-position">—</dd></div>
           </dl>
           <details><summary>查看原始入场与放弃条件</summary><p id="detail-entry"></p><p id="detail-cancel"></p></details>
-          <p class="manual-check">仍需人工核验板块助攻、放量封板与首次快速回封。每分钟采样无法识别全部秒级炸板，也不保证封板排队能成交。</p>
+          <p class="manual-check">仍需人工核验板块助攻、放量封板与首次快速回封。1秒盘口快照仍可能漏掉采集间隔内的瞬时炸板，也不保证封板排队能成交。</p>
         </div>
       </section>
       <section class="activity-section" aria-labelledby="activity-title">

@@ -208,7 +208,7 @@ def serve_dashboard(
     monitor.start()
     actual_host, actual_port = server.server_address[:2]
     print(f"Strategy dashboard: http://{actual_host}:{actual_port}")
-    print(f"盘中监控：http://{actual_host}:{actual_port}/monitor （每60秒采集）")
+    print(f"盘中监控：http://{actual_host}:{actual_port}/monitor （盘口1秒 / 分时60秒）")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
