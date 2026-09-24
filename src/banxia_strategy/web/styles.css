@@ -898,22 +898,26 @@ h1 {
 @media (max-width: 720px) {
   .topbar {
     position: relative;
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-wrap: nowrap;
+    justify-content: space-between;
     gap: 10px;
     padding-block: 12px;
     padding-inline: 14px;
   }
 
   .brand {
-    margin-bottom: 3px;
+    flex: 0 0 auto;
+    margin: 0;
   }
 
   .report-tools {
     display: flex;
     flex-wrap: nowrap;
+    flex: 0 0 auto;
     gap: 6px;
     min-width: 0;
-    width: 100%;
+    width: auto;
   }
 
   .report-tools label {
@@ -1075,6 +1079,50 @@ h1 {
   .report-footer {
     grid-template-columns: 1fr;
     gap: 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .topbar {
+    gap: 8px;
+    padding-inline: 8px;
+  }
+
+  .brand {
+    gap: 0;
+  }
+
+  .brand-mark,
+  .brand small {
+    display: none;
+  }
+
+  .brand strong {
+    font-size: 16px;
+    white-space: nowrap;
+  }
+
+  .report-tools {
+    gap: 4px;
+  }
+
+  .report-tools label {
+    font-size: 10px;
+  }
+
+  .report-tools input[type="date"] {
+    flex-basis: 122px;
+    width: 122px;
+    min-width: 122px;
+    max-width: 122px;
+    padding-inline: 6px;
+    font-size: 11px;
+  }
+
+  .report-tools button {
+    width: 68px;
+    padding-inline: 4px;
+    font-size: 11px;
   }
 }
 

@@ -163,8 +163,10 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('timeZone: "Asia/Shanghai"', app)
         self.assertIn('id="report-date" type="date"', html)
         self.assertIn("width: 148px", css)
+        self.assertIn("flex-basis: 122px", css)
         self.assertIn("flex-wrap: nowrap", css)
         self.assertIn("white-space: nowrap", css)
+        self.assertIn(".brand-mark,\n  .brand small {\n    display: none;", css)
         self.assertNotIn("<select id=\"report-date\"", html)
 
 
