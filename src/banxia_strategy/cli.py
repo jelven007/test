@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from .application.persistence import persist_report_copy
+from .application.report_worker import write_completion_marker
 from .mootdx_provider import MootdxProvider
 from .storage_config import StorageSettings
 from .strategy import StrategyConfig, StrategyEngine, write_report
@@ -86,6 +87,8 @@ def _run(args: argparse.Namespace) -> int:
         settings=StorageSettings.from_env(),
         enqueue_events=True,
     )
+    if persistence.identity is not None:
+        write_completion_marker(report, paths, persistence)
     print(
         f"{report.as_of}: {report.market['regime']}, "
         f"{len(report.candidates)} candidates, "

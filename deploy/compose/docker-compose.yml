@@ -330,10 +330,14 @@ services:
     <<: *app-common
     command: ["report-worker"]
     profiles: ["jobs"]
+    network_mode: host
     environment:
       <<: *app-environment
       BANXIA_REPORT_OUTPUT_DIR: /app/reports
       BANXIA_REPORT_DATE: ${BANXIA_REPORT_DATE:-}
+      BANXIA_POSTGRES_DSN: postgresql://${POSTGRES_USER:-banxia}:${POSTGRES_PASSWORD:-banxia-local}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-banxia}
+      BANXIA_MINIO_ENDPOINT: 127.0.0.1:${MINIO_API_PORT:-9002}
+      BANXIA_METRICS_PORT: ${BANXIA_REPORT_WORKER_METRICS_PORT:-9101}
     volumes:
       - ../../config:/app/config:ro
       - ../../reports:/app/reports
@@ -350,9 +354,12 @@ services:
   report-scheduler:
     <<: *app-common
     command: ["report-scheduler"]
+    network_mode: host
     environment:
       <<: *app-environment
       BANXIA_REPORT_OUTPUT_DIR: /app/reports
+      BANXIA_POSTGRES_DSN: postgresql://${POSTGRES_USER:-banxia}:${POSTGRES_PASSWORD:-banxia-local}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-banxia}
+      BANXIA_MINIO_ENDPOINT: 127.0.0.1:${MINIO_API_PORT:-9002}
     volumes:
       - ../../config:/app/config:ro
       - ../../reports:/app/reports

@@ -28,7 +28,9 @@ make infra-check
 ```
 
 `report-scheduler` 随常驻服务启动，默认在交易日 16:30 生成初版、23:30 覆盖更新。
-非交易日由 mootdx 交易日历校验后跳过。也可以手工运行一次性 Worker：
+非交易日由 mootdx 交易日历校验后跳过。调度器重启后会补跑最近缺失的交易日报；
+报告任务通过 host 网络访问 mootdx，并通过完成标记区分完整持久化和残留文件。
+也可以手工运行一次性 Worker：
 
 ```bash
 docker compose \

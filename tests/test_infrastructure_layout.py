@@ -89,6 +89,20 @@ class ComposeLayoutTest(unittest.TestCase):
         self.assertIn("RESTARTING", compose)
         self.assertIn("RECONCILING", compose)
         self.assertIn("16:30,23:30", compose)
+        for service in ("report-worker", "report-scheduler"):
+            self.assertEqual(services[service]["network_mode"], "host")
+            self.assertIn(
+                "127.0.0.1",
+                services[service]["environment"]["BANXIA_POSTGRES_DSN"],
+            )
+            self.assertIn(
+                "127.0.0.1",
+                services[service]["environment"]["BANXIA_MINIO_ENDPOINT"],
+            )
+        self.assertEqual(
+            services["report-worker"]["environment"]["BANXIA_METRICS_PORT"],
+            "${BANXIA_REPORT_WORKER_METRICS_PORT:-9101}",
+        )
 
     def test_flink_job_computes_sector_and_volume_features(self):
         sql = (ROOT / "deploy/flink/sql/realtime_features.sql").read_text(

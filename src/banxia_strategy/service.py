@@ -5,7 +5,7 @@ import json
 import signal
 import sys
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any, Optional, Sequence
 
 from .adapters.clickhouse import ClickHouseMarketHistoryStore
@@ -27,6 +27,8 @@ from .application.report_scheduler import (
     SHANGHAI,
     next_scheduled_at,
     parse_schedule,
+    recent_scheduled_slots,
+    report_is_fresh,
 )
 from .application.report_worker import NonTradingDayError, ReportWorker
 from .application.strategy_engine import StrategyEventProcessor, StrategyWorker
@@ -299,6 +301,72 @@ def run_report_worker(settings: RuntimeSettings, logger: Any) -> None:
     _generate_report(settings, logger, requested_date)
 
 
+def _generate_scheduled_report(
+    settings: RuntimeSettings,
+    logger: Any,
+    requested_date: date,
+    scheduled_at: datetime,
+    stop: threading.Event,
+    retry_delays: Sequence[float] = (5.0, 15.0, 45.0),
+) -> Optional[bool]:
+    for attempt in range(len(retry_delays) + 1):
+        try:
+            return _generate_report(settings, logger, requested_date)
+        except Exception:
+            if attempt >= len(retry_delays):
+                logger.exception(
+                    "scheduled report failed",
+                    extra={
+                        "scheduled_at": scheduled_at.isoformat(),
+                        "attempt": attempt + 1,
+                    },
+                )
+                return None
+            delay = retry_delays[attempt]
+            logger.exception(
+                "scheduled report attempt failed; retrying",
+                extra={
+                    "scheduled_at": scheduled_at.isoformat(),
+                    "attempt": attempt + 1,
+                    "retry_in_seconds": delay,
+                },
+            )
+            if stop.wait(delay):
+                return None
+    return None
+
+
+def _catch_up_report(
+    settings: RuntimeSettings,
+    logger: Any,
+    schedule: Sequence[time],
+    now: datetime,
+    stop: threading.Event,
+) -> None:
+    for scheduled_at in recent_scheduled_slots(now, schedule):
+        if report_is_fresh(settings.report_output_dir, scheduled_at):
+            return
+        logger.warning(
+            "missed report schedule detected",
+            extra={"scheduled_at": scheduled_at.isoformat()},
+        )
+        result = _generate_scheduled_report(
+            settings,
+            logger,
+            scheduled_at.date(),
+            scheduled_at,
+            stop,
+        )
+        if result:
+            logger.info(
+                "missed report schedule recovered",
+                extra={"scheduled_at": scheduled_at.isoformat()},
+            )
+            return
+        if result is None:
+            return
+
+
 def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
     schedule = parse_schedule(settings.report_schedule)
     stop = threading.Event()
@@ -315,6 +383,13 @@ def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
             "schedule": [item.strftime("%H:%M") for item in schedule],
         },
     )
+    _catch_up_report(
+        settings,
+        logger,
+        schedule,
+        datetime.now(SHANGHAI),
+        stop,
+    )
     try:
         while not stop.is_set():
             now = datetime.now(SHANGHAI)
@@ -325,13 +400,13 @@ def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
             )
             if stop.wait(max(0.0, (scheduled_at - now).total_seconds())):
                 break
-            try:
-                _generate_report(settings, logger, scheduled_at.date())
-            except Exception:
-                logger.exception(
-                    "scheduled report failed",
-                    extra={"scheduled_at": scheduled_at.isoformat()},
-                )
+            _generate_scheduled_report(
+                settings,
+                logger,
+                scheduled_at.date(),
+                scheduled_at,
+                stop,
+            )
     finally:
         logger.info("report scheduler stopped")
 

@@ -108,7 +108,9 @@ ClickHouse/PostgreSQL/Redis 写入在有界后台队列执行，`BANXIA_WRITER_Q
 
 日报任务由 Kubernetes CronJob 在 `Asia/Shanghai` 每个工作日 `16:30` 和 `23:30`
 触发。Worker 再通过 mootdx 交易日历确认日期；周末和节假日正常退出且不生成报告。
-本地 Compose 使用常驻 `report-scheduler` 执行同样的两个时点。
+本地 Compose 使用常驻 `report-scheduler` 执行同样的两个时点。调度器启动时回溯最近
+7 天的已到期时点，并以本地报告和持久化完成标记共同判断是否需要补跑。报告任务使用
+host 网络，避免 Colima 桥接网络导致通达信行情协议请求超时。
 
 幂等要求：
 

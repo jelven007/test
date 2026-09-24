@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
@@ -14,6 +15,32 @@ from ..strategy import DailyReport, StrategyConfig, StrategyEngine, write_report
 
 class NonTradingDayError(RuntimeError):
     """Raised when a report is requested for a non-trading day."""
+
+
+def write_completion_marker(
+    report: DailyReport,
+    paths: Mapping[str, Path],
+    persistence: PersistenceResult,
+) -> Path:
+    if persistence.identity is None:
+        raise RuntimeError("report persistence did not return a strategy run")
+    completion_path = paths["json"].parent / ".report-complete.json"
+    temporary_path = completion_path.with_suffix(".tmp")
+    temporary_path.write_text(
+        json.dumps(
+            {
+                "as_of": report.as_of,
+                "generated_at": report.generated_at,
+                "run_id": persistence.identity.run_id,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    temporary_path.replace(completion_path)
+    return completion_path
 
 
 class ReportWorker:
@@ -59,6 +86,5 @@ class ReportWorker:
             settings=self.storage_settings,
             enqueue_events=True,
         )
-        if persistence.identity is None:
-            raise RuntimeError("report persistence did not return a strategy run")
+        write_completion_marker(report, paths, persistence)
         return report, paths, persistence
