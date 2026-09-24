@@ -136,7 +136,8 @@ function renderDetail(stock) {
   write("detail-advice", stock.advice.label);
   byId("detail-advice").dataset.tone = stock.advice.tone;
   write("detail-reason", stock.advice.reason);
-  write("detail-provenance", `${originLabel(stock)} · 昨收日期 ${stock.reference_date ?? "—"} · 计划交易日 ${stock.plan_date ?? "—"}`);
+  const verified = stock.verified_at ? ` · 本轮筛选 ${clock(stock.verified_at)}` : "";
+  write("detail-provenance", `${originLabel(stock)} · 昨收日期 ${stock.reference_date ?? "—"} · 计划交易日 ${stock.plan_date ?? "—"}${verified}`);
   write("detail-eligibility", p.eligibility_reason);
   byId("detail-eligibility").dataset.tone = p.eligible === false ? "risk" : "muted";
   write("detail-high", price(q.high));

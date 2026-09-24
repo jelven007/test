@@ -112,6 +112,18 @@ class RulesTest(unittest.TestCase):
         minutes = [{"datetime": "2026-09-24 09:59", "close": 17.5, "vol": 100}]
         self.assertEqual(self.decision(raw=raw, now=now, minutes=minutes)["state"], "window_closed")
 
+    def test_lunch_keeps_permanent_rejections_instead_of_hiding_them(self):
+        now = self.now.replace(hour=11, minute=30)
+        self.assertEqual(self.decision(now=now)["state"], "window_closed")
+        self.assertEqual(
+            self.decision(raw={**raw_quote(), "open": 18.2}, now=now)["state"],
+            "reject_open",
+        )
+        self.assertEqual(
+            self.decision(raw={**raw_quote(), "low": 16.78}, now=now)["state"],
+            "reject_low",
+        )
+
     def test_volume_reference_and_decimal_rounding(self):
         q = normalize_quote(raw_quote(), bars()[:-1] + [
             {"datetime": "2026-09-24 09:44", "close": 17.5, "vol": 200}
@@ -281,20 +293,25 @@ class SupplementalWatchlistTest(unittest.TestCase):
         state = monitor.snapshot()
         self.assertIsNone(state["error"])
         self.assertEqual(state["requested_codes"], [
-            *WATCH_CODES, "002909", "002819", "002119", "603396", "600293",
+            "002909", "002119", "002819", "002638", "002935", *WATCH_CODES,
         ])
         self.assertEqual(len(state["stocks"]), 8)
         self.assertEqual(len(state["watchlist"]), 8)
         self.assertEqual(state["interval_seconds"], 60)
-        self.assertEqual(state["stocks"][0]["score"], candidate()["score"])
-        for stock in state["stocks"][3:]:
+        self.assertEqual(state["stocks"][5]["score"], candidate()["score"])
+        for stock in state["stocks"][:5]:
             self.assertIsNone(stock["score"])
             self.assertEqual(stock["origin"], "supplement")
             self.assertEqual(stock["reference_date"], "2026-09-23")
         self.assertEqual(json.dumps(self.report), original)
 
     def test_static_rejection_survives_sealed_quote_and_snapshot_reevaluation(self):
-        monitor = self.monitor()
+        rejected_candidate = {
+            **self.additions[0], "code": "603396", "name": "金辰股份",
+            "eligible": False, "position_limit_pct": 0,
+            "eligibility_reason": "昨日成交额1.79亿元，低于原策略2亿元门槛。",
+        }
+        monitor = self.monitor([self.additions[0], rejected_candidate])
         monitor.poll_once()
         for _ in range(2):
             stocks = {stock["code"]: stock for stock in monitor.snapshot()["stocks"]}

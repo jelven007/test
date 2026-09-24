@@ -201,9 +201,8 @@ def evaluate(quote, plan, now, plan_date):
         return advice("ineligible", "不参与 · 静态门槛未通过", plan["eligibility_reason"], "muted")
     if phase in ("pre", "weekend"):
         return advice("pre", "等待竞价", "尚无可执行的竞价结果；当前不挂买单。")
-    if phase in ("lunch", "closed"):
-        return advice("closed", "休市观察", "原策略10:00前入场窗口已结束，不新增接力仓位。", "muted")
-    if not quote["fresh"]:
+    # 午休及收盘后仍保留已确认的开盘和最低价放弃条件，不被“休市”覆盖。
+    if phase not in ("lunch", "closed") and not quote["fresh"]:
         return advice("stale", "行情待同步", "行情时间过旧、当日分钟线缺失或时间无法核验，暂停判断。", "risk")
     if not quote["price"]:
         return advice("no_quote", "暂无有效报价", "零价格不是跌停或买点；等待有效成交或竞价报价。")
@@ -222,6 +221,8 @@ def evaluate(quote, plan, now, plan_date):
         return advice("reject_low", "放弃 · 跌破昨收", "当日最低价已跌破昨收，保守执行放弃条件，不因随后反弹恢复入场。", "risk")
     if not plan["open_min_pct"] <= opening_pct <= plan["open_max_pct"]:
         return advice("outside_open", "不参与 · 竞价未通过", f"开盘涨幅{opening_pct:+.2f}%不在原策略合格区间内。", "muted")
+    if phase in ("lunch", "closed"):
+        return advice("window_closed", "不追 · 入场窗口结束", "原策略10:00前入场窗口已结束，不新增接力仓位。", "muted")
     if now.hour >= 10:
         return advice("window_closed", "不追 · 入场窗口结束", "已到10:00或之后，按原计划不新增一进二仓位。", "muted")
     limit = plan["limit_price"]
@@ -285,7 +286,8 @@ class IntradayMonitor:
             for item in self.report.get("candidates", [])
         }
         additions = copy.deepcopy(supplements or [])
-        self.codes = tuple(dict.fromkeys([*codes, *(item["code"] for item in additions)]))
+        # 盘中重筛名单优先展示，原日报股票仍保留在后面追踪。
+        self.codes = tuple(dict.fromkeys([*(item["code"] for item in additions), *codes]))
         for item in additions:
             # 同代码优先沿用原日报，避免补充配置覆盖原评分与规则。
             candidates.setdefault(item["code"], item)
