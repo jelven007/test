@@ -15,7 +15,7 @@ data:
   BANXIA_KAFKA_BOOTSTRAP_SERVERS: kafka.strategy.svc:9093
   BANXIA_REPORT_DIRS: /app/reports
   BANXIA_REPORT_OUTPUT_DIR: /app/reports
-  BANXIA_REPORT_SCHEDULE: 16:00,23:30
+  BANXIA_REPORT_SCHEDULE: 16:30,23:30
   BANXIA_STRATEGY_CONFIG: /app/config/strategy.json
   BANXIA_MONITOR_WATCHLIST: /app/config/monitor_watchlist.json
   BANXIA_COLLECTOR_WAL_PATH: /app/data/wal/market-collector.sqlite3
@@ -264,10 +264,10 @@ spec:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: report-worker-1600
+  name: report-worker-1630
   namespace: banxia
 spec:
-  schedule: "0 16 * * 1-5"
+  schedule: "30 16 * * 1-5"
   timeZone: Asia/Shanghai
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3

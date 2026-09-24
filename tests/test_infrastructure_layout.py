@@ -88,7 +88,7 @@ class ComposeLayoutTest(unittest.TestCase):
         self.assertIn("../../migrations/clickhouse", compose)
         self.assertIn("RESTARTING", compose)
         self.assertIn("RECONCILING", compose)
-        self.assertIn("16:00,23:30", compose)
+        self.assertIn("16:30,23:30", compose)
 
     def test_flink_job_computes_sector_and_volume_features(self):
         sql = (ROOT / "deploy/flink/sql/realtime_features.sql").read_text(
@@ -125,7 +125,7 @@ class ComposeLayoutTest(unittest.TestCase):
             for item in manifests
             if item["kind"] == "CronJob"
         }
-        self.assertEqual(cron_jobs["report-worker-1600"], "0 16 * * 1-5")
+        self.assertEqual(cron_jobs["report-worker-1630"], "30 16 * * 1-5")
         self.assertEqual(cron_jobs["report-worker-2330"], "30 23 * * 1-5")
         self.assertIn("readinessProbe", text)
         self.assertIn("resources:", text)
@@ -148,14 +148,22 @@ class ComposeLayoutTest(unittest.TestCase):
 
 
 class WebAssetTest(unittest.TestCase):
-    def test_report_selector_queries_trade_date_and_shows_update_time(self):
+    def test_report_date_control_queries_trade_date_with_fixed_size(self):
         app = (ROOT / "src/banxia_strategy/web/app.js").read_text(
+            encoding="utf-8"
+        )
+        html = (ROOT / "src/banxia_strategy/web/index.html").read_text(
+            encoding="utf-8"
+        )
+        css = (ROOT / "src/banxia_strategy/web/styles.css").read_text(
             encoding="utf-8"
         )
         self.assertIn("/api/v1/reports/${encodeURIComponent(asOf)}", app)
         self.assertIn("report.trade_date || report.as_of", app)
-        self.assertIn("formatUpdateTime(report.generated_at)", app)
         self.assertIn('timeZone: "Asia/Shanghai"', app)
+        self.assertIn('id="report-date" type="date"', html)
+        self.assertIn("width: 168px", css)
+        self.assertNotIn("<select id=\"report-date\"", html)
 
 
 if __name__ == "__main__":

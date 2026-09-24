@@ -11,7 +11,7 @@ x-app-common: &app-common
     BANXIA_METRICS_PORT: 9100
     BANXIA_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     BANXIA_REPORT_DIRS: /app/scheduled_reports,/app/reports
-    BANXIA_REPORT_SCHEDULE: ${BANXIA_REPORT_SCHEDULE:-16:00,23:30}
+    BANXIA_REPORT_SCHEDULE: ${BANXIA_REPORT_SCHEDULE:-16:30,23:30}
     BANXIA_STRATEGY_CONFIG: /app/config/strategy.json
     BANXIA_MONITOR_WATCHLIST: /app/config/monitor_watchlist.json
     BANXIA_WATCH_DATE: ${BANXIA_WATCH_DATE:-}

@@ -1,6 +1,6 @@
 # Kubernetes deployment
 
-The base manifests deploy the stateless application services, the 16:00 and
+The base manifests deploy the stateless application services, the 16:30 and
 23:30 `report-worker` CronJobs, Flink job/task managers, the realtime feature job,
 PDB/HPA policies, and a shared report volume. Kafka, PostgreSQL, ClickHouse,
 Redis, and MinIO are expected to be managed services reachable at the DNS
@@ -26,7 +26,7 @@ Run the report job immediately after the first deployment:
 
 ```bash
 kubectl -n banxia create job \
-  --from=cronjob/report-worker-1600 report-worker-bootstrap
+  --from=cronjob/report-worker-1630 report-worker-bootstrap
 ```
 
 The collector runs two replicas but only the holder of the PostgreSQL

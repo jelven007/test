@@ -58,7 +58,7 @@ class RuntimeSettings:
     report_dirs: Tuple[Path, ...] = (Path("scheduled_reports"), Path("reports"))
     report_output_dir: Path = Path("reports")
     report_date: Optional[str] = None
-    report_schedule: Tuple[str, ...] = ("16:00", "23:30")
+    report_schedule: Tuple[str, ...] = ("16:30", "23:30")
     strategy_config_path: Path = Path("config/strategy.json")
     watchlist_path: Path = Path("config/monitor_watchlist.json")
     watch_date: Optional[str] = None
@@ -110,7 +110,7 @@ class RuntimeSettings:
             report_schedule=_schedule(
                 source,
                 "BANXIA_REPORT_SCHEDULE",
-                "16:00,23:30",
+                "16:30,23:30",
             ),
             strategy_config_path=Path(
                 source.get("BANXIA_STRATEGY_CONFIG", "config/strategy.json")

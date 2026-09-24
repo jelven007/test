@@ -60,7 +60,7 @@ class RuntimeSettingsTest(unittest.TestCase):
 
     def test_default_report_schedule_has_two_daily_updates(self):
         settings = RuntimeSettings.from_env({"BANXIA_REPORT_DIRS": "reports"})
-        self.assertEqual(settings.report_schedule, ("16:00", "23:30"))
+        self.assertEqual(settings.report_schedule, ("16:30", "23:30"))
 
     def test_invalid_report_schedule_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "BANXIA_REPORT_SCHEDULE"):
@@ -74,10 +74,10 @@ class RuntimeSettingsTest(unittest.TestCase):
 
 class ReportSchedulerTest(unittest.TestCase):
     def test_next_schedule_uses_shanghai_time_and_rolls_to_next_day(self):
-        schedule = parse_schedule(("16:00", "23:30"))
+        schedule = parse_schedule(("16:30", "23:30"))
         timezone = ZoneInfo("Asia/Shanghai")
 
-        afternoon = datetime(2026, 9, 24, 16, 1, tzinfo=timezone)
+        afternoon = datetime(2026, 9, 24, 16, 31, tzinfo=timezone)
         late = datetime(2026, 9, 24, 23, 31, tzinfo=timezone)
 
         self.assertEqual(
@@ -86,7 +86,7 @@ class ReportSchedulerTest(unittest.TestCase):
         )
         self.assertEqual(
             next_scheduled_at(late, schedule),
-            datetime(2026, 9, 25, 16, 0, tzinfo=timezone),
+            datetime(2026, 9, 25, 16, 30, tzinfo=timezone),
         )
 
 
@@ -152,7 +152,7 @@ class ReportWorkerTest(unittest.TestCase):
         report = DailyReport(
             as_of="2026-09-23",
             next_session="2026-09-25",
-            generated_at="2026-09-24T16:00:00+08:00",
+            generated_at="2026-09-24T16:30:00+08:00",
             data_source="mootdx",
             data_sessions=["2026-09-23"],
             market={"regime": "中性", "score": 60},

@@ -27,7 +27,7 @@ make infra-status
 make infra-check
 ```
 
-`report-scheduler` 随常驻服务启动，默认在交易日 16:00 生成初版、23:30 覆盖更新。
+`report-scheduler` 随常驻服务启动，默认在交易日 16:30 生成初版、23:30 覆盖更新。
 非交易日由 mootdx 交易日历校验后跳过。也可以手工运行一次性 Worker：
 
 ```bash

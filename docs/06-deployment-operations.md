@@ -106,7 +106,7 @@ ClickHouse/PostgreSQL/Redis 写入在有界后台队列执行，`BANXIA_WRITER_Q
 
 ## 5. 调度
 
-日报任务由 Kubernetes CronJob 在 `Asia/Shanghai` 每个工作日 `16:00` 和 `23:30`
+日报任务由 Kubernetes CronJob 在 `Asia/Shanghai` 每个工作日 `16:30` 和 `23:30`
 触发。Worker 再通过 mootdx 交易日历确认日期；周末和节假日正常退出且不生成报告。
 本地 Compose 使用常驻 `report-scheduler` 执行同样的两个时点。
 
