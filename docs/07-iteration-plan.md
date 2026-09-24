@@ -39,7 +39,7 @@
 
 ## 4. P1：基础工程和领域拆分
 
-状态：`IN PROGRESS`
+状态：`COMPLETE`
 
 已完成：
 
@@ -53,10 +53,11 @@
 - 增加内容哈希、Redis TTL、SQL 参数、分钟线去重和部分失败行为单元测试。
 - 从空卷执行 Compose 初始化、基础设施冒烟和真实四存储双写集成测试。
 
-待完成：
+补充完成：
 
-- 统一配置、结构化日志和 OpenTelemetry。
-- 独立服务入口与录制行情回放器。
+- 统一运行时配置、JSON 结构化日志、请求 ID 和 Prometheus 指标端点。
+- 建立独立采集、行情落库、策略、Outbox、投影、日报和 API 服务入口。
+- 保留 Python 确定性特征 Worker 作为本地回放和 Flink 故障排查入口。
 
 ### 工作项
 
@@ -226,7 +227,16 @@ tests/
 6. 保持当前 mootdx 采集和 Web 功能可运行。
 
 当前已完成第 1 至 6 项，并通过真实组件双写测试。双写后台队列仍不是持久 WAL，
-该能力进入 P2 的 Kafka 与 WAL 迭代完成。
+生产服务链路已由 Kafka 和 SQLite 持久 WAL 替代该临时队列；旧双写入口仅用于兼容。
+
+## 11.1 当前实现状态
+
+- P2：采集 WAL、Kafka Topic、ClickHouse Sink 和真实 Kafka 坐标幂等已实现。
+- P3：状态机事务、Inbox/Outbox、MinIO 报告和日报事件已实现。
+- P4：Flink SQL 作业实现秒级板块宽度和分钟量能窗口，Checkpoint 写入 MinIO。
+- P5：FastAPI、Redis 投影、SSE、标准错误结构和新版 Web 接口已实现。
+- P6：Compose、Kubernetes 副本/探针/资源/PDB/HPA/NetworkPolicy 和 Prometheus
+  基线已提供；正式生产仍需在目标集群完成容量、故障与恢复演练。
 
 ## 12. 变更管理
 

@@ -1,0 +1,350 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: banxia
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: banxia-runtime
+  namespace: banxia
+data:
+  TZ: Asia/Shanghai
+  BANXIA_ENVIRONMENT: production
+  BANXIA_LOG_LEVEL: INFO
+  BANXIA_KAFKA_BOOTSTRAP_SERVERS: kafka.strategy.svc:9093
+  BANXIA_REPORT_DIRS: /app/reports
+  BANXIA_REPORT_OUTPUT_DIR: /app/reports
+  BANXIA_STRATEGY_CONFIG: /app/config/strategy.json
+  BANXIA_MONITOR_WATCHLIST: /app/config/monitor_watchlist.json
+  BANXIA_COLLECTOR_WAL_PATH: /app/data/wal/market-collector.sqlite3
+  BANXIA_STORAGE_MODE: required
+  BANXIA_CLICKHOUSE_HOST: clickhouse.strategy.svc
+  BANXIA_CLICKHOUSE_PORT: "8123"
+  BANXIA_CLICKHOUSE_DATABASE: banxia
+  BANXIA_CLICKHOUSE_USER: banxia
+  BANXIA_MINIO_ENDPOINT: minio.strategy.svc:9000
+  BANXIA_MINIO_SECURE: "true"
+  BANXIA_MINIO_REPORT_BUCKET: strategy-reports
+  BANXIA_STRATEGY_VERSION: v1
+  BANXIA_METRICS_PORT: "9100"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: banxia-reports
+  namespace: banxia
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: banxia
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: banxia-api}
+  template:
+    metadata:
+      labels: {app: banxia-api, component: api}
+    spec:
+      containers:
+        - name: api
+          image: banxia-strategy:latest
+          imagePullPolicy: IfNotPresent
+          args: [api]
+          envFrom:
+            - configMapRef: {name: banxia-runtime}
+            - secretRef: {name: banxia-secrets}
+          env:
+            - {name: BANXIA_API_HOST, value: "0.0.0.0"}
+            - {name: BANXIA_API_PORT, value: "8765"}
+          ports:
+            - {name: http, containerPort: 8765}
+            - {name: metrics, containerPort: 9100}
+          readinessProbe:
+            httpGet: {path: /api/v1/health/ready, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /api/v1/health/live, port: http}
+            periodSeconds: 15
+            failureThreshold: 4
+          resources:
+            requests: {cpu: 100m, memory: 192Mi}
+            limits: {cpu: "1", memory: 512Mi}
+          volumeMounts:
+            - {name: reports, mountPath: /app/reports}
+      volumes:
+        - name: reports
+          persistentVolumeClaim: {claimName: banxia-reports}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: banxia
+spec:
+  selector: {app: banxia-api}
+  ports:
+    - {name: http, port: 80, targetPort: http}
+    - {name: metrics, port: 9100, targetPort: metrics}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-collector
+  namespace: banxia
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: banxia-market-collector}
+  template:
+    metadata:
+      labels: {app: banxia-market-collector, component: worker}
+    spec:
+      containers:
+        - name: market-collector
+          image: banxia-strategy:latest
+          imagePullPolicy: IfNotPresent
+          args: [market-collector]
+          envFrom:
+            - configMapRef: {name: banxia-runtime}
+            - secretRef: {name: banxia-secrets}
+          ports:
+            - {name: metrics, containerPort: 9100}
+          readinessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 150m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          volumeMounts:
+            - {name: wal, mountPath: /app/data/wal}
+            - {name: reports, mountPath: /app/reports}
+      volumes:
+        - name: wal
+          emptyDir: {}
+        - name: reports
+          persistentVolumeClaim: {claimName: banxia-reports}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-sink
+  namespace: banxia
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: banxia-market-sink}
+  template:
+    metadata:
+      labels: {app: banxia-market-sink, component: worker}
+    spec:
+      containers:
+        - name: market-sink
+          image: banxia-strategy:latest
+          args: [market-sink]
+          envFrom:
+            - configMapRef: {name: banxia-runtime}
+            - secretRef: {name: banxia-secrets}
+          ports:
+            - {name: metrics, containerPort: 9100}
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 150m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: strategy-engine
+  namespace: banxia
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: banxia-strategy-engine}
+  template:
+    metadata:
+      labels: {app: banxia-strategy-engine, component: worker}
+    spec:
+      containers:
+        - name: strategy-engine
+          image: banxia-strategy:latest
+          args: [strategy-engine]
+          envFrom:
+            - configMapRef: {name: banxia-runtime}
+            - secretRef: {name: banxia-secrets}
+          ports:
+            - {name: metrics, containerPort: 9100}
+          readinessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 150m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          volumeMounts:
+            - {name: reports, mountPath: /app/reports}
+      volumes:
+        - name: reports
+          persistentVolumeClaim: {claimName: banxia-reports}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outbox-relay
+  namespace: banxia
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: banxia-outbox-relay}
+  template:
+    metadata:
+      labels: {app: banxia-outbox-relay, component: worker}
+    spec:
+      containers:
+        - name: outbox-relay
+          image: banxia-strategy:latest
+          args: [outbox-relay]
+          envFrom:
+            - configMapRef: {name: banxia-runtime}
+            - secretRef: {name: banxia-secrets}
+          ports:
+            - {name: metrics, containerPort: 9100}
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 75m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 384Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: projection-worker
+  namespace: banxia
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: banxia-projection-worker}
+  template:
+    metadata:
+      labels: {app: banxia-projection-worker, component: worker}
+    spec:
+      containers:
+        - name: projection-worker
+          image: banxia-strategy:latest
+          args: [projection-worker]
+          envFrom:
+            - configMapRef: {name: banxia-runtime}
+            - secretRef: {name: banxia-secrets}
+          ports:
+            - {name: metrics, containerPort: 9100}
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 192Mi}
+            limits: {cpu: 750m, memory: 512Mi}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: report-worker
+  namespace: banxia
+spec:
+  schedule: "20 16 * * 1-5"
+  timeZone: Asia/Shanghai
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels: {app: banxia-report-worker, component: job}
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: report-worker
+              image: banxia-strategy:latest
+              args: [report-worker]
+              envFrom:
+                - configMapRef: {name: banxia-runtime}
+                - secretRef: {name: banxia-secrets}
+              resources:
+                requests: {cpu: 250m, memory: 256Mi}
+                limits: {cpu: "2", memory: 1Gi}
+              volumeMounts:
+                - {name: reports, mountPath: /app/reports}
+          volumes:
+            - name: reports
+              persistentVolumeClaim: {claimName: banxia-reports}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api
+  namespace: banxia
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: banxia-api}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: strategy-engine
+  namespace: banxia
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {app: banxia-strategy-engine}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+  namespace: banxia
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-ingress
+  namespace: banxia
+spec:
+  podSelector:
+    matchLabels: {app: banxia-api}
+  policyTypes: [Ingress]
+  ingress:
+    - ports:
+        - {protocol: TCP, port: 8765}
+        - {protocol: TCP, port: 9100}

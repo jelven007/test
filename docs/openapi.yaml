@@ -3,7 +3,7 @@ info:
   title: Banxia Strategy Research API
   version: 1.0.0
   description: |
-    一进二策略研究系统目标 HTTP API。该契约描述 TARGET 架构，不代表当前代码已经实现。
+    一进二策略研究系统 HTTP API。
     系统只提供研究、监控和报告能力，不提供自动下单接口。
 servers:
   - url: https://strategy.example.com
@@ -407,6 +407,25 @@ components:
         industry:
           type: string
           nullable: true
+        rank:
+          type: integer
+          nullable: true
+        score:
+          type: number
+          nullable: true
+        origin:
+          type: string
+        eligible:
+          type: boolean
+        eligibility_reason:
+          type: string
+          nullable: true
+        reference_date:
+          type: string
+          format: date
+        plan_date:
+          type: string
+          format: date
         source_time:
           type: string
           format: date-time
@@ -416,6 +435,18 @@ components:
         price:
           type: number
           format: double
+          nullable: true
+        open:
+          type: number
+          nullable: true
+        high:
+          type: number
+          nullable: true
+        low:
+          type: number
+          nullable: true
+        previous_close:
+          type: number
           nullable: true
         change_pct:
           type: number
@@ -429,8 +460,58 @@ components:
           type: number
           format: double
           nullable: true
+        volume:
+          type: number
+          nullable: true
+        feature:
+          $ref: "#/components/schemas/RealtimeFeature"
+        candles:
+          type: array
+          items:
+            $ref: "#/components/schemas/MinuteBar"
+        plan:
+          type: object
+          additionalProperties: true
         decision:
           $ref: "#/components/schemas/Decision"
+    RealtimeFeature:
+      type: object
+      properties:
+        minute_volume_ratio:
+          type: number
+          nullable: true
+        sector_rise_ratio:
+          type: number
+          nullable: true
+        sector_sample_size:
+          type: integer
+          nullable: true
+        data_state:
+          type: string
+        computed_at:
+          type: string
+          format: date-time
+          nullable: true
+    MinuteBar:
+      type: object
+      properties:
+        time:
+          type: string
+          format: date-time
+        price:
+          type: number
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        close:
+          type: number
+        volume:
+          type: number
+        amount:
+          type: number
     MonitorSnapshot:
       type: object
       required:
@@ -444,6 +525,9 @@ components:
         trade_date:
           type: string
           format: date
+        reference_date:
+          type: string
+          format: date
         plan_id:
           type: string
         strategy_version:
@@ -453,6 +537,10 @@ components:
           format: date-time
         data_status:
           $ref: "#/components/schemas/DataStatus"
+        phase:
+          type: string
+        phase_label:
+          type: string
         stocks:
           type: array
           items:
@@ -582,6 +670,15 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/Candidate"
+            data_source:
+              type: string
+            data_sessions:
+              type: array
+              items:
+                type: string
+                format: date
+            rejected_count:
+              type: integer
             disclaimer:
               type: string
     StrategyRun:

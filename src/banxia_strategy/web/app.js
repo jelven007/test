@@ -157,6 +157,15 @@ function renderCandidate(candidate, index) {
 }
 
 function renderReport(report) {
+  report = {
+    ...report,
+    as_of: report.trade_date,
+    next_session: report.plan_date,
+    candidates: (report.candidates || []).map((candidate) => ({
+      ...candidate,
+      code: candidate.symbol,
+    })),
+  };
   const fragment = dashboardTemplate.content.cloneNode(true);
   const market = report.market || {};
   const candidates = Array.isArray(report.candidates) ? report.candidates : [];
@@ -249,14 +258,14 @@ function renderError(message) {
 async function fetchJson(path) {
   const response = await fetch(path, { cache: "no-store" });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `请求失败（${response.status}）`);
+  if (!response.ok) throw new Error(payload.error?.message || `请求失败（${response.status}）`);
   return payload;
 }
 
 async function loadReport(asOf) {
   refreshButton.disabled = true;
   try {
-    const path = asOf ? `/api/reports/${encodeURIComponent(asOf)}` : "/api/reports/latest";
+    const path = `/api/v1/reports/${encodeURIComponent(asOf)}`;
     const report = await fetchJson(path);
     renderReport(report);
     reportSelect.value = report.as_of;
@@ -269,18 +278,18 @@ async function loadReport(asOf) {
 
 async function initialize() {
   try {
-    const payload = await fetchJson("/api/reports");
-    if (!payload.reports.length) {
+    const payload = await fetchJson("/api/v1/reports");
+    if (!payload.items.length) {
       throw new Error("未发现 candidates.json，请先执行 .venv/bin/banxia-strategy run");
     }
     reportSelect.replaceChildren();
-    for (const report of payload.reports) {
+    for (const report of payload.items) {
       const option = document.createElement("option");
-      option.value = report.as_of;
-      option.textContent = `${report.as_of} · ${report.regime || "未知环境"} · ${report.candidate_count}只`;
+      option.value = report.trade_date;
+      option.textContent = `${report.trade_date} · ${report.market_regime || "未知环境"} · ${report.candidate_count}只`;
       reportSelect.append(option);
     }
-    await loadReport(payload.reports[0].as_of);
+    await loadReport(payload.items[0].trade_date);
   } catch (error) {
     renderError(error.message);
   }

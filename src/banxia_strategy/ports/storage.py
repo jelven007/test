@@ -38,6 +38,15 @@ class ReportIdentity:
     plan_id: Optional[str]
 
 
+@dataclass(frozen=True)
+class OutboxRecord:
+    outbox_id: str
+    topic: str
+    message_key: str
+    event: EventEnvelope
+    attempts: int
+
+
 class EventPublisher(Protocol):
     def publish(self, topic: str, key: str, event: EventEnvelope) -> None:
         """Publish one versioned event and return only after broker acknowledgement."""
@@ -64,6 +73,9 @@ class DecisionRepository(Protocol):
         input_event_id: str,
         decision: DecisionRecord,
         outbox_event: EventEnvelope,
+        topic: Optional[str] = None,
+        partition: int = 0,
+        offset: Optional[int] = None,
     ) -> bool:
         """Atomically register input, update state, append history and enqueue outbox."""
 

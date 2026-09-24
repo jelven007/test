@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+import yaml
+
 from banxia_strategy.domain import DecisionState
 
 
@@ -59,11 +61,66 @@ class StorageSchemaTest(unittest.TestCase):
 
 class ComposeLayoutTest(unittest.TestCase):
     def test_compose_declares_required_local_services(self):
-        compose = (ROOT / "deploy/compose/docker-compose.yml").read_text(encoding="utf-8")
-        for service in ("postgres:", "clickhouse:", "redis:", "minio:", "kafka:"):
-            self.assertIn(service, compose)
+        path = ROOT / "deploy/compose/docker-compose.yml"
+        compose = path.read_text(encoding="utf-8")
+        services = yaml.safe_load(compose)["services"]
+        for service in (
+            "postgres",
+            "clickhouse",
+            "redis",
+            "minio",
+            "kafka",
+            "flink-jobmanager",
+            "flink-taskmanager",
+            "flink-feature-job",
+            "market-collector",
+            "market-sink",
+            "strategy-engine",
+            "outbox-relay",
+            "projection-worker",
+            "report-worker",
+            "api",
+            "prometheus",
+        ):
+            self.assertIn(service, services)
         self.assertIn("../../migrations/postgres", compose)
         self.assertIn("../../migrations/clickhouse", compose)
+        self.assertIn("RESTARTING", compose)
+        self.assertIn("RECONCILING", compose)
+
+    def test_flink_job_computes_sector_and_volume_features(self):
+        sql = (ROOT / "deploy/flink/sql/realtime_features.sql").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("market.quote.snapshot.v1", sql)
+        self.assertIn("market.bar.1m.v1", sql)
+        self.assertIn("market.feature.realtime.v1", sql)
+        self.assertIn("sector_rise_ratio", sql)
+        self.assertIn("baseline_volume", sql)
+        self.assertIn("EXACTLY_ONCE", sql)
+        self.assertIn(
+            "'sink.transactional-id-prefix' = 'banxia-flink-sector-v1'",
+            sql,
+        )
+        self.assertIn(
+            "'sink.transactional-id-prefix' = 'banxia-flink-volume-v1'",
+            sql,
+        )
+
+    def test_kubernetes_has_runtime_controls_and_daily_job(self):
+        text = (ROOT / "deploy/kubernetes/base/platform.yaml").read_text(
+            encoding="utf-8"
+        )
+        manifests = tuple(yaml.safe_load_all(text))
+        kinds = {item["kind"] for item in manifests}
+        self.assertIn("Deployment", kinds)
+        self.assertIn("CronJob", kinds)
+        self.assertIn("PodDisruptionBudget", kinds)
+        self.assertIn("HorizontalPodAutoscaler", kinds)
+        self.assertIn("NetworkPolicy", kinds)
+        self.assertIn('"20 16 * * 1-5"', text)
+        self.assertIn("readinessProbe", text)
+        self.assertIn("resources:", text)
 
     def test_topic_initializer_matches_event_contract(self):
         script = (ROOT / "deploy/compose/kafka/create-topics.sh").read_text(

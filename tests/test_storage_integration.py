@@ -58,6 +58,87 @@ class StorageIntegrationTest(unittest.TestCase):
             ],
         }
 
+    def setUp(self):
+        self._cleanup_database()
+
+    def tearDown(self):
+        self._cleanup_database()
+
+    def _cleanup_database(self):
+        import psycopg
+
+        with psycopg.connect(self.settings.postgres_dsn) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    DELETE FROM banxia.inbox_event
+                    WHERE event_id IN (
+                        SELECT state.source_event_id
+                        FROM banxia.decision_state AS state
+                        JOIN banxia.strategy_plan AS plan
+                          ON plan.plan_id = state.plan_id
+                        JOIN banxia.strategy_version AS version
+                          ON version.strategy_version_id =
+                             plan.strategy_version_id
+                        WHERE version.version = 'integration-v1'
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    DELETE FROM banxia.outbox_event AS event
+                    WHERE event.event_id IN (
+                        SELECT decision.decision_event_id
+                        FROM banxia.decision_event AS decision
+                        JOIN banxia.strategy_plan AS plan
+                          ON plan.plan_id = decision.plan_id
+                        JOIN banxia.strategy_version AS version
+                          ON version.strategy_version_id =
+                             plan.strategy_version_id
+                        WHERE version.version = 'integration-v1'
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    DELETE FROM banxia.watchlist
+                    WHERE plan_id IN (
+                        SELECT plan.plan_id
+                        FROM banxia.strategy_plan AS plan
+                        JOIN banxia.strategy_version AS version
+                          ON version.strategy_version_id =
+                             plan.strategy_version_id
+                        WHERE version.version = 'integration-v1'
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    DELETE FROM banxia.strategy_plan
+                    WHERE strategy_version_id IN (
+                        SELECT strategy_version_id
+                        FROM banxia.strategy_version
+                        WHERE version = 'integration-v1'
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    DELETE FROM banxia.strategy_run
+                    WHERE strategy_version_id IN (
+                        SELECT strategy_version_id
+                        FROM banxia.strategy_version
+                        WHERE version = 'integration-v1'
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
+                    DELETE FROM banxia.strategy_version
+                    WHERE version = 'integration-v1'
+                    """
+                )
+
     def test_report_and_intraday_dual_write(self):
         import clickhouse_connect
         import psycopg
@@ -203,18 +284,35 @@ class StorageIntegrationTest(unittest.TestCase):
                     """
                     SELECT
                         (SELECT count(*) FROM banxia.strategy_run
-                         WHERE trade_date = '2099-01-02'),
+                         WHERE run_id = %s),
                         (SELECT count(*) FROM banxia.candidate
-                         WHERE symbol = '600001'),
+                         WHERE plan_id = %s AND symbol = '600001'),
                         (SELECT count(*) FROM banxia.report_asset
-                         WHERE object_key LIKE 'strategy_version=integration-v1/%'),
+                         WHERE run_id = %s),
                         (SELECT count(*) FROM banxia.decision_state
-                         WHERE symbol = '600001' AND state = 'watch'),
+                         WHERE plan_id = %s
+                           AND symbol = '600001'
+                           AND state = 'watch'),
                         (SELECT count(*) FROM banxia.decision_event
-                         WHERE symbol = '600001'),
-                        (SELECT count(*) FROM banxia.inbox_event),
-                        (SELECT count(*) FROM banxia.outbox_event)
-                    """
+                         WHERE plan_id = %s AND symbol = '600001'),
+                        (SELECT count(*) FROM banxia.inbox_event
+                         WHERE event_id = (
+                             SELECT source_event_id
+                             FROM banxia.decision_state
+                             WHERE plan_id = %s AND symbol = '600001'
+                         )),
+                        (SELECT count(*) FROM banxia.outbox_event
+                         WHERE aggregate_id = %s)
+                    """,
+                    (
+                        report_result.identity.run_id,
+                        report_result.identity.plan_id,
+                        report_result.identity.run_id,
+                        report_result.identity.plan_id,
+                        report_result.identity.plan_id,
+                        report_result.identity.plan_id,
+                        f"{report_result.identity.plan_id}:600001",
+                    ),
                 )
                 counts = cursor.fetchone()
         self.assertEqual(counts, (1, 1, 3, 1, 1, 1, 1))

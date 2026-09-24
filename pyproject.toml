@@ -19,9 +19,20 @@ storage = [
   "psycopg[binary,pool]>=3.2,<4",
   "redis>=5,<7",
 ]
+production = [
+  "clickhouse-connect>=0.8,<0.11",
+  "confluent-kafka>=2.6,<3",
+  "fastapi>=0.115,<1",
+  "minio>=7.2,<8",
+  "prometheus-client>=0.21,<1",
+  "psycopg[binary,pool]>=3.2,<4",
+  "redis>=5,<7",
+  "uvicorn[standard]>=0.32,<1",
+]
 
 [project.scripts]
 banxia-strategy = "banxia_strategy.cli:main"
+banxia-service = "banxia_strategy.service:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

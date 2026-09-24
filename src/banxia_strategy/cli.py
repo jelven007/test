@@ -84,6 +84,7 @@ def _run(args: argparse.Namespace) -> int:
         paths,
         strategy_config=asdict(config),
         settings=StorageSettings.from_env(),
+        enqueue_events=True,
     )
     print(
         f"{report.as_of}: {report.market['regime']}, "

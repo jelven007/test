@@ -129,6 +129,7 @@ class FakeRedisClient:
     def __init__(self):
         self.values = {}
         self.calls = []
+        self.sorted_values = {}
 
     def set(self, key, value, ex):
         self.values[key] = value
@@ -136,6 +137,33 @@ class FakeRedisClient:
 
     def get(self, key):
         return self.values.get(key)
+
+    def pipeline(self, transaction=True):
+        return self
+
+    def zadd(self, key, values):
+        bucket = self.sorted_values.setdefault(key, {})
+        bucket.update(values)
+        return self
+
+    def zremrangebyrank(self, _key, _start, _stop):
+        return self
+
+    def expire(self, _key, _ttl):
+        return self
+
+    def execute(self):
+        return []
+
+    def zrange(self, key, _start, _stop):
+        bucket = self.sorted_values.get(key, {})
+        return [
+            value
+            for value, _score in sorted(
+                bucket.items(),
+                key=lambda item: item[1],
+            )
+        ]
 
 
 class RedisAdapterTest(unittest.TestCase):
@@ -154,6 +182,50 @@ class RedisAdapterTest(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             cache.set_monitor_snapshot("2026-09-24", {}, 0)
+
+    def test_feature_projection_merges_independent_flink_outputs(self):
+        client = FakeRedisClient()
+        cache = RedisSnapshotCache(client=client)
+        sector = event(
+            "market.feature.realtime.v1",
+            {
+                "trade_date": "2026-09-24",
+                "symbol": "002635",
+                "sector_rise_ratio": 0.75,
+                "minute_volume_ratio": None,
+                "attributes": {"sector_sample_size": 4},
+            },
+        )
+        volume = event(
+            "market.feature.realtime.v1",
+            {
+                "trade_date": "2026-09-24",
+                "symbol": "002635",
+                "sector_rise_ratio": None,
+                "minute_volume_ratio": 2.5,
+                "attributes": {},
+            },
+            identity={"symbol": "002635", "feature": "volume"},
+        )
+        cache.set_latest_feature(sector, 90)
+        cache.set_latest_feature(volume, 90)
+        payload = cache.get_latest_feature("002635")["payload"]
+        self.assertEqual(payload["sector_rise_ratio"], 0.75)
+        self.assertEqual(payload["minute_volume_ratio"], 2.5)
+
+    def test_minute_bar_projection_round_trip(self):
+        client = FakeRedisClient()
+        cache = RedisSnapshotCache(client=client)
+        bar = event(
+            "market.bar.1m.v1",
+            {
+                "trade_date": "2026-09-24",
+                "symbol": "002635",
+                "bar_time": STAMP,
+            },
+        )
+        cache.append_minute_bar(bar, 90)
+        self.assertEqual(tuple(cache.get_minute_bars("002635")), (bar.to_dict(),))
 
 
 class FakeMinioClient:
@@ -333,6 +405,44 @@ class PostgresAdapterTest(unittest.TestCase):
         self.assertEqual(len(cursor.calls), 1)
         self.assertIn("ON CONFLICT DO NOTHING", cursor.calls[0][0])
 
+    def test_report_and_plan_events_are_enqueued_idempotently(self):
+        cursor = FakeCursor(
+            [
+                ("11111111-1111-1111-1111-111111111111",),
+                ("22222222-2222-2222-2222-222222222222",),
+                ("33333333-3333-3333-3333-333333333333",),
+                ("44444444-4444-4444-4444-444444444444",),
+            ]
+        )
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+        storage.persist_report(
+            {
+                "as_of": "2026-09-23",
+                "next_session": "2026-09-24",
+                "generated_at": "2026-09-23T16:20:00+08:00",
+                "candidates": [],
+            },
+            strategy_version="v1",
+            strategy_config={},
+            code_commit="abc123",
+            enqueue_events=True,
+        )
+        outbox_calls = [
+            call
+            for call in cursor.calls
+            if "INSERT INTO banxia.outbox_event" in call[0]
+        ]
+        self.assertEqual(len(outbox_calls), 2)
+        self.assertEqual(
+            {call[1][4] for call in outbox_calls},
+            {"strategy.plan.created.v1", "report.generated.v1"},
+        )
+        self.assertTrue(
+            all("ON CONFLICT (event_id)" in call[0] for call in outbox_calls)
+        )
+
     def test_decision_state_history_and_outbox_share_one_transaction(self):
         cursor = FakeCursor([("event-1",), None])
         storage = PostgresStorage(
@@ -372,7 +482,27 @@ class PostgresAdapterTest(unittest.TestCase):
         self.assertIn("INSERT INTO banxia.decision_event", statements[3])
         self.assertIn("INSERT INTO banxia.outbox_event", statements[4])
         self.assertEqual(cursor.calls[2][1][2], "watch")
-        self.assertEqual(cursor.calls[4][1][1], "strategy.decision.v1")
+        self.assertEqual(cursor.calls[4][1][2], "strategy.decision.v1")
+
+    def test_decision_inbox_uses_real_partition_and_offset(self):
+        cursor = FakeCursor([None])
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+        decision_event = event(
+            "strategy.decision.v1",
+            {"symbol": "002635", "plan_id": "plan"},
+        )
+        storage.apply(
+            input_event_id="event-1",
+            decision=object(),
+            outbox_event=decision_event,
+            topic="market.quote.snapshot.v1",
+            partition=7,
+            offset=42,
+        )
+        self.assertEqual(cursor.calls[0][1][2], "market.quote.snapshot.v1")
+        self.assertEqual(cursor.calls[0][1][3:], (7, 42))
 
 
 class FakeMarketStore:

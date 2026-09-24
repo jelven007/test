@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: flink-jobmanager
+  namespace: banxia
+spec:
+  selector: {app: banxia-flink, role: jobmanager}
+  ports:
+    - {name: rpc, port: 6123}
+    - {name: blob, port: 6124}
+    - {name: web, port: 8081}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-jobmanager
+  namespace: banxia
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: banxia-flink, role: jobmanager}
+  template:
+    metadata:
+      labels: {app: banxia-flink, role: jobmanager}
+    spec:
+      containers:
+        - name: jobmanager
+          image: banxia-flink:1.20.1
+          args: [jobmanager]
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: BANXIA_MINIO_ACCESS_KEY}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: BANXIA_MINIO_SECRET_KEY}
+            - name: FLINK_PROPERTIES
+              value: |
+                jobmanager.rpc.address: flink-jobmanager
+                parallelism.default: 4
+                state.backend.type: hashmap
+                state.checkpoints.dir: s3p://flink-state/checkpoints
+                state.savepoints.dir: s3p://flink-state/savepoints
+                s3.endpoint: https://minio.strategy.svc:9000
+                s3.path.style.access: true
+                metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+                metrics.reporter.prom.port: 9249
+          ports:
+            - {name: rpc, containerPort: 6123}
+            - {name: web, containerPort: 8081}
+            - {name: metrics, containerPort: 9249}
+          readinessProbe:
+            httpGet: {path: /overview, port: web}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /overview, port: web}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: "2", memory: 2Gi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-taskmanager
+  namespace: banxia
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: banxia-flink, role: taskmanager}
+  template:
+    metadata:
+      labels: {app: banxia-flink, role: taskmanager}
+    spec:
+      containers:
+        - name: taskmanager
+          image: banxia-flink:1.20.1
+          args: [taskmanager]
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: BANXIA_MINIO_ACCESS_KEY}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: BANXIA_MINIO_SECRET_KEY}
+            - name: FLINK_PROPERTIES
+              value: |
+                jobmanager.rpc.address: flink-jobmanager
+                taskmanager.numberOfTaskSlots: 4
+                parallelism.default: 4
+                state.backend.type: hashmap
+                state.checkpoints.dir: s3p://flink-state/checkpoints
+                state.savepoints.dir: s3p://flink-state/savepoints
+                s3.endpoint: https://minio.strategy.svc:9000
+                s3.path.style.access: true
+                metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+                metrics.reporter.prom.port: 9249
+          ports:
+            - {name: metrics, containerPort: 9249}
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: "1", memory: 2Gi}
+            limits: {cpu: "4", memory: 4Gi}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flink-feature-job-v1
+  namespace: banxia
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels: {app: banxia-flink-submitter}
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: submit
+          image: banxia-flink:1.20.1
+          command: [bash, -ec]
+          args:
+            - |
+              until curl --fail http://flink-jobmanager:8081/overview; do sleep 2; done
+              sed "s|__KAFKA_BOOTSTRAP_SERVERS__|${KAFKA_BOOTSTRAP_SERVERS}|g" \
+                /opt/banxia/sql/realtime_features.sql >/tmp/realtime_features.sql
+              flink sql-client -f /tmp/realtime_features.sql
+          env:
+            - {name: KAFKA_BOOTSTRAP_SERVERS, value: "kafka.strategy.svc:9093"}
+            - name: FLINK_PROPERTIES
+              value: |
+                jobmanager.rpc.address: flink-jobmanager
+                parallelism.default: 4
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 1Gi}

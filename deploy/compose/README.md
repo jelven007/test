@@ -9,8 +9,13 @@
 - Redis 7.4
 - MinIO
 - Kafka 3.9 单节点 KRaft
+- Flink 1.20 JobManager、TaskManager 和实时特征作业
+- `market-collector`、`market-sink`、`strategy-engine`、`outbox-relay`
+- `projection-worker`、FastAPI 与 Prometheus
 
-Flink 在 P4 阶段接入，不属于当前基础设施迭代。
+默认实时指标由 Flink 生成。仅在排查 Flink 故障时，使用
+`--profile python-feature-fallback` 启动确定性的 Python 降级 Worker，
+不要同时运行两套特征生产者。
 
 ## 启动
 
@@ -20,6 +25,15 @@ make infra-config
 make infra-up
 make infra-status
 make infra-check
+```
+
+日报 Worker 是一次性任务，不随常驻服务自动运行：
+
+```bash
+docker compose \
+  --env-file deploy/compose/.env \
+  -f deploy/compose/docker-compose.yml \
+  --profile jobs run --rm report-worker
 ```
 
 应用侧适配器依赖和环境变量：
@@ -47,6 +61,9 @@ export BANXIA_STORAGE_MODE=best_effort
 | MinIO API | `http://127.0.0.1:9002` |
 | MinIO Console | `http://127.0.0.1:9001` |
 | Kafka | `127.0.0.1:29092` |
+| Flink | `http://127.0.0.1:8081` |
+| Strategy API | `http://127.0.0.1:8765` |
+| Prometheus | `http://127.0.0.1:9090` |
 
 默认凭证只允许本地开发。共享环境必须修改 `.env`，生产环境必须使用密钥管理服务。
 

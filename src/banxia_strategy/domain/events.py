@@ -88,5 +88,45 @@ class EventEnvelope:
             payload=dict(normalized_payload),
         )
 
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> "EventEnvelope":
+        required = {
+            "event_id",
+            "event_type",
+            "schema_version",
+            "occurred_at",
+            "published_at",
+            "producer",
+            "trace_id",
+            "payload",
+        }
+        missing = sorted(required - set(value))
+        if missing:
+            raise ValueError(f"event envelope missing fields: {', '.join(missing)}")
+        payload = value["payload"]
+        if not isinstance(payload, Mapping):
+            raise ValueError("event payload must be an object")
+        for field in ("occurred_at", "published_at"):
+            parsed = datetime.fromisoformat(str(value[field]))
+            if parsed.tzinfo is None:
+                raise ValueError(f"{field} must include a timezone")
+        schema_version = int(value["schema_version"])
+        if schema_version < 1:
+            raise ValueError("schema_version must be positive")
+        event_type = str(value["event_type"])
+        event_id = str(value["event_id"])
+        if len(event_id) != 64:
+            raise ValueError("event_id must be a sha256 hex digest")
+        return cls(
+            event_id=event_id,
+            event_type=event_type,
+            schema_version=schema_version,
+            occurred_at=str(value["occurred_at"]),
+            published_at=str(value["published_at"]),
+            producer=str(value["producer"]),
+            trace_id=str(value["trace_id"]),
+            payload=dict(payload),
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

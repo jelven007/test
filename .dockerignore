@@ -1,0 +1,10 @@
+.git
+.venv
+build
+data
+logs
+reports
+scheduled_reports
+**/__pycache__
+**/*.pyc
+deploy/compose/.env

@@ -230,6 +230,14 @@ class ClickHouseMarketHistoryStore:
             )
         self._insert("banxia.market_feature_realtime", rows, FEATURE_COLUMNS)
 
+    def ready(self) -> bool:
+        try:
+            result = self.client.query("SELECT 1")
+            rows = getattr(result, "result_rows", ())
+            return bool(rows and rows[0][0] == 1)
+        except Exception:
+            return False
+
     def close(self) -> None:
         close = getattr(self.client, "close", None)
         if close is not None:

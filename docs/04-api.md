@@ -5,7 +5,7 @@
 当前仓库暴露无版本的本地接口 `/api/*`。生产化目标接口统一使用 `/api/v1/*`，契约见
 [OpenAPI](openapi.yaml)。Kafka 事件契约见 [AsyncAPI](asyncapi.yaml)。
 
-目标接口在代码实现和契约测试通过前均为 `TARGET`，不得对外宣称已经可用。
+版本化接口已经由 FastAPI 实现；`docs/openapi.yaml` 是对外契约基线。
 
 ## 2. 通用约定
 
@@ -105,7 +105,7 @@ X-Request-ID: 5b60f996-3be1-4d53-9988-7a9825d187af
 
 迁移期保留这些路径，但只作为 `/api/v1` 的兼容代理。Web 前端迁移完成后再删除。
 
-## 4. TARGET HTTP 接口
+## 4. HTTP 接口
 
 ### 4.1 健康与状态
 

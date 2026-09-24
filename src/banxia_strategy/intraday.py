@@ -10,7 +10,7 @@ from collections import deque
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from .domain.intraday import (
     ACTIVE_PHASES,

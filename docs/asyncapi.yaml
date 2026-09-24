@@ -3,7 +3,7 @@ info:
   title: Banxia Strategy Event API
   version: 1.0.0
   description: |
-    一进二策略研究系统 TARGET Kafka 事件契约。所有事件至少一次投递，
+    一进二策略研究系统 Kafka 事件契约。所有事件至少一次投递，
     消费者必须通过 event_id 或业务唯一键实现幂等。
 defaultContentType: application/json
 servers:
@@ -288,15 +288,21 @@ components:
       required:
         - trade_date
         - symbol
+        - feature_name
         - feature_version
+        - window_start
         - window_end
+        - computed_at
         - data_state
+        - max_input_time
       properties:
         trade_date:
           type: string
           format: date
         symbol:
           $ref: "#/components/schemas/Symbol"
+        feature_name:
+          type: string
         feature_version:
           type: string
         window_start:
@@ -305,6 +311,14 @@ components:
         window_end:
           type: string
           format: date-time
+        computed_at:
+          type: string
+          format: date-time
+        value:
+          type: number
+        attributes:
+          type: object
+          additionalProperties: true
         minute_volume_ratio:
           type: number
         sector_rise_ratio:

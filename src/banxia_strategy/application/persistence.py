@@ -78,6 +78,7 @@ def persist_report_copy(
     *,
     strategy_config: Mapping[str, Any],
     settings: StorageSettings,
+    enqueue_events: bool = False,
 ) -> PersistenceResult:
     """Mirror local reports to MinIO and register their metadata in PostgreSQL."""
     if not settings.enabled:
@@ -126,6 +127,7 @@ def persist_report_copy(
                 strategy_config=strategy_config,
                 code_commit=settings.code_commit,
                 assets=assets,
+                enqueue_events=enqueue_events,
             )
         except Exception as exc:
             errors.append(f"postgres:report: {exc}")
@@ -169,6 +171,8 @@ def _quote_event(
     payload = {
         "trade_date": source_time.date().isoformat(),
         "symbol": stock["code"],
+        "name": stock.get("name"),
+        "industry": stock.get("industry"),
         "source_time": source_time,
         "collected_at": collected_at,
         "price": quote.get("price"),

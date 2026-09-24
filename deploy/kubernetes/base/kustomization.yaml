@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - platform.yaml
+  - flink.yaml
+images:
+  - name: banxia-strategy
+    newName: ghcr.io/jelven007/banxia-strategy
+    newTag: latest
+  - name: banxia-flink
+    newName: ghcr.io/jelven007/banxia-flink
+    newTag: 1.20.1

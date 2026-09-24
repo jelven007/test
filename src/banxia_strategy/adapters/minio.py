@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import timedelta
 from io import BytesIO
 from pathlib import PurePosixPath
 from typing import Any, Dict, Optional
@@ -97,6 +98,28 @@ class MinioObjectAssetStore:
             content_type=content_type,
             size_bytes=len(content),
         )
+
+    def presigned_get_url(
+        self,
+        object_key: str,
+        *,
+        expires_seconds: int = 300,
+    ) -> str:
+        if expires_seconds <= 0:
+            raise ValueError("expires_seconds must be positive")
+        return str(
+            self.client.presigned_get_object(
+                self.bucket,
+                self._validate_key(object_key),
+                expires=timedelta(seconds=expires_seconds),
+            )
+        )
+
+    def ready(self) -> bool:
+        try:
+            return bool(self.client.bucket_exists(self.bucket))
+        except Exception:
+            return False
 
     def close(self) -> None:
         close = getattr(self.client, "close", None)
