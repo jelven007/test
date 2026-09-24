@@ -8,7 +8,8 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
-from banxia_strategy.web_server import ReportStore, make_server
+from banxia_strategy.intraday import WATCH_CODES
+from banxia_strategy.web_server import ReportStore, make_server, select_watch_report
 
 
 def report(as_of: str, generated_at: str, candidate_count: int = 1):
@@ -43,6 +44,18 @@ def write_report(root: Path, payload):
 
 
 class ReportStoreTest(unittest.TestCase):
+    def test_watch_report_selection_requires_only_original_stocks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            baseline = report("2026-09-23", "2026-09-23T16:20:00+08:00")
+            baseline["candidates"] = [{"code": code} for code in WATCH_CODES]
+            write_report(root, baseline)
+            write_report(root, report("2026-09-24", "2026-09-24T16:20:00+08:00"))
+            store = ReportStore([root])
+            self.assertEqual(select_watch_report(store)["as_of"], "2026-09-23")
+            self.assertEqual(select_watch_report(store, "2026-09-24")["as_of"], "2026-09-24")
+            self.assertIsNone(select_watch_report(store, "2026-09-20"))
+
     def test_lists_reports_newest_first_and_loads_latest(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

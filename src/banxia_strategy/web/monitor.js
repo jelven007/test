@@ -23,6 +23,11 @@ function element(tag, text, className) {
   return node;
 }
 function changeClass(value) { return Number(value) > 0 ? "up" : Number(value) < 0 ? "down" : ""; }
+function originLabel(stock) {
+  return stock.origin === "supplement"
+    ? `盘中补充${stock.plan.eligible === false ? " · 仅观察" : ""}`
+    : `日报入选${numeric(stock.score) ? ` · ${stock.score}分` : ""}`;
+}
 
 function renderRows(data) {
   const rows = byId("watch-rows");
@@ -43,7 +48,10 @@ function renderRows(data) {
     button.type = "button";
     button.setAttribute("aria-pressed", String(stock.code === selected));
     button.setAttribute("aria-label", `查看${stock.name}分时与执行细则`);
-    button.append(element("strong", stock.name), element("small", `${stock.code} · ${stock.score}分`));
+    button.append(
+      element("strong", stock.name), element("small", stock.code),
+      element("small", originLabel(stock)),
+    );
     button.addEventListener("click", () => {
       selected = stock.code;
       renderRows(latest);
@@ -128,6 +136,9 @@ function renderDetail(stock) {
   write("detail-advice", stock.advice.label);
   byId("detail-advice").dataset.tone = stock.advice.tone;
   write("detail-reason", stock.advice.reason);
+  write("detail-provenance", `${originLabel(stock)} · 昨收日期 ${stock.reference_date ?? "—"} · 计划交易日 ${stock.plan_date ?? "—"}`);
+  write("detail-eligibility", p.eligibility_reason);
+  byId("detail-eligibility").dataset.tone = p.eligible === false ? "risk" : "muted";
   write("detail-high", price(q.high));
   write("detail-low", price(q.low));
   write("detail-amount", numeric(q.amount) ? `${(q.amount / 100000000).toFixed(2)}亿` : "—");
@@ -163,10 +174,16 @@ function render(data) {
   write("phase", data.phase_label);
   write("collected", clock(data.collected_at));
   write("plan-date", data.plan_date);
+  const watchlist = data.watchlist || data.stocks;
+  write("watch-count", String(data.requested_codes?.length ?? watchlist.length).padStart(2, "0"));
+  write("scope", watchlist.map((stock) => stock.name).join(" / "));
+  write("watch-heading", `${data.requested_codes?.length ?? watchlist.length}只股票观察清单`);
   write("revision", String(data.revision));
   const fault = data.error || (data.delayed ? "后台采集已延迟，暂停入场判断。" : "");
-  const expired = data.plan_date && data.plan_date !== data.server_time.slice(0, 10);
-  const banner = fault || (expired ? "计划交易日与当前日期不匹配，请更新监控使用的日报。" : "") ||
+  const today = data.server_time.slice(0, 10);
+  const expired = (data.plan_date && data.plan_date !== today) ||
+    data.stocks.some((stock) => stock.plan_date && stock.plan_date !== today);
+  const banner = fault || (expired ? "部分股票计划已过期，已暂停其入场判断；请更新对应日报或补充清单。" : "") ||
     (data.log_error ? "行情已更新，但本地日志写入失败。" : "");
   byId("monitor-error").hidden = !banner;
   write("monitor-error", banner);

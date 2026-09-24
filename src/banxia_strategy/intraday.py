@@ -42,6 +42,42 @@ def price_at(close, pct):
     return float(result.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+def load_watchlist(path):
+    """读取独立补充清单，不改写原日报及其评分。"""
+    if path is None:
+        return []
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("candidates"), list):
+        raise ValueError("监控补充清单必须包含 candidates 数组")
+    for key in ("as_of", "next_session"):
+        datetime.strptime(payload.get(key, ""), "%Y-%m-%d")
+    if payload["next_session"] <= payload["as_of"]:
+        raise ValueError("监控计划交易日必须晚于昨收日期")
+    if payload.get("data_source") != "mootdx":
+        raise ValueError("监控补充数据必须来自 mootdx")
+    result = []
+    codes = set()
+    for item in payload["candidates"]:
+        if not isinstance(item, dict):
+            raise ValueError("补充股票必须为对象")
+        code = item.get("code", "")
+        if not isinstance(code, str) or not re.fullmatch(r"\d{6}", code) or code in codes:
+            raise ValueError("补充股票代码必须为不重复的六位字符串")
+        if not item.get("name") or number(item.get("latest_price"), 0) <= 0:
+            raise ValueError(f"{code} 缺少股票名称或有效昨收")
+        if not isinstance(item.get("eligible"), bool) or not item.get("eligibility_reason"):
+            raise ValueError(f"{code} 缺少静态筛选结果或依据")
+        if any(not isinstance(item.get(key), str) for key in ("entry_trigger", "invalidation")):
+            raise ValueError(f"{code} 缺少入场和放弃条件")
+        codes.add(code)
+        result.append({
+            **item, "score": None, "origin": "supplement",
+            "reference_date": payload["as_of"], "plan_date": payload["next_session"],
+            "verified_at": payload.get("verified_at"), "data_source": payload["data_source"],
+        })
+    return result
+
+
 def phase_at(now):
     if now.weekday() >= 5:
         return "weekend"
@@ -91,6 +127,8 @@ def plan_for(candidate):
         "position_limit_pct": candidate.get("position_limit_pct"),
         "entry_trigger": candidate.get("entry_trigger"),
         "invalidation": candidate.get("invalidation"),
+        "eligible": candidate.get("eligible", True),
+        "eligibility_reason": candidate.get("eligibility_reason", "原日报入选候选，仍需通过盘中条件。"),
     }
 
 
@@ -159,6 +197,8 @@ def evaluate(quote, plan, now, plan_date):
     phase = phase_at(now)
     if plan_date != now.date().isoformat():
         return advice("expired", "计划日期不匹配", "当前行情不属于这份次日计划，暂停入场判断。", "muted")
+    if plan.get("eligible") is False:
+        return advice("ineligible", "不参与 · 静态门槛未通过", plan["eligibility_reason"], "muted")
     if phase in ("pre", "weekend"):
         return advice("pre", "等待竞价", "尚无可执行的竞价结果；当前不挂买单。")
     if phase in ("lunch", "closed"):
@@ -234,10 +274,21 @@ class MootdxLiveSource:
 
 
 class IntradayMonitor:
-    def __init__(self, report, codes=WATCH_CODES, source=None, interval=60, log_dir=None, clock=None):
+    def __init__(self, report, codes=WATCH_CODES, source=None, interval=60, log_dir=None, clock=None,
+                 supplements=None):
         self.report = copy.deepcopy(report or {})
-        self.codes = tuple(codes)
-        candidates = {item["code"]: item for item in self.report.get("candidates", [])}
+        candidates = {
+            item["code"]: {
+                **item, "origin": "report", "reference_date": self.report.get("as_of"),
+                "plan_date": self.report.get("next_session"),
+            }
+            for item in self.report.get("candidates", [])
+        }
+        additions = copy.deepcopy(supplements or [])
+        self.codes = tuple(dict.fromkeys([*codes, *(item["code"] for item in additions)]))
+        for item in additions:
+            # 同代码优先沿用原日报，避免补充配置覆盖原评分与规则。
+            candidates.setdefault(item["code"], item)
         self.candidates = [candidates[code] for code in self.codes if code in candidates]
         self.source = source or MootdxLiveSource()
         self.interval = interval
@@ -273,7 +324,8 @@ class IntradayMonitor:
         next_poll = (started + timedelta(seconds=self.interval)).isoformat(timespec="seconds")
         try:
             if len(self.candidates) != len(self.codes):
-                raise RuntimeError("所选日报未包含全部监控股票，请指定包含这三只的 --watch-date")
+                missing = sorted(set(self.codes) - {item["code"] for item in self.candidates})
+                raise RuntimeError(f"日报和补充清单未包含监控股票：{', '.join(missing)}，请检查 --watch-date")
             batch = self.source.fetch(self.codes)
             now = self.clock()
             stocks = []
@@ -282,12 +334,14 @@ class IntradayMonitor:
                 item = batch.get(code, {})
                 plan = plan_for(candidate)
                 quote = normalize_quote(item.get("quote", {}), item.get("bars", []), now, plan)
-                decision = evaluate(quote, plan, now, self.report.get("next_session"))
+                decision = evaluate(quote, plan, now, candidate.get("plan_date"))
                 if item.get("error") or not item.get("quote"):
                     decision = advice("unavailable", "行情读取失败", item.get("error", "没有该股票数据"), "risk")
                 stocks.append({
                     "code": code, "name": candidate["name"], "industry": candidate.get("industry"),
                     "score": candidate.get("score"), "plan": plan, "quote": quote, "advice": decision,
+                    "origin": candidate["origin"], "reference_date": candidate.get("reference_date"),
+                    "plan_date": candidate.get("plan_date"), "verified_at": candidate.get("verified_at"),
                 })
             with self.lock:
                 old = {stock["code"]: stock["advice"]["state"] for stock in self.data["stocks"]}
@@ -340,6 +394,7 @@ class IntradayMonitor:
             report_date=self.report.get("as_of"), plan_date=self.report.get("next_session"),
             source="mootdx", age_seconds=round(age, 1) if age is not None else None,
             delayed=delayed, events=events, requested_codes=list(self.codes),
+            watchlist=[{"code": item["code"], "name": item["name"]} for item in self.candidates],
         )
         for stock in data["stocks"]:
             if data["error"] or delayed:
@@ -364,5 +419,5 @@ class IntradayMonitor:
                     and (phase not in ("morning", "afternoon") or
                          (bar_age is not None and 0 <= bar_age <= 180))
                 )
-                stock["advice"] = evaluate(quote, stock["plan"], now, self.report.get("next_session"))
+                stock["advice"] = evaluate(quote, stock["plan"], now, stock["plan_date"])
         return data

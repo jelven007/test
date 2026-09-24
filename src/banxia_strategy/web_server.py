@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib.parse import unquote, urlparse
 
-from .intraday import IntradayMonitor, WATCH_CODES
+from .intraday import IntradayMonitor, WATCH_CODES, load_watchlist
 
 
 REPORT_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -180,23 +180,30 @@ def make_server(
     return ThreadingHTTPServer((host, port), make_handler(store, static_root, monitor))
 
 
+def select_watch_report(store, watch_date=None):
+    if watch_date is not None:
+        return store.get(watch_date)
+    # 补充股票有独立的昨收及计划，不要求它们出现在原日报。
+    for summary in store.list_reports():
+        report = store.get(summary["as_of"])
+        if set(WATCH_CODES).issubset(item["code"] for item in report["candidates"]):
+            return report
+    return None
+
+
 def serve_dashboard(
     report_roots: Sequence[Path],
     host: str = "127.0.0.1",
     port: int = 8765,
     watch_date: Optional[str] = None,
     monitor_log_dir: Optional[Path] = Path("logs/intraday"),
+    watchlist_path: Optional[Path] = Path("config/monitor_watchlist.json"),
 ) -> None:
     store = ReportStore(report_roots)
-    report = store.get(watch_date) if watch_date else None
-    if watch_date is None:
-        for summary in store.list_reports():
-            candidate_report = store.get(summary["as_of"])
-            codes = {item["code"] for item in candidate_report["candidates"]}
-            if set(WATCH_CODES).issubset(codes):
-                report = candidate_report
-                break
-    monitor = IntradayMonitor(report, log_dir=monitor_log_dir)
+    report = select_watch_report(store, watch_date)
+    monitor = IntradayMonitor(
+        report, log_dir=monitor_log_dir, supplements=load_watchlist(watchlist_path),
+    )
     server = make_server(report_roots, host, port, monitor)
     monitor.start()
     actual_host, actual_port = server.server_address[:2]

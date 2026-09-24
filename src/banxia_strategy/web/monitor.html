@@ -17,8 +17,8 @@
     </header>
     <main class="monitor-main">
       <section class="monitor-title">
-        <div><p class="eyebrow">INTRADAY WATCH</p><h1>盘中监控<span>03</span></h1>
-          <p id="scope">安洁科技 / 依顿电子 / 威星智能</p></div>
+        <div><p class="eyebrow">INTRADAY WATCH</p><h1>盘中监控<span id="watch-count">—</span></h1>
+          <p id="scope">正在读取观察清单</p></div>
         <div class="sync-tools">
           <span id="connection" role="status">正在连接监控</span>
           <button id="sync-button" type="button">同步页面</button>
@@ -33,14 +33,14 @@
         <div><span>已采集轮次</span><strong id="revision">—</strong></div>
       </section>
       <section aria-labelledby="watch-heading">
-        <div class="monitor-section-title"><h2 id="watch-heading">三股观察清单</h2><p>以下判断针对尚未买入的仓位</p></div>
+        <div class="monitor-section-title"><h2 id="watch-heading">股票观察清单</h2><p>以下判断针对尚未买入的仓位</p></div>
         <div class="table-scroll" tabindex="0" role="region" aria-label="股票实时行情与建议">
           <table class="watch-table">
-            <thead><tr><th>股票 / 昨日评分</th><th>最新价</th><th>涨跌幅</th><th>今日开盘</th><th>盘口时间</th><th>当前建议与依据</th></tr></thead>
+            <thead><tr><th>股票 / 入选来源</th><th>最新价</th><th>涨跌幅</th><th>今日开盘</th><th>盘口时间</th><th>当前建议与依据</th></tr></thead>
             <tbody id="watch-rows"><tr><td colspan="6" class="waiting-cell">等待后台首次采集，行情到达后自动显示。</td></tr></tbody>
           </table>
         </div>
-        <p class="table-footnote">点选股票查看分时与执行细则。评分来自昨日日报，不代表实时胜率；盘前零报价显示为“—”。</p>
+        <p class="table-footnote">点选股票查看分时与执行细则。日报评分不代表实时胜率；盘中补充股票未参与原日报评分，静态门槛未通过者仅作观察。</p>
       </section>
       <section id="stock-detail" class="stock-detail" hidden aria-labelledby="detail-name">
         <div class="chart-section">
@@ -57,6 +57,8 @@
         </div>
         <div class="decision-section">
           <p class="eyebrow">当前判断</p><h2 id="detail-advice"></h2><p id="detail-reason"></p>
+          <p id="detail-provenance"></p>
+          <p id="detail-eligibility"></p>
           <dl class="execution-values">
             <div><dt>昨收基准</dt><dd id="detail-close">—</dd></div>
             <div><dt>竞价观察区间（估算）</dt><dd id="detail-auction">—</dd></div>

@@ -8,8 +8,8 @@
 .monitor-title { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 24px; }
 .monitor-title h1 { font-size: 36px; margin-bottom: 10px; }
 .monitor-title h1 span { margin-left: 14px; color: var(--green); font: 18px var(--mono); vertical-align: middle; }
-#scope { color: var(--muted); font-size: 12px; margin: 0; }
-.sync-tools { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px 14px; text-align: right; }
+#scope { color: var(--muted); font-size: 12px; margin: 0; max-width: 660px; line-height: 1.8; }
+.sync-tools { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px 14px; text-align: right; flex-shrink: 0; }
 #connection { font-size: 12px; color: var(--green); }
 #connection[data-error="true"] { color: var(--red); }
 #connection::before { display: inline-block; content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 7px; }
@@ -70,6 +70,8 @@
 .metric-note { color: var(--muted); font-size: 10px; margin-bottom: 0; }
 .decision-section h2 { margin-bottom: 10px; font-size: 23px; line-height: 1.4; }
 #detail-reason { font-size: 13px; line-height: 1.8; color: #505a54; }
+#detail-provenance, #detail-eligibility { font-size: 11px; line-height: 1.8; margin: 8px 0; }
+#detail-provenance { color: var(--muted); }
 .execution-values { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 22px 0; }
 .execution-values dt { font-size: 10px; color: var(--muted); margin-bottom: 4px; }
 .execution-values dd { margin: 0; font: 15px var(--mono); }

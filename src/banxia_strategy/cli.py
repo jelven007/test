@@ -55,6 +55,10 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--port", type=int, default=8765, help="Listening port")
     serve.add_argument("--watch-date", type=_parse_date, help="盘中监控使用的日报日期，格式 YYYY-MM-DD")
     serve.add_argument(
+        "--watchlist", type=Path, default=Path("config/monitor_watchlist.json"),
+        help="补充监控清单，包含独立的昨收、计划日期及静态筛选结果",
+    )
+    serve.add_argument(
         "--monitor-log-dir", type=Path, default=Path("logs/intraday"),
         help="每分钟行情与判断日志的保存目录",
     )
@@ -112,6 +116,7 @@ def _serve(args: argparse.Namespace) -> int:
         report_dirs, args.host, args.port,
         watch_date=args.watch_date.isoformat() if args.watch_date else None,
         monitor_log_dir=args.monitor_log_dir,
+        watchlist_path=args.watchlist,
     )
     return 0
 

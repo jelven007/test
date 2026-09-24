@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.request import urlopen
 
 from banxia_strategy.intraday import (
-    SHANGHAI, IntradayMonitor, evaluate, normalize_quote, phase_at, plan_for,
+    SHANGHAI, WATCH_CODES, IntradayMonitor, evaluate, load_watchlist, normalize_quote, phase_at, plan_for,
 )
 from banxia_strategy.web_server import make_server
 
@@ -242,6 +242,108 @@ class MonitorTest(unittest.TestCase):
             self.assertEqual(data["stocks"][0]["quote"]["price"], 17.5)
             self.assertNotIn("candles", data["stocks"][0]["quote"])
             self.assertTrue(self.monitor.snapshot()["stocks"][0]["quote"]["candles"])
+
+
+class SupplementalWatchlistTest(unittest.TestCase):
+    def setUp(self):
+        self.now = datetime(2026, 9, 24, 9, 45, tzinfo=SHANGHAI)
+        self.additions = load_watchlist(
+            Path(__file__).resolve().parents[1] / "config/monitor_watchlist.json"
+        )
+        self.report = {
+            **report(), "candidates": [{**candidate(), "code": code} for code in WATCH_CODES],
+        }
+
+    def monitor(self, additions=None):
+        additions = self.additions if additions is None else additions
+        records = self.report["candidates"] + additions
+        quotes = {}
+        for item in records:
+            close = item["latest_price"]
+            limit = plan_for(item)["limit_price"]
+            quotes[item["code"]] = {
+                "quote": {
+                    **raw_quote(), "price": limit, "open": close * 1.02, "low": close,
+                    "high": limit, "last_close": close, "bid1": limit, "ask1": 0,
+                },
+                "bars": [{**bar, "close": limit} for bar in bars()],
+            }
+        source = FakeSource()
+        source.fetch = lambda codes: {code: quotes[code] for code in codes}
+        return IntradayMonitor(
+            self.report, supplements=additions, source=source, clock=lambda: self.now,
+        )
+
+    def test_eight_stocks_keep_original_scores_and_supplement_provenance(self):
+        original = json.dumps(self.report)
+        monitor = self.monitor()
+        monitor.poll_once()
+        state = monitor.snapshot()
+        self.assertIsNone(state["error"])
+        self.assertEqual(state["requested_codes"], [
+            *WATCH_CODES, "002909", "002819", "002119", "603396", "600293",
+        ])
+        self.assertEqual(len(state["stocks"]), 8)
+        self.assertEqual(len(state["watchlist"]), 8)
+        self.assertEqual(state["interval_seconds"], 60)
+        self.assertEqual(state["stocks"][0]["score"], candidate()["score"])
+        for stock in state["stocks"][3:]:
+            self.assertIsNone(stock["score"])
+            self.assertEqual(stock["origin"], "supplement")
+            self.assertEqual(stock["reference_date"], "2026-09-23")
+        self.assertEqual(json.dumps(self.report), original)
+
+    def test_static_rejection_survives_sealed_quote_and_snapshot_reevaluation(self):
+        monitor = self.monitor()
+        monitor.poll_once()
+        for _ in range(2):
+            stocks = {stock["code"]: stock for stock in monitor.snapshot()["stocks"]}
+            self.assertEqual(stocks["002909"]["advice"]["state"], "sealed")
+            rejected = stocks["603396"]
+            self.assertEqual(rejected["advice"]["state"], "ineligible")
+            self.assertIn("2亿元", rejected["advice"]["reason"])
+            self.assertEqual(rejected["plan"]["position_limit_pct"], 0)
+        monitor.source.fetch = lambda codes: (_ for _ in ()).throw(RuntimeError("测试断线"))
+        monitor.poll_once()
+        rejected = next(s for s in monitor.snapshot()["stocks"] if s["code"] == "603396")
+        self.assertFalse(rejected["plan"]["eligible"])
+        self.assertIn("2亿元", rejected["plan"]["eligibility_reason"])
+
+    def test_supplement_plan_date_is_independent_from_report(self):
+        self.additions[0]["plan_date"] = "2026-09-25"
+        monitor = self.monitor()
+        monitor.poll_once()
+        stocks = {stock["code"]: stock for stock in monitor.snapshot()["stocks"]}
+        self.assertEqual(stocks["002635"]["advice"]["state"], "sealed")
+        self.assertEqual(stocks["002909"]["advice"]["state"], "expired")
+
+    def test_duplicate_supplement_keeps_report_rules_and_single_row(self):
+        duplicate = {**self.additions[0], "code": WATCH_CODES[0], "eligible": False}
+        monitor = self.monitor([duplicate])
+        self.assertEqual(len(monitor.codes), 3)
+        self.assertEqual(monitor.candidates[0]["score"], candidate()["score"])
+        self.assertEqual(monitor.candidates[0]["latest_price"], candidate()["latest_price"])
+        self.assertEqual(monitor.candidates[0]["origin"], "report")
+
+    def test_missing_eligibility_or_duplicate_code_is_rejected(self):
+        for edits in ("missing_eligibility", "duplicate", "invalid_close", "invalid_date"):
+            with self.subTest(edits=edits), tempfile.TemporaryDirectory() as directory:
+                payload = {
+                    "as_of": "2026-09-23", "next_session": "2026-09-24",
+                    "data_source": "mootdx", "candidates": [dict(self.additions[0])],
+                }
+                if edits == "missing_eligibility":
+                    payload["candidates"][0].pop("eligible")
+                elif edits == "duplicate":
+                    payload["candidates"].append(dict(self.additions[0]))
+                elif edits == "invalid_close":
+                    payload["candidates"][0]["latest_price"] = 0
+                else:
+                    payload["next_session"] = "2026-09-22"
+                path = Path(directory) / "watchlist.json"
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    load_watchlist(path)
 
 
 if __name__ == "__main__":
