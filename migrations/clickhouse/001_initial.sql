@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS banxia.market_quote_snapshot
 ENGINE = ReplacingMergeTree(ingest_version)
 PARTITION BY toYYYYMM(trade_date)
 ORDER BY (trade_date, symbol, source_time, event_id)
-TTL source_time + INTERVAL 90 DAY DELETE
+TTL toDateTime(source_time) + INTERVAL 90 DAY DELETE
 SETTINGS index_granularity = 8192;
 
 CREATE TABLE IF NOT EXISTS banxia.market_bar_1m
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS banxia.market_bar_1m
 ENGINE = ReplacingMergeTree(revision)
 PARTITION BY toYYYYMM(trade_date)
 ORDER BY (trade_date, symbol, bar_time)
-TTL bar_time + INTERVAL 5 YEAR DELETE
+TTL toDateTime(bar_time) + INTERVAL 5 YEAR DELETE
 SETTINGS index_granularity = 8192;
 
 CREATE TABLE IF NOT EXISTS banxia.market_feature_realtime
@@ -76,25 +76,25 @@ ORDER BY (
     window_end,
     event_id
 )
-TTL window_end + INTERVAL 2 YEAR DELETE
+TTL toDateTime(window_end) + INTERVAL 2 YEAR DELETE
 SETTINGS index_granularity = 8192;
 
 CREATE VIEW IF NOT EXISTS banxia.market_quote_latest AS
 SELECT
-    symbol,
-    argMax(source_time, collected_at) AS source_time,
-    argMax(collected_at, collected_at) AS collected_at,
-    argMax(event_id, collected_at) AS event_id,
-    argMax(price, collected_at) AS price,
-    argMax(open, collected_at) AS open,
-    argMax(high, collected_at) AS high,
-    argMax(low, collected_at) AS low,
-    argMax(previous_close, collected_at) AS previous_close,
-    argMax(cumulative_volume, collected_at) AS cumulative_volume,
-    argMax(cumulative_amount_cny, collected_at) AS cumulative_amount_cny,
-    argMax(bid1, collected_at) AS bid1,
-    argMax(bid1_volume, collected_at) AS bid1_volume,
-    argMax(ask1, collected_at) AS ask1,
-    argMax(ask1_volume, collected_at) AS ask1_volume
-FROM banxia.market_quote_snapshot
-GROUP BY symbol;
+    quote.symbol,
+    argMax(quote.source_time, quote.collected_at) AS source_time,
+    max(quote.collected_at) AS collected_at,
+    argMax(quote.event_id, quote.collected_at) AS event_id,
+    argMax(quote.price, quote.collected_at) AS price,
+    argMax(quote.open, quote.collected_at) AS open,
+    argMax(quote.high, quote.collected_at) AS high,
+    argMax(quote.low, quote.collected_at) AS low,
+    argMax(quote.previous_close, quote.collected_at) AS previous_close,
+    argMax(quote.cumulative_volume, quote.collected_at) AS cumulative_volume,
+    argMax(quote.cumulative_amount_cny, quote.collected_at) AS cumulative_amount_cny,
+    argMax(quote.bid1, quote.collected_at) AS bid1,
+    argMax(quote.bid1_volume, quote.collected_at) AS bid1_volume,
+    argMax(quote.ask1, quote.collected_at) AS ask1,
+    argMax(quote.ask1_volume, quote.collected_at) AS ask1_volume
+FROM banxia.market_quote_snapshot AS quote
+GROUP BY quote.symbol;

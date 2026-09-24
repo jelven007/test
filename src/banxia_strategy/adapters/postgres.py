@@ -61,6 +61,7 @@ class PostgresStorage:
                 conninfo=dsn,
                 min_size=1,
                 max_size=4,
+                open=True,
                 kwargs={"connect_timeout": 5},
             )
             connection_factory = self._pool.connection

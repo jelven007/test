@@ -25,7 +25,7 @@
 - Redis 投影 TTL、MinIO 内容哈希和对象键校验。
 - 日报及盘中双写的部分失败可见性。
 
-截至 P1 存储适配器迭代，共有 61 项自动化测试。
+截至 P1 存储适配器迭代，共有 61 项快速测试和 1 项真实存储集成测试。
 
 当前测试命令：
 
@@ -34,8 +34,12 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
 这些测试必须保留，并逐步迁移为生产组件的领域层回归测试。
-当前开发机没有 Docker CLI，因此真实组件测试尚未执行；适配器测试使用注入的客户端
-验证协议和参数，不等价于 PostgreSQL、ClickHouse、Redis、MinIO 组件测试。
+适配器单元测试使用注入客户端验证协议和参数；真实组件双写测试需先启动 Compose，再执行：
+
+```bash
+make infra-check
+make integration-test
+```
 
 ## 3. 测试分层
 

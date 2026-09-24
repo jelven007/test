@@ -70,7 +70,11 @@ export BANXIA_STORAGE_MODE=best_effort
 
 ```bash
 make infra-check
+make integration-test
 ```
+
+`integration-test` 会向四类存储写入固定的 `2099-01-02/03` 测试数据，并验证报告对象哈希、
+PostgreSQL 事务记录、ClickHouse 幂等查询和 Redis TTL。建议在独立测试卷上执行。
 
 也可以逐项检查：
 

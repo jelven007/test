@@ -46,6 +46,8 @@ services:
 
   redis:
     image: redis:7.4.1-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-banxia-local}
     command:
       - redis-server
       - --appendonly

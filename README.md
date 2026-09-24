@@ -187,6 +187,13 @@ export BANXIA_CODE_COMMIT="$(git rev-parse --short HEAD)"
 - 远端写入不替代本地数据，也不包含自动下单能力。后台队列不是 WAL；进入 Kafka/WAL
   阶段前，进程异常仍可能造成尚未落远端的数据丢失。
 
+真实组件双写测试要求 Compose 已健康启动：
+
+```bash
+make infra-check
+make integration-test
+```
+
 成本回撤4%是预警阈值，并非保证成交的止损价。A股T+1，当天新买的股票不能当天卖出；
 本页没有持仓成本信息，不能计算个人盈亏或代替账户风控。电脑休眠、关机或 Web 服务停止
 后采集也会停止；恢复后会继续采集并检查数据时效。

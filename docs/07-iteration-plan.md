@@ -51,12 +51,12 @@
 - 实现 PostgreSQL、ClickHouse、Redis、MinIO Python 适配器和可选依赖。
 - 日报接入本地文件、MinIO、PostgreSQL 双写，盘中接入 JSONL 与异步存储双写。
 - 增加内容哈希、Redis TTL、SQL 参数、分钟线去重和部分失败行为单元测试。
+- 从空卷执行 Compose 初始化、基础设施冒烟和真实四存储双写集成测试。
 
 待完成：
 
 - 统一配置、结构化日志和 OpenTelemetry。
 - 独立服务入口与录制行情回放器。
-- 在具备 Docker 的环境执行完整组件测试。
 
 ### 工作项
 
@@ -225,8 +225,8 @@ tests/
 5. 增加 OpenAPI/AsyncAPI 校验。
 6. 保持当前 mootdx 采集和 Web 功能可运行。
 
-当前已完成第 1 至 6 项。双写后台队列仍不是持久 WAL，真实组件测试也尚未在本机执行；
-这两项分别进入 P2 和具备 Docker 的集成环境完成。
+当前已完成第 1 至 6 项，并通过真实组件双写测试。双写后台队列仍不是持久 WAL，
+该能力进入 P2 的 Kafka 与 WAL 迭代完成。
 
 ## 12. 变更管理
 

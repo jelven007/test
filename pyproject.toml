@@ -14,7 +14,7 @@ dependencies = [
 
 [project.optional-dependencies]
 storage = [
-  "clickhouse-connect>=0.8,<1",
+  "clickhouse-connect>=0.8,<0.11",
   "minio>=7.2,<8",
   "psycopg[binary,pool]>=3.2,<4",
   "redis>=5,<7",
