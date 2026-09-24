@@ -156,7 +156,8 @@ Flink 输出进入新的 Kafka Topic，再由策略引擎和存储 Sink 消费�
 
 ### 4.5 日报与报告 Worker
 
-- Kubernetes CronJob 在工作日 16:20 发起策略运行。
+- Kubernetes CronJob 在交易日 16:00 生成初版，并于 23:30 发起覆盖更新。
+- Worker 使用 mootdx 交易日历校验日期，非交易日正常跳过。
 - PostgreSQL 唯一键 `(trade_date, strategy_version)` 防止重复运行。
 - 从 ClickHouse 读取历史行情和统计结果。
 - 将运行状态、候选和报告元数据写入 PostgreSQL。
@@ -191,7 +192,7 @@ Flink 输出进入新的 Kafka Topic，再由策略引擎和存储 Sink 消费�
 
 ### 5.3 每日策略
 
-1. 16:20 调度任务创建 `strategy_run`。
+1. 16:00 调度任务创建或更新 `strategy_run`，23:30 以最新行情更新同一交易日报告。
 2. Worker 获取交易日历、涨停池、炸板池、板块数据和历史行情。
 3. 执行静态过滤、评分、行业限额和组合约束。
 4. 保存候选和计划，发布 `strategy.plan.created.v1`。

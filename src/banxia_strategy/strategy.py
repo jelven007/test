@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, fields
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
+from zoneinfo import ZoneInfo
 
 
 @dataclass(frozen=True)
@@ -255,7 +256,9 @@ class StrategyEngine:
                 (session.isoformat() for session in all_sessions if session > as_of),
                 None,
             ),
-            generated_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+            generated_at=datetime.now(
+                ZoneInfo(self.config.report_timezone)
+            ).isoformat(timespec="seconds"),
             data_source=str(getattr(self.provider, "source_name", "custom")),
             data_sessions=[session.isoformat() for session, _ in pools],
             market=market,

@@ -200,7 +200,8 @@ make integration-test
 
 ## 自动运行
 
-脚本默认在每周一至周五 16:20 运行，节假日会自动回退到最近有数据的交易日：
+脚本默认在每周一至周五 16:00 生成初版，并于 23:30 基于最新行情覆盖更新。任务会通过
+mootdx 交易日历确认日期，周末和节假日不生成报告，也不会回退覆盖前一交易日：
 
 ```bash
 chmod +x scripts/run_daily.sh scripts/install_launchd.sh

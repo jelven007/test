@@ -15,6 +15,7 @@ data:
   BANXIA_KAFKA_BOOTSTRAP_SERVERS: kafka.strategy.svc:9093
   BANXIA_REPORT_DIRS: /app/reports
   BANXIA_REPORT_OUTPUT_DIR: /app/reports
+  BANXIA_REPORT_SCHEDULE: 16:00,23:30
   BANXIA_STRATEGY_CONFIG: /app/config/strategy.json
   BANXIA_MONITOR_WATCHLIST: /app/config/monitor_watchlist.json
   BANXIA_COLLECTOR_WAL_PATH: /app/data/wal/market-collector.sqlite3
@@ -263,10 +264,45 @@ spec:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: report-worker
+  name: report-worker-1600
   namespace: banxia
 spec:
-  schedule: "20 16 * * 1-5"
+  schedule: "0 16 * * 1-5"
+  timeZone: Asia/Shanghai
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        metadata:
+          labels: {app: banxia-report-worker, component: job}
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: report-worker
+              image: banxia-strategy:latest
+              args: [report-worker]
+              envFrom:
+                - configMapRef: {name: banxia-runtime}
+                - secretRef: {name: banxia-secrets}
+              resources:
+                requests: {cpu: 250m, memory: 256Mi}
+                limits: {cpu: "2", memory: 1Gi}
+              volumeMounts:
+                - {name: reports, mountPath: /app/reports}
+          volumes:
+            - name: reports
+              persistentVolumeClaim: {claimName: banxia-reports}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: report-worker-2330
+  namespace: banxia
+spec:
+  schedule: "30 23 * * 1-5"
   timeZone: Asia/Shanghai
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3

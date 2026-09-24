@@ -5,7 +5,7 @@ import json
 import signal
 import sys
 import threading
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Optional, Sequence
 
 from .adapters.clickhouse import ClickHouseMarketHistoryStore
@@ -23,7 +23,12 @@ from .application.outbox import OutboxRelay
 from .application.plans import ActivePlan, load_active_plan
 from .application.projection import ProjectionWorker
 from .application.reliable_publish import ReliableEventPublisher
-from .application.report_worker import ReportWorker
+from .application.report_scheduler import (
+    SHANGHAI,
+    next_scheduled_at,
+    parse_schedule,
+)
+from .application.report_worker import NonTradingDayError, ReportWorker
 from .application.strategy_engine import StrategyEventProcessor, StrategyWorker
 from .config import RuntimeSettings
 from .contracts.topics import (
@@ -251,18 +256,27 @@ def run_projection_worker(settings: RuntimeSettings, logger: Any) -> None:
     _run_polling_worker(worker, logger)
 
 
-def run_report_worker(settings: RuntimeSettings, logger: Any) -> None:
-    requested_date = (
-        date.fromisoformat(settings.report_date)
-        if settings.report_date
-        else None
-    )
+def _generate_report(
+    settings: RuntimeSettings,
+    logger: Any,
+    requested_date: date,
+) -> bool:
     worker = ReportWorker(
         strategy_config_path=settings.strategy_config_path,
         output_dir=settings.report_output_dir,
         storage_settings=settings.storage,
     )
-    report, paths, persistence = worker.run(requested_date)
+    try:
+        report, paths, persistence = worker.run(requested_date)
+    except NonTradingDayError as exc:
+        logger.info(
+            "report skipped",
+            extra={
+                "trade_date": requested_date.isoformat(),
+                "reason": str(exc),
+            },
+        )
+        return False
     logger.info(
         "report generated",
         extra={
@@ -273,6 +287,53 @@ def run_report_worker(settings: RuntimeSettings, logger: Any) -> None:
             "assets": [str(path) for path in paths.values()],
         },
     )
+    return True
+
+
+def run_report_worker(settings: RuntimeSettings, logger: Any) -> None:
+    requested_date = (
+        date.fromisoformat(settings.report_date)
+        if settings.report_date
+        else datetime.now(SHANGHAI).date()
+    )
+    _generate_report(settings, logger, requested_date)
+
+
+def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
+    schedule = parse_schedule(settings.report_schedule)
+    stop = threading.Event()
+
+    def request_stop(_signum, _frame):
+        stop.set()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+    logger.info(
+        "report scheduler started",
+        extra={
+            "timezone": str(SHANGHAI),
+            "schedule": [item.strftime("%H:%M") for item in schedule],
+        },
+    )
+    try:
+        while not stop.is_set():
+            now = datetime.now(SHANGHAI)
+            scheduled_at = next_scheduled_at(now, schedule)
+            logger.info(
+                "next report scheduled",
+                extra={"scheduled_at": scheduled_at.isoformat()},
+            )
+            if stop.wait(max(0.0, (scheduled_at - now).total_seconds())):
+                break
+            try:
+                _generate_report(settings, logger, scheduled_at.date())
+            except Exception:
+                logger.exception(
+                    "scheduled report failed",
+                    extra={"scheduled_at": scheduled_at.isoformat()},
+                )
+    finally:
+        logger.info("report scheduler stopped")
 
 
 def run_api(settings: RuntimeSettings, logger: Any) -> None:
@@ -319,6 +380,7 @@ RUNNERS = {
     "outbox-relay": run_outbox_relay,
     "projection-worker": run_projection_worker,
     "report-worker": run_report_worker,
+    "report-scheduler": run_report_scheduler,
     "api": run_api,
 }
 

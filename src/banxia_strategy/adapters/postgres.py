@@ -332,6 +332,7 @@ class PostgresStorage:
                 identity={
                     "plan_id": identity.plan_id,
                     "strategy_version": strategy_version,
+                    "generated_at": occurred_at,
                 },
                 payload={
                     "plan_id": identity.plan_id,
@@ -359,6 +360,7 @@ class PostgresStorage:
             identity={
                 "strategy_run_id": identity.run_id,
                 "strategy_version": strategy_version,
+                "generated_at": occurred_at,
             },
             payload={
                 "report_id": identity.run_id,

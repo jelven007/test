@@ -11,7 +11,7 @@
 - Kafka 3.9 单节点 KRaft
 - Flink 1.20 JobManager、TaskManager 和实时特征作业
 - `market-collector`、`market-sink`、`strategy-engine`、`outbox-relay`
-- `projection-worker`、FastAPI 与 Prometheus
+- `projection-worker`、`report-scheduler`、FastAPI 与 Prometheus
 
 默认实时指标由 Flink 生成。仅在排查 Flink 故障时，使用
 `--profile python-feature-fallback` 启动确定性的 Python 降级 Worker，
@@ -27,7 +27,8 @@ make infra-status
 make infra-check
 ```
 
-日报 Worker 是一次性任务，不随常驻服务自动运行：
+`report-scheduler` 随常驻服务启动，默认在交易日 16:00 生成初版、23:30 覆盖更新。
+非交易日由 mootdx 交易日历校验后跳过。也可以手工运行一次性 Worker：
 
 ```bash
 docker compose \

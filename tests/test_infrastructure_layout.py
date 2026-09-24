@@ -79,6 +79,7 @@ class ComposeLayoutTest(unittest.TestCase):
             "outbox-relay",
             "projection-worker",
             "report-worker",
+            "report-scheduler",
             "api",
             "prometheus",
         ):
@@ -87,6 +88,7 @@ class ComposeLayoutTest(unittest.TestCase):
         self.assertIn("../../migrations/clickhouse", compose)
         self.assertIn("RESTARTING", compose)
         self.assertIn("RECONCILING", compose)
+        self.assertIn("16:00,23:30", compose)
 
     def test_flink_job_computes_sector_and_volume_features(self):
         sql = (ROOT / "deploy/flink/sql/realtime_features.sql").read_text(
@@ -118,7 +120,13 @@ class ComposeLayoutTest(unittest.TestCase):
         self.assertIn("PodDisruptionBudget", kinds)
         self.assertIn("HorizontalPodAutoscaler", kinds)
         self.assertIn("NetworkPolicy", kinds)
-        self.assertIn('"20 16 * * 1-5"', text)
+        cron_jobs = {
+            item["metadata"]["name"]: item["spec"]["schedule"]
+            for item in manifests
+            if item["kind"] == "CronJob"
+        }
+        self.assertEqual(cron_jobs["report-worker-1600"], "0 16 * * 1-5")
+        self.assertEqual(cron_jobs["report-worker-2330"], "30 23 * * 1-5")
         self.assertIn("readinessProbe", text)
         self.assertIn("resources:", text)
 
@@ -137,6 +145,17 @@ class ComposeLayoutTest(unittest.TestCase):
         ):
             self.assertIn(topic, script)
         self.assertIn('"${topic}.dlq"', script)
+
+
+class WebAssetTest(unittest.TestCase):
+    def test_report_selector_queries_trade_date_and_shows_update_time(self):
+        app = (ROOT / "src/banxia_strategy/web/app.js").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("/api/v1/reports/${encodeURIComponent(asOf)}", app)
+        self.assertIn("report.trade_date || report.as_of", app)
+        self.assertIn("formatUpdateTime(report.generated_at)", app)
+        self.assertIn('timeZone: "Asia/Shanghai"', app)
 
 
 if __name__ == "__main__":

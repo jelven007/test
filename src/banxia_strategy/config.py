@@ -22,6 +22,32 @@ def _float(environ: Mapping[str, str], name: str, default: float) -> float:
     return value
 
 
+def _schedule(
+    environ: Mapping[str, str],
+    name: str,
+    default: str,
+) -> Tuple[str, ...]:
+    values = tuple(
+        item.strip()
+        for item in environ.get(name, default).split(",")
+        if item.strip()
+    )
+    if not values:
+        raise ValueError(f"{name} must contain at least one HH:MM value")
+    for value in values:
+        parts = value.split(":")
+        if (
+            len(parts) != 2
+            or not all(part.isdigit() for part in parts)
+            or len(parts[0]) != 2
+            or len(parts[1]) != 2
+            or not 0 <= int(parts[0]) <= 23
+            or not 0 <= int(parts[1]) <= 59
+        ):
+            raise ValueError(f"{name} contains invalid time {value!r}")
+    return values
+
+
 @dataclass(frozen=True)
 class RuntimeSettings:
     environment: str = "local"
@@ -32,6 +58,7 @@ class RuntimeSettings:
     report_dirs: Tuple[Path, ...] = (Path("scheduled_reports"), Path("reports"))
     report_output_dir: Path = Path("reports")
     report_date: Optional[str] = None
+    report_schedule: Tuple[str, ...] = ("16:00", "23:30")
     strategy_config_path: Path = Path("config/strategy.json")
     watchlist_path: Path = Path("config/monitor_watchlist.json")
     watch_date: Optional[str] = None
@@ -80,6 +107,11 @@ class RuntimeSettings:
                 source.get("BANXIA_REPORT_OUTPUT_DIR", "reports")
             ).expanduser(),
             report_date=source.get("BANXIA_REPORT_DATE") or None,
+            report_schedule=_schedule(
+                source,
+                "BANXIA_REPORT_SCHEDULE",
+                "16:00,23:30",
+            ),
             strategy_config_path=Path(
                 source.get("BANXIA_STRATEGY_CONFIG", "config/strategy.json")
             ).expanduser(),

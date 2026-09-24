@@ -11,6 +11,7 @@ x-app-common: &app-common
     BANXIA_METRICS_PORT: 9100
     BANXIA_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     BANXIA_REPORT_DIRS: /app/scheduled_reports,/app/reports
+    BANXIA_REPORT_SCHEDULE: ${BANXIA_REPORT_SCHEDULE:-16:00,23:30}
     BANXIA_STRATEGY_CONFIG: /app/config/strategy.json
     BANXIA_MONITOR_WATCHLIST: /app/config/monitor_watchlist.json
     BANXIA_WATCH_DATE: ${BANXIA_WATCH_DATE:-}
@@ -345,6 +346,24 @@ services:
       kafka-init:
         condition: service_completed_successfully
     restart: "no"
+
+  report-scheduler:
+    <<: *app-common
+    command: ["report-scheduler"]
+    environment:
+      <<: *app-environment
+      BANXIA_REPORT_OUTPUT_DIR: /app/reports
+    volumes:
+      - ../../config:/app/config:ro
+      - ../../reports:/app/reports
+      - ../../scheduled_reports:/app/scheduled_reports:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      kafka-init:
+        condition: service_completed_successfully
 
   api:
     <<: *app-common

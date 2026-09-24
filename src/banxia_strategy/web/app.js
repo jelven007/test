@@ -33,6 +33,19 @@ function formatTimestamp(value) {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    timeZone: "Asia/Shanghai",
+  }).format(date);
+}
+
+function formatUpdateTime(value) {
+  if (!value) return "时间未知";
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: "Asia/Shanghai",
   }).format(date);
 }
 
@@ -267,8 +280,9 @@ async function loadReport(asOf) {
   try {
     const path = `/api/v1/reports/${encodeURIComponent(asOf)}`;
     const report = await fetchJson(path);
+    const selectedDate = report.trade_date || report.as_of;
     renderReport(report);
-    reportSelect.value = report.as_of;
+    reportSelect.value = selectedDate;
   } catch (error) {
     renderError(error.message);
   } finally {
@@ -286,7 +300,7 @@ async function initialize() {
     for (const report of payload.items) {
       const option = document.createElement("option");
       option.value = report.trade_date;
-      option.textContent = `${report.trade_date} · ${report.market_regime || "未知环境"} · ${report.candidate_count}只`;
+      option.textContent = `${report.trade_date} · 更新 ${formatUpdateTime(report.generated_at)} · ${report.candidate_count}只`;
       reportSelect.append(option);
     }
     await loadReport(payload.items[0].trade_date);

@@ -443,6 +443,43 @@ class PostgresAdapterTest(unittest.TestCase):
             all("ON CONFLICT (event_id)" in call[0] for call in outbox_calls)
         )
 
+    def test_report_update_at_a_later_time_gets_new_event_ids(self):
+        cursor = FakeCursor([])
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+        identity = ReportIdentity(
+            run_id="33333333-3333-3333-3333-333333333333",
+            strategy_version_id="22222222-2222-2222-2222-222222222222",
+            plan_id="44444444-4444-4444-4444-444444444444",
+        )
+        report = {
+            "as_of": "2026-09-23",
+            "next_session": "2026-09-24",
+            "candidates": [],
+        }
+
+        for generated_at in (
+            datetime.fromisoformat("2026-09-23T16:00:00+08:00"),
+            datetime.fromisoformat("2026-09-23T23:30:00+08:00"),
+        ):
+            storage._enqueue_report_events(
+                cursor,
+                report=report,
+                identity=identity,
+                strategy_version="v1",
+                assets=(),
+                occurred_at=generated_at,
+            )
+
+        event_ids = [
+            call[1][0]
+            for call in cursor.calls
+            if "INSERT INTO banxia.outbox_event" in call[0]
+        ]
+        self.assertEqual(len(event_ids), 4)
+        self.assertEqual(len(set(event_ids)), 4)
+
     def test_decision_state_history_and_outbox_share_one_transaction(self):
         cursor = FakeCursor([("event-1",), None])
         storage = PostgresStorage(

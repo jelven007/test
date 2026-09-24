@@ -24,9 +24,12 @@ cat >"$RUNNER" <<EOF
 #!/bin/sh
 set -eu
 cd "$RUNTIME_ROOT"
-exec "$VENV/bin/banxia-strategy" run \
-  --config "$CONFIG_DIR/strategy.json" \
-  --output "$REPORT_DIR"
+export TZ="Asia/Shanghai"
+export BANXIA_STRATEGY_CONFIG="$CONFIG_DIR/strategy.json"
+export BANXIA_REPORT_DIRS="$REPORT_DIR"
+export BANXIA_REPORT_OUTPUT_DIR="$REPORT_DIR"
+export BANXIA_STORAGE_MODE="off"
+exec "$VENV/bin/banxia-service" report-worker
 EOF
 chmod +x "$RUNNER"
 ln -sfn "$REPORT_DIR" "$PROJECT_ROOT/scheduled_reports"
@@ -46,11 +49,16 @@ cat >"$TARGET" <<EOF
   <string>$RUNTIME_ROOT</string>
   <key>StartCalendarInterval</key>
   <array>
-    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>20</integer></dict>
-    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>20</integer></dict>
-    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>20</integer></dict>
-    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>20</integer></dict>
-    <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>20</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>16</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>23</integer><key>Minute</key><integer>30</integer></dict>
   </array>
   <key>StandardOutPath</key>
   <string>$LOG_DIR/launchd.out.log</string>
@@ -63,5 +71,5 @@ EOF
 plutil -lint "$TARGET"
 launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$UID" "$TARGET"
-echo "Installed $LABEL at 16:20 every weekday."
+echo "Installed $LABEL at 16:00 and 23:30 every weekday."
 echo "Plist: $TARGET"
