@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib.parse import unquote, urlparse
 
+from .intraday import IntradayMonitor, WATCH_CODES
+
 
 REPORT_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -82,7 +84,7 @@ def _json_bytes(payload: Any) -> bytes:
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
-def make_handler(store: ReportStore, static_root: Path):
+def make_handler(store: ReportStore, static_root: Path, monitor=None):
     class DashboardHandler(BaseHTTPRequestHandler):
         server_version = "BanxiaDashboard/0.1"
 
@@ -99,6 +101,12 @@ def make_handler(store: ReportStore, static_root: Path):
             if path == "/api/reports":
                 reports = store.list_reports()
                 self._send_json({"reports": reports, "count": len(reports)})
+                return
+            if path == "/api/monitor":
+                if monitor is None:
+                    self._send_json({"error": "盘中监控未启动"}, HTTPStatus.SERVICE_UNAVAILABLE)
+                else:
+                    self._send_json(monitor.snapshot())
                 return
             if path == "/api/reports/latest":
                 report = store.latest()
@@ -120,6 +128,8 @@ def make_handler(store: ReportStore, static_root: Path):
                 return
             if path == "/":
                 path = "/index.html"
+            elif path in ("/monitor", "/monitor/"):
+                path = "/monitor.html"
             self._send_static(path)
 
         def _send_json(self, payload: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
@@ -163,24 +173,40 @@ def make_server(
     report_roots: Sequence[Path],
     host: str = "127.0.0.1",
     port: int = 8765,
+    monitor=None,
 ) -> ThreadingHTTPServer:
     static_root = Path(__file__).with_name("web")
     store = ReportStore(report_roots)
-    return ThreadingHTTPServer((host, port), make_handler(store, static_root))
+    return ThreadingHTTPServer((host, port), make_handler(store, static_root, monitor))
 
 
 def serve_dashboard(
     report_roots: Sequence[Path],
     host: str = "127.0.0.1",
     port: int = 8765,
+    watch_date: Optional[str] = None,
+    monitor_log_dir: Optional[Path] = Path("logs/intraday"),
 ) -> None:
-    server = make_server(report_roots, host, port)
+    store = ReportStore(report_roots)
+    report = store.get(watch_date) if watch_date else None
+    if watch_date is None:
+        for summary in store.list_reports():
+            candidate_report = store.get(summary["as_of"])
+            codes = {item["code"] for item in candidate_report["candidates"]}
+            if set(WATCH_CODES).issubset(codes):
+                report = candidate_report
+                break
+    monitor = IntradayMonitor(report, log_dir=monitor_log_dir)
+    server = make_server(report_roots, host, port, monitor)
+    monitor.start()
     actual_host, actual_port = server.server_address[:2]
     print(f"Strategy dashboard: http://{actual_host}:{actual_port}")
+    print(f"盘中监控：http://{actual_host}:{actual_port}/monitor （每60秒采集）")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        monitor.stop()
         server.server_close()

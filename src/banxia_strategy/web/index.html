@@ -28,6 +28,10 @@
         <span id="source-label">连接日报</span>
       </div>
     </header>
+    <nav class="dashboard-pages" aria-label="页面导航">
+      <a href="/" aria-current="page">次日计划</a>
+      <a href="/monitor">盘中监控 · 每分钟更新 →</a>
+    </nav>
 
     <main id="dashboard" aria-live="polite">
       <section class="loading-state" id="loading-state">
@@ -123,6 +127,7 @@
           </p>
         </div>
         <p data-field="disclaimer"></p>
+        <p>T+1 提醒：当天新买仓位不能当天卖出。成本回撤4%是风险预警，无法保证以此价格止损；遇到跳空或跌停，实际损失可能更大。</p>
       </footer>
     </template>
 

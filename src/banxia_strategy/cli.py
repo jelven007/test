@@ -53,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     serve = subparsers.add_parser("serve", help="Start the local strategy dashboard")
     serve.add_argument("--host", default="127.0.0.1", help="Listening host")
     serve.add_argument("--port", type=int, default=8765, help="Listening port")
+    serve.add_argument("--watch-date", type=_parse_date, help="盘中监控使用的日报日期，格式 YYYY-MM-DD")
+    serve.add_argument(
+        "--monitor-log-dir", type=Path, default=Path("logs/intraday"),
+        help="每分钟行情与判断日志的保存目录",
+    )
     serve.add_argument(
         "--reports-dir",
         action="append",
@@ -103,7 +108,11 @@ def _doctor(args: argparse.Namespace) -> int:
 
 def _serve(args: argparse.Namespace) -> int:
     report_dirs = args.report_dirs or [Path("scheduled_reports"), Path("reports")]
-    serve_dashboard(report_dirs, args.host, args.port)
+    serve_dashboard(
+        report_dirs, args.host, args.port,
+        watch_date=args.watch_date.isoformat() if args.watch_date else None,
+        monitor_log_dir=args.monitor_log_dir,
+    )
     return 0
 
 

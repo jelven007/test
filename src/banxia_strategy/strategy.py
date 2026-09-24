@@ -464,8 +464,10 @@ class StrategyEngine:
                 "板块无助攻、开盘快速跌破昨日收盘价、回封超过两次则放弃"
             )
             exit_plan = (
-                f"单票不超过{self.config.position_limit_pct}%；触发后若跌破成本"
-                f"{self.config.hard_stop_pct:.1f}%止损，次日无溢价或板块退潮优先退出"
+                f"单票不超过{self.config.position_limit_pct}%；成本回撤"
+                f"{self.config.hard_stop_pct:.1f}%触发风险预警；"
+                "A股T+1，当日新买仓位不能当日卖出，最早下一交易日按可成交情况退出；"
+                "次日无溢价或板块退潮优先退出，跳空和跌停可能导致损失超过预警阈值"
             )
             result.append(
                 Candidate(

@@ -1069,6 +1069,24 @@ h1 {
   }
 }
 
+.dashboard-pages {
+  display: flex;
+  gap: 24px;
+  padding: 13px clamp(18px, 3vw, 48px);
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.dashboard-pages a {
+  color: var(--green);
+  text-decoration: none;
+}
+
+.dashboard-pages a[aria-current] {
+  color: var(--ink);
+  font-weight: 700;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

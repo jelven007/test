@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>盘中监控 · 一进二</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/monitor.css">
+    <script src="/monitor.js" defer></script>
+  </head>
+  <body class="monitor-body">
+    <header class="monitor-header">
+      <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">B</span><span><strong>一进二</strong><small>策略观察工作台</small></span></a>
+      <nav aria-label="主导航"><a href="/">次日计划</a><a href="/monitor" aria-current="page">盘中监控</a></nav>
+      <span class="feed-label">mootdx · 60秒采集</span>
+    </header>
+    <main class="monitor-main">
+      <section class="monitor-title">
+        <div><p class="eyebrow">INTRADAY WATCH</p><h1>盘中监控<span>03</span></h1>
+          <p id="scope">安洁科技 / 依顿电子 / 威星智能</p></div>
+        <div class="sync-tools">
+          <span id="connection" role="status">正在连接监控</span>
+          <button id="sync-button" type="button">同步页面</button>
+          <small id="countdown">后台每60秒更新，页面自动同步</small>
+        </div>
+      </section>
+      <div id="monitor-error" role="alert" hidden></div>
+      <section class="session-strip" aria-label="监控状态">
+        <div><span>交易阶段 · 北京时间</span><strong id="phase">—</strong></div>
+        <div><span>最近采集</span><strong id="collected">—</strong></div>
+        <div><span>计划交易日</span><strong id="plan-date">—</strong></div>
+        <div><span>已采集轮次</span><strong id="revision">—</strong></div>
+      </section>
+      <section aria-labelledby="watch-heading">
+        <div class="monitor-section-title"><h2 id="watch-heading">三股观察清单</h2><p>以下判断针对尚未买入的仓位</p></div>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="股票实时行情与建议">
+          <table class="watch-table">
+            <thead><tr><th>股票 / 昨日评分</th><th>最新价</th><th>涨跌幅</th><th>今日开盘</th><th>盘口时间</th><th>当前建议与依据</th></tr></thead>
+            <tbody id="watch-rows"><tr><td colspan="6" class="waiting-cell">等待后台首次采集，行情到达后自动显示。</td></tr></tbody>
+          </table>
+        </div>
+        <p class="table-footnote">点选股票查看分时与执行细则。评分来自昨日日报，不代表实时胜率；盘前零报价显示为“—”。</p>
+      </section>
+      <section id="stock-detail" class="stock-detail" hidden aria-labelledby="detail-name">
+        <div class="chart-section">
+          <div class="detail-heading"><div><p class="eyebrow" id="detail-code"></p><h2 id="detail-name"></h2></div><span id="detail-industry"></span></div>
+          <div id="chart" class="intraday-chart"></div>
+          <div class="chart-legend"><span>当日分钟收盘价</span><span>虚线：昨收基准</span><span id="bar-time">—</span></div>
+          <dl class="detail-metrics">
+            <div><dt>当日最高</dt><dd id="detail-high">—</dd></div>
+            <div><dt>当日最低</dt><dd id="detail-low">—</dd></div>
+            <div><dt>累计成交额</dt><dd id="detail-amount">—</dd></div>
+            <div><dt>分钟成交量倍数</dt><dd id="detail-volume">—</dd></div>
+          </dl>
+          <p class="metric-note">成交量倍数为最新有效分钟 / 前5个有效分钟的均量，样本不足时不计算；仅作量能参考。</p>
+        </div>
+        <div class="decision-section">
+          <p class="eyebrow">当前判断</p><h2 id="detail-advice"></h2><p id="detail-reason"></p>
+          <dl class="execution-values">
+            <div><dt>昨收基准</dt><dd id="detail-close">—</dd></div>
+            <div><dt>竞价观察区间（估算）</dt><dd id="detail-auction">—</dd></div>
+            <div><dt>参考二板价格</dt><dd id="detail-limit">—</dd></div>
+            <div><dt>原计划单票仓位上限</dt><dd id="detail-position">—</dd></div>
+          </dl>
+          <details><summary>查看原始入场与放弃条件</summary><p id="detail-entry"></p><p id="detail-cancel"></p></details>
+          <p class="manual-check">仍需人工核验板块助攻、放量封板与首次快速回封。每分钟采样无法识别全部秒级炸板，也不保证封板排队能成交。</p>
+        </div>
+      </section>
+      <section class="activity-section" aria-labelledby="activity-title">
+        <div class="monitor-section-title"><h2 id="activity-title">判断变化记录</h2><p>本次启动以来，最近40条</p></div>
+        <ol id="events"><li class="empty-event">尚无判断变化</li></ol>
+      </section>
+      <footer class="monitor-footer">
+        <p><strong>T+1 风控</strong>　当天新买的股票不能当天卖出。成本回撤4%只能作为风险预警，不能保证止损成交或将损失限制在4%；本页未接入持仓与实际成本。</p>
+        <p>本页按既有策略进行条件判断，不自动下单。出现数据延迟、接口失败或计划日期不匹配时暂停入场判断。行情由 mootdx 提供，价格与交易状态请以券商行情核对。</p>
+      </footer>
+    </main>
+  </body>
+</html>
