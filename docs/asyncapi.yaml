@@ -1,0 +1,472 @@
+asyncapi: 2.6.0
+info:
+  title: Banxia Strategy Event API
+  version: 1.0.0
+  description: |
+    一进二策略研究系统 TARGET Kafka 事件契约。所有事件至少一次投递，
+    消费者必须通过 event_id 或业务唯一键实现幂等。
+defaultContentType: application/json
+servers:
+  production:
+    url: kafka.strategy.svc:9093
+    protocol: kafka-secure
+    description: Production Kafka
+channels:
+  market.quote.snapshot.v1:
+    description: mootdx 盘口采样事件，不等同于交易所逐笔 Tick
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 3
+        bindingVersion: "0.4.0"
+    subscribe:
+      operationId: consumeMarketQuoteSnapshot
+      message:
+        $ref: "#/components/messages/MarketQuoteSnapshot"
+  market.bar.1m.v1:
+    description: 一分钟 K 线及其修订
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 3
+        bindingVersion: "0.4.0"
+    subscribe:
+      operationId: consumeMarketBarOneMinute
+      message:
+        $ref: "#/components/messages/MarketBarOneMinute"
+  market.feature.realtime.v1:
+    description: Flink 生成的实时窗口和板块指标
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 3
+        bindingVersion: "0.4.0"
+    subscribe:
+      operationId: consumeRealtimeFeature
+      message:
+        $ref: "#/components/messages/RealtimeFeature"
+  strategy.plan.created.v1:
+    description: 日报完成后创建的次日策略计划
+    bindings:
+      kafka:
+        partitions: 3
+        replicas: 3
+        bindingVersion: "0.4.0"
+    subscribe:
+      operationId: consumeStrategyPlanCreated
+      message:
+        $ref: "#/components/messages/StrategyPlanCreated"
+  strategy.decision.v1:
+    description: 策略状态机输出的状态变化
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 3
+        bindingVersion: "0.4.0"
+    subscribe:
+      operationId: consumeStrategyDecision
+      message:
+        $ref: "#/components/messages/StrategyDecision"
+  strategy.audit.v1:
+    description: 用于长期审计的策略判断依据
+    bindings:
+      kafka:
+        partitions: 12
+        replicas: 3
+        bindingVersion: "0.4.0"
+    subscribe:
+      operationId: consumeStrategyAudit
+      message:
+        $ref: "#/components/messages/StrategyAudit"
+  report.generated.v1:
+    description: 报告产物生成完成事件
+    bindings:
+      kafka:
+        partitions: 3
+        replicas: 3
+        bindingVersion: "0.4.0"
+    subscribe:
+      operationId: consumeReportGenerated
+      message:
+        $ref: "#/components/messages/ReportGenerated"
+components:
+  messages:
+    MarketQuoteSnapshot:
+      name: MarketQuoteSnapshot
+      title: 盘口采样
+      correlationId:
+        location: $message.payload#/trace_id
+      payload:
+        $ref: "#/components/schemas/MarketQuoteSnapshotEnvelope"
+    MarketBarOneMinute:
+      name: MarketBarOneMinute
+      title: 一分钟 K 线
+      correlationId:
+        location: $message.payload#/trace_id
+      payload:
+        $ref: "#/components/schemas/MarketBarOneMinuteEnvelope"
+    RealtimeFeature:
+      name: RealtimeFeature
+      title: 实时衍生指标
+      correlationId:
+        location: $message.payload#/trace_id
+      payload:
+        $ref: "#/components/schemas/RealtimeFeatureEnvelope"
+    StrategyPlanCreated:
+      name: StrategyPlanCreated
+      title: 策略计划创建
+      correlationId:
+        location: $message.payload#/trace_id
+      payload:
+        $ref: "#/components/schemas/StrategyPlanCreatedEnvelope"
+    StrategyDecision:
+      name: StrategyDecision
+      title: 策略决策变化
+      correlationId:
+        location: $message.payload#/trace_id
+      payload:
+        $ref: "#/components/schemas/StrategyDecisionEnvelope"
+    StrategyAudit:
+      name: StrategyAudit
+      title: 策略审计
+      correlationId:
+        location: $message.payload#/trace_id
+      payload:
+        $ref: "#/components/schemas/StrategyAuditEnvelope"
+    ReportGenerated:
+      name: ReportGenerated
+      title: 报告生成完成
+      correlationId:
+        location: $message.payload#/trace_id
+      payload:
+        $ref: "#/components/schemas/ReportGeneratedEnvelope"
+  schemas:
+    EventMetadata:
+      type: object
+      required:
+        - event_id
+        - event_type
+        - schema_version
+        - occurred_at
+        - published_at
+        - producer
+        - trace_id
+      properties:
+        event_id:
+          type: string
+        event_type:
+          type: string
+        schema_version:
+          type: integer
+          minimum: 1
+        occurred_at:
+          type: string
+          format: date-time
+        published_at:
+          type: string
+          format: date-time
+        producer:
+          type: string
+        trace_id:
+          type: string
+    Symbol:
+      type: string
+      pattern: '^\d{6}$'
+    MarketQuoteSnapshotEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EventMetadata"
+        - type: object
+          required: [payload]
+          properties:
+            payload:
+              $ref: "#/components/schemas/MarketQuoteSnapshotPayload"
+    MarketQuoteSnapshotPayload:
+      type: object
+      required:
+        - trade_date
+        - symbol
+        - source_time
+        - collected_at
+        - source_node
+      properties:
+        trade_date:
+          type: string
+          format: date
+        symbol:
+          $ref: "#/components/schemas/Symbol"
+        source_time:
+          type: string
+          format: date-time
+        collected_at:
+          type: string
+          format: date-time
+        source_node:
+          type: string
+        price:
+          type: number
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        previous_close:
+          type: number
+        cumulative_volume:
+          type: integer
+          minimum: 0
+        cumulative_amount_cny:
+          type: number
+          minimum: 0
+        bid1:
+          type: number
+        bid1_volume:
+          type: integer
+          minimum: 0
+        ask1:
+          type: number
+        ask1_volume:
+          type: integer
+          minimum: 0
+    MarketBarOneMinuteEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EventMetadata"
+        - type: object
+          required: [payload]
+          properties:
+            payload:
+              $ref: "#/components/schemas/MarketBarOneMinutePayload"
+    MarketBarOneMinutePayload:
+      type: object
+      required:
+        - trade_date
+        - symbol
+        - bar_time
+        - open
+        - high
+        - low
+        - close
+        - volume
+        - amount_cny
+        - revision
+      properties:
+        trade_date:
+          type: string
+          format: date
+        symbol:
+          $ref: "#/components/schemas/Symbol"
+        bar_time:
+          type: string
+          format: date-time
+        open:
+          type: number
+        high:
+          type: number
+        low:
+          type: number
+        close:
+          type: number
+        volume:
+          type: integer
+          minimum: 0
+        amount_cny:
+          type: number
+          minimum: 0
+        revision:
+          type: integer
+          minimum: 1
+    RealtimeFeatureEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EventMetadata"
+        - type: object
+          required: [payload]
+          properties:
+            payload:
+              $ref: "#/components/schemas/RealtimeFeaturePayload"
+    RealtimeFeaturePayload:
+      type: object
+      required:
+        - trade_date
+        - symbol
+        - feature_version
+        - window_end
+        - data_state
+      properties:
+        trade_date:
+          type: string
+          format: date
+        symbol:
+          $ref: "#/components/schemas/Symbol"
+        feature_version:
+          type: string
+        window_start:
+          type: string
+          format: date-time
+        window_end:
+          type: string
+          format: date-time
+        minute_volume_ratio:
+          type: number
+        sector_rise_ratio:
+          type: number
+        sector_limit_up_count:
+          type: integer
+        data_state:
+          type: string
+          enum: [fresh, delayed, stale, unavailable]
+        max_input_time:
+          type: string
+          format: date-time
+    StrategyPlanCreatedEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EventMetadata"
+        - type: object
+          required: [payload]
+          properties:
+            payload:
+              type: object
+              required:
+                - plan_id
+                - reference_date
+                - trade_date
+                - strategy_version
+                - symbols
+              properties:
+                plan_id:
+                  type: string
+                reference_date:
+                  type: string
+                  format: date
+                trade_date:
+                  type: string
+                  format: date
+                strategy_version:
+                  type: string
+                symbols:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Symbol"
+    StrategyDecisionEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EventMetadata"
+        - type: object
+          required: [payload]
+          properties:
+            payload:
+              $ref: "#/components/schemas/StrategyDecisionPayload"
+    StrategyDecisionPayload:
+      type: object
+      required:
+        - decision_id
+        - plan_id
+        - symbol
+        - state
+        - reason_code
+        - reason
+        - irreversible
+        - source_event_id
+        - strategy_version
+      properties:
+        decision_id:
+          type: string
+        plan_id:
+          type: string
+        symbol:
+          $ref: "#/components/schemas/Symbol"
+        previous_state:
+          type: string
+        state:
+          type: string
+          enum:
+            - expired
+            - ineligible
+            - pre
+            - stale
+            - no_quote
+            - reference_changed
+            - missing_rules
+            - auction
+            - no_open
+            - reject_open
+            - reject_low
+            - outside_open
+            - window_closed
+            - sealed
+            - at_limit
+            - near_limit
+            - watch
+            - unavailable
+        reason_code:
+          type: string
+        reason:
+          type: string
+        irreversible:
+          type: boolean
+        source_event_id:
+          type: string
+        strategy_version:
+          type: string
+    StrategyAuditEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EventMetadata"
+        - type: object
+          required: [payload]
+          properties:
+            payload:
+              type: object
+              required:
+                - decision_id
+                - plan_id
+                - symbol
+                - rule_inputs
+              properties:
+                decision_id:
+                  type: string
+                plan_id:
+                  type: string
+                symbol:
+                  $ref: "#/components/schemas/Symbol"
+                rule_inputs:
+                  type: object
+                  additionalProperties: true
+                matched_rules:
+                  type: array
+                  items:
+                    type: string
+    ReportGeneratedEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EventMetadata"
+        - type: object
+          required: [payload]
+          properties:
+            payload:
+              type: object
+              required:
+                - report_id
+                - strategy_run_id
+                - trade_date
+                - strategy_version
+                - assets
+              properties:
+                report_id:
+                  type: string
+                strategy_run_id:
+                  type: string
+                trade_date:
+                  type: string
+                  format: date
+                strategy_version:
+                  type: string
+                assets:
+                  type: array
+                  items:
+                    type: object
+                    required: [format, object_key, content_hash]
+                    properties:
+                      format:
+                        type: string
+                        enum: [markdown, json, csv]
+                      object_key:
+                        type: string
+                      content_hash:
+                        type: string

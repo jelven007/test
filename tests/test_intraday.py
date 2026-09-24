@@ -155,6 +155,26 @@ class FakeSource:
         self.closed = True
 
 
+class FakeStorageSink:
+    def __init__(self):
+        self.snapshots = []
+        self.closed = False
+
+    def submit(self, snapshot):
+        self.snapshots.append(snapshot)
+        return True
+
+    def status(self):
+        return {
+            "submitted": len(self.snapshots),
+            "processed": len(self.snapshots),
+            "last_error": None,
+        }
+
+    def close(self):
+        self.closed = True
+
+
 class FakeFrame:
     def __init__(self, rows):
         self.rows = rows
@@ -354,6 +374,22 @@ class MonitorTest(unittest.TestCase):
             self.assertEqual(data["stocks"][0]["quote"]["price"], 17.5)
             self.assertNotIn("candles", data["stocks"][0]["quote"])
             self.assertTrue(self.monitor.snapshot()["stocks"][0]["quote"]["candles"])
+
+    def test_poll_submits_full_snapshot_to_storage_sink_and_closes_it(self):
+        sink = FakeStorageSink()
+        monitor = IntradayMonitor(
+            report(),
+            codes=["002635"],
+            source=self.source,
+            clock=lambda: self.now,
+            storage_sink=sink,
+        )
+        monitor.poll_once()
+        self.assertEqual(len(sink.snapshots), 1)
+        self.assertTrue(sink.snapshots[0]["stocks"][0]["quote"]["candles"])
+        self.assertEqual(monitor.snapshot()["storage"]["submitted"], 1)
+        monitor.stop()
+        self.assertTrue(sink.closed)
 
 
 class SupplementalWatchlistTest(unittest.TestCase):

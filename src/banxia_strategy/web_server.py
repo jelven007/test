@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import sys
 from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -10,7 +11,9 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 from urllib.parse import unquote, urlparse
 
+from .application.persistence import build_market_persistence
 from .intraday import IntradayMonitor, WATCH_CODES, load_watchlist
+from .storage_config import StorageSettings
 
 
 REPORT_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -201,8 +204,28 @@ def serve_dashboard(
 ) -> None:
     store = ReportStore(report_roots)
     report = select_watch_report(store, watch_date)
+    settings = StorageSettings.from_env()
+    storage_sink = None
+    if settings.enabled and report is not None:
+        config_path = Path("config/strategy.json")
+        strategy_config = (
+            json.loads(config_path.read_text(encoding="utf-8"))
+            if config_path.exists()
+            else {}
+        )
+        try:
+            storage_sink = build_market_persistence(
+                report,
+                strategy_config=strategy_config,
+                settings=settings,
+            )
+        except Exception as exc:
+            if settings.required:
+                raise
+            print(f"[storage] dual-write disabled after initialization failure: {exc}", file=sys.stderr)
     monitor = IntradayMonitor(
         report, log_dir=monitor_log_dir, supplements=load_watchlist(watchlist_path),
+        storage_sink=storage_sink,
     )
     server = make_server(report_roots, host, port, monitor)
     monitor.start()

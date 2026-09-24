@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
 from typing import Optional, Sequence
 
+from .application.persistence import persist_report_copy
 from .mootdx_provider import MootdxProvider
+from .storage_config import StorageSettings
 from .strategy import StrategyConfig, StrategyEngine, write_report
 from .web_server import serve_dashboard
 
@@ -76,6 +79,12 @@ def _run(args: argparse.Namespace) -> int:
     config = StrategyConfig.from_file(args.config)
     report = StrategyEngine(MootdxProvider(), config).run(args.date)
     paths = write_report(report, args.output)
+    persistence = persist_report_copy(
+        report.to_dict(),
+        paths,
+        strategy_config=asdict(config),
+        settings=StorageSettings.from_env(),
+    )
     print(
         f"{report.as_of}: {report.market['regime']}, "
         f"{len(report.candidates)} candidates, "
@@ -90,6 +99,12 @@ def _run(args: argparse.Namespace) -> int:
     print(f"Markdown: {paths['markdown'].resolve()}")
     print(f"CSV: {paths['csv'].resolve()}")
     print(f"JSON: {paths['json'].resolve()}")
+    if persistence.enabled:
+        if persistence.identity is not None:
+            print(f"PostgreSQL run: {persistence.identity.run_id}")
+        print(f"MinIO assets: {len(persistence.assets)}")
+        for error in persistence.errors:
+            print(f"[storage] {error}", file=sys.stderr)
     return 0
 
 

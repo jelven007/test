@@ -1,9 +1,49 @@
-# 半夏风格 A 股每日观察工具
+# 一进二策略研究与实时监控系统
 
 这是一个面向研究用途的沪深主板短线筛选器。它在每个交易日收盘后读取公开行情，
 从首板股票中筛选可能进入二板的观察候选，并为每只股票生成条件化的次日计划。
 
 工具不会登录券商、不会连接交易账户，也不会自动下单。
+
+## 项目状态
+
+当前仓库是可运行的本地原型，使用 Python 单进程、mootdx、文件报告和 JSONL 盘中日志。
+生产化目标架构已经完成文档基线设计，将逐步演进到：
+
+```text
+mootdx -> 采集服务 -> Kafka -> Flink / 策略状态机
+       -> PostgreSQL + ClickHouse + Redis + S3/MinIO
+       -> /api/v1 -> Web 看板
+```
+
+目标能力尚未全部实现。当前行为以本 README 的运行说明为准，生产化需求和迭代边界以
+[docs/README.md](docs/README.md) 为统一入口：
+
+- [需求规格](docs/01-requirements.md)
+- [系统架构](docs/02-architecture.md)
+- [数据与存储](docs/03-data-storage.md)
+- [接口规范](docs/04-api.md)
+- [测试策略](docs/05-testing.md)
+- [部署与运维](docs/06-deployment-operations.md)
+- [迭代计划](docs/07-iteration-plan.md)
+- [OpenAPI](docs/openapi.yaml) / [AsyncAPI](docs/asyncapi.yaml)
+
+## 本地基础设施
+
+生产化迭代使用 Docker Compose 提供 PostgreSQL、ClickHouse、Redis、MinIO 和 Kafka：
+
+```bash
+cp deploy/compose/.env.example deploy/compose/.env
+make infra-config
+make infra-up
+make infra-status
+```
+
+初始化 Schema 位于 `migrations/postgres/` 和 `migrations/clickhouse/`。详细说明见
+[deploy/compose/README.md](deploy/compose/README.md)。
+
+当前 P1 已建立领域规则、事件模型和存储端口，并完成 PostgreSQL、ClickHouse、Redis、
+MinIO 的迁移期双写。Kafka 仍在后续阶段接入；本地报告和 JSONL 在迁移期继续保留。
 
 ## 策略范围
 
@@ -25,6 +65,12 @@
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/pip install -e .
+```
+
+启用生产存储适配器时安装可选依赖：
+
+```bash
+.venv/bin/pip install -e '.[storage]'
 ```
 
 检查行情连接：
@@ -118,6 +164,28 @@ python3 -m venv .venv
   过期股票继续显示行情，但停用其入场判断；更新对应日报或补充清单后重新启动服务。
 - 每次盘口采集的报价和判断追加保存到 `logs/intraday/YYYY-MM-DD.jsonl`。
   可用 `--monitor-log-dir` 指定目录。页面变化记录保留本次启动以来的最近40条。
+
+## 存储双写
+
+默认 `BANXIA_STORAGE_MODE=off`，程序行为与原文件链路一致。启动本地基础设施并安装
+`storage` 可选依赖后，可加载 Compose 配置并启用迁移模式：
+
+```bash
+set -a
+source deploy/compose/.env
+set +a
+export BANXIA_STORAGE_MODE=best_effort
+export BANXIA_CODE_COMMIT="$(git rev-parse --short HEAD)"
+```
+
+- `banxia-strategy run` 继续写本地 Markdown、JSON、CSV，同时将内容寻址对象上传至
+  MinIO，并在 PostgreSQL 保存策略版本、运行、计划、候选和对象元数据。
+- `banxia-strategy serve` 继续写 JSONL，同时通过有界后台队列批量写 ClickHouse
+  盘口/分钟线、PostgreSQL 决策状态与 Outbox，并更新 Redis 监控快照。
+- `best_effort` 适用于迁移验证：本地链路继续运行，远端错误写入 stderr 或监控 API
+  的 `storage.last_error`。`required` 用于要求初始化和队列接收成功的环境。
+- 远端写入不替代本地数据，也不包含自动下单能力。后台队列不是 WAL；进入 Kafka/WAL
+  阶段前，进程异常仍可能造成尚未落远端的数据丢失。
 
 成本回撤4%是预警阈值，并非保证成交的止损价。A股T+1，当天新买的股票不能当天卖出；
 本页没有持仓成本信息，不能计算个人盈亏或代替账户风控。电脑休眠、关机或 Web 服务停止

@@ -12,6 +12,14 @@ dependencies = [
   "mootdx>=0.11.7,<0.12",
 ]
 
+[project.optional-dependencies]
+storage = [
+  "clickhouse-connect>=0.8,<1",
+  "minio>=7.2,<8",
+  "psycopg[binary,pool]>=3.2,<4",
+  "redis>=5,<7",
+]
+
 [project.scripts]
 banxia-strategy = "banxia_strategy.cli:main"
 

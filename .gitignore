@@ -7,3 +7,4 @@ __pycache__/
 reports/
 scheduled_reports
 logs/
+deploy/compose/.env

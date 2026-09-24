@@ -1,0 +1,638 @@
+openapi: 3.0.3
+info:
+  title: Banxia Strategy Research API
+  version: 1.0.0
+  description: |
+    一进二策略研究系统目标 HTTP API。该契约描述 TARGET 架构，不代表当前代码已经实现。
+    系统只提供研究、监控和报告能力，不提供自动下单接口。
+servers:
+  - url: https://strategy.example.com
+    description: Production
+  - url: http://127.0.0.1:8765
+    description: Local development
+tags:
+  - name: Health
+  - name: Monitor
+  - name: Reports
+  - name: StrategyRuns
+paths:
+  /api/v1/health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: 进程存活检查
+      security: []
+      responses:
+        "200":
+          description: 进程存活
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /api/v1/health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: 服务就绪检查
+      security: []
+      responses:
+        "200":
+          description: 关键依赖可用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+        "503":
+          description: 关键依赖不可用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+  /api/v1/system/status:
+    get:
+      tags: [Health]
+      operationId: getSystemStatus
+      summary: 查询采集、消费和存储状态
+      responses:
+        "200":
+          description: 系统状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/monitor:
+    get:
+      tags: [Monitor]
+      operationId: getMonitorSnapshot
+      summary: 查询当前监控快照
+      parameters:
+        - name: trade_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: symbols
+          in: query
+          required: false
+          description: 逗号分隔的六位股票代码
+          schema:
+            type: string
+            pattern: '^\d{6}(,\d{6})*$'
+      responses:
+        "200":
+          description: 监控快照
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MonitorSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/monitor/events:
+    get:
+      tags: [Monitor]
+      operationId: listDecisionEvents
+      summary: 查询策略决策事件
+      parameters:
+        - name: symbol
+          in: query
+          schema:
+            $ref: "#/components/schemas/Symbol"
+        - name: state
+          in: query
+          schema:
+            $ref: "#/components/schemas/DecisionStateCode"
+        - name: start_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: end_time
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 决策事件列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/DecisionEvent"
+                  next_cursor:
+                    type: string
+                    nullable: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/monitor/stream:
+    get:
+      tags: [Monitor]
+      operationId: streamMonitorEvents
+      summary: 订阅监控 SSE
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: |
+            SSE 事件流。事件类型包括 snapshot、decision.changed、data.degraded 和 heartbeat。
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/reports:
+    get:
+      tags: [Reports]
+      operationId: listReports
+      summary: 查询历史报告
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: 报告列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ReportSummary"
+                  next_cursor:
+                    type: string
+                    nullable: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/reports/{tradeDate}:
+    get:
+      tags: [Reports]
+      operationId: getReport
+      summary: 查询指定参考日的完整报告
+      parameters:
+        - $ref: "#/components/parameters/TradeDate"
+      responses:
+        "200":
+          description: 完整报告
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyReport"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/reports/{tradeDate}/assets/{format}:
+    get:
+      tags: [Reports]
+      operationId: getReportAsset
+      summary: 获取报告文件
+      parameters:
+        - $ref: "#/components/parameters/TradeDate"
+        - name: format
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [markdown, json, csv]
+      responses:
+        "302":
+          description: 跳转到短期有效的对象存储签名地址
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/strategy-runs/{runId}:
+    get:
+      tags: [StrategyRuns]
+      operationId: getStrategyRun
+      summary: 查询策略运行状态
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 策略运行
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StrategyRun"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    TradeDate:
+      name: tradeDate
+      in: path
+      required: true
+      schema:
+        type: string
+        format: date
+  responses:
+    Unauthorized:
+      description: 未认证
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailable:
+      description: 关键依赖不可用
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    Symbol:
+      type: string
+      pattern: '^\d{6}$'
+      example: "002909"
+    Health:
+      type: object
+      required: [status, server_time]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        server_time:
+          type: string
+          format: date-time
+    Readiness:
+      type: object
+      required: [status, server_time, dependencies]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        server_time:
+          type: string
+          format: date-time
+        dependencies:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [ok, degraded, unavailable]
+    SystemStatus:
+      type: object
+      required: [server_time, collection, messaging, storage]
+      properties:
+        server_time:
+          type: string
+          format: date-time
+        collection:
+          type: object
+          additionalProperties: true
+        messaging:
+          type: object
+          additionalProperties: true
+        storage:
+          type: object
+          additionalProperties: true
+    DataStatus:
+      type: object
+      required: [state]
+      properties:
+        state:
+          type: string
+          enum: [fresh, delayed, stale, unavailable]
+        max_quote_age_seconds:
+          type: number
+          nullable: true
+        consumer_lag:
+          type: integer
+          nullable: true
+    DecisionStateCode:
+      type: string
+      enum:
+        - expired
+        - ineligible
+        - pre
+        - stale
+        - no_quote
+        - reference_changed
+        - missing_rules
+        - auction
+        - no_open
+        - reject_open
+        - reject_low
+        - outside_open
+        - window_closed
+        - sealed
+        - at_limit
+        - near_limit
+        - watch
+        - unavailable
+    Decision:
+      type: object
+      required: [state, label, reason_code, reason, irreversible, updated_at]
+      properties:
+        state:
+          $ref: "#/components/schemas/DecisionStateCode"
+        label:
+          type: string
+        reason_code:
+          type: string
+        reason:
+          type: string
+        irreversible:
+          type: boolean
+        updated_at:
+          type: string
+          format: date-time
+    StockSnapshot:
+      type: object
+      required:
+        - symbol
+        - name
+        - source_time
+        - collected_at
+        - decision
+      properties:
+        symbol:
+          $ref: "#/components/schemas/Symbol"
+        name:
+          type: string
+        industry:
+          type: string
+          nullable: true
+        source_time:
+          type: string
+          format: date-time
+        collected_at:
+          type: string
+          format: date-time
+        price:
+          type: number
+          format: double
+          nullable: true
+        change_pct:
+          type: number
+          format: double
+          nullable: true
+        open_change_pct:
+          type: number
+          format: double
+          nullable: true
+        amount_cny:
+          type: number
+          format: double
+          nullable: true
+        decision:
+          $ref: "#/components/schemas/Decision"
+    MonitorSnapshot:
+      type: object
+      required:
+        - trade_date
+        - plan_id
+        - strategy_version
+        - server_time
+        - data_status
+        - stocks
+      properties:
+        trade_date:
+          type: string
+          format: date
+        plan_id:
+          type: string
+        strategy_version:
+          type: string
+        server_time:
+          type: string
+          format: date-time
+        data_status:
+          $ref: "#/components/schemas/DataStatus"
+        stocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/StockSnapshot"
+    DecisionEvent:
+      type: object
+      required:
+        - event_id
+        - plan_id
+        - symbol
+        - state
+        - reason_code
+        - occurred_at
+      properties:
+        event_id:
+          type: string
+        plan_id:
+          type: string
+        symbol:
+          $ref: "#/components/schemas/Symbol"
+        previous_state:
+          allOf:
+            - $ref: "#/components/schemas/DecisionStateCode"
+          nullable: true
+        state:
+          $ref: "#/components/schemas/DecisionStateCode"
+        reason_code:
+          type: string
+        reason:
+          type: string
+        source_event_id:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+    MarketSummary:
+      type: object
+      required: [regime, score, limit_up_count, max_board]
+      properties:
+        regime:
+          type: string
+        score:
+          type: number
+        limit_up_count:
+          type: integer
+        broken_board_count:
+          type: integer
+          nullable: true
+        break_rate_pct:
+          type: number
+          nullable: true
+        max_board:
+          type: integer
+    Candidate:
+      type: object
+      required:
+        - rank
+        - symbol
+        - name
+        - score
+        - entry_trigger
+        - invalidation
+      properties:
+        rank:
+          type: integer
+        symbol:
+          $ref: "#/components/schemas/Symbol"
+        name:
+          type: string
+        industry:
+          type: string
+        score:
+          type: number
+        strategy:
+          type: string
+        latest_price:
+          type: number
+        amount_cny:
+          type: number
+        reasons:
+          type: array
+          items:
+            type: string
+        entry_trigger:
+          type: string
+        invalidation:
+          type: string
+        exit_plan:
+          type: string
+        position_limit_pct:
+          type: integer
+    ReportSummary:
+      type: object
+      required:
+        - trade_date
+        - plan_date
+        - generated_at
+        - candidate_count
+        - strategy_version
+      properties:
+        trade_date:
+          type: string
+          format: date
+        plan_date:
+          type: string
+          format: date
+        generated_at:
+          type: string
+          format: date-time
+        candidate_count:
+          type: integer
+        market_regime:
+          type: string
+        market_score:
+          type: number
+        strategy_version:
+          type: string
+    DailyReport:
+      allOf:
+        - $ref: "#/components/schemas/ReportSummary"
+        - type: object
+          required: [market, candidates, disclaimer]
+          properties:
+            market:
+              $ref: "#/components/schemas/MarketSummary"
+            candidates:
+              type: array
+              items:
+                $ref: "#/components/schemas/Candidate"
+            disclaimer:
+              type: string
+    StrategyRun:
+      type: object
+      required:
+        - run_id
+        - trade_date
+        - strategy_version
+        - status
+        - created_at
+      properties:
+        run_id:
+          type: string
+        trade_date:
+          type: string
+          format: date
+        strategy_version:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, cancelled]
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+        error:
+          type: string
+          nullable: true
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            request_id:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+security:
+  - bearerAuth: []
