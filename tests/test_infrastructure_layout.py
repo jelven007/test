@@ -173,9 +173,16 @@ class WebAssetTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("/api/v1/reports/${encodeURIComponent(asOf)}", app)
+        self.assertIn(
+            "/api/v1/reports/${encodeURIComponent(asOf)}/refresh",
+            app,
+        )
+        self.assertIn("/api/v1/report-jobs/${encodeURIComponent(job.job_id)}", app)
         self.assertIn("report.trade_date || report.as_of", app)
         self.assertIn('timeZone: "Asia/Shanghai"', app)
         self.assertIn('id="report-date" type="date"', html)
+        self.assertIn('id="refresh-button" type="button">刷新</button>', html)
+        self.assertNotIn("刷新数据", html)
         self.assertIn("width: 148px", css)
         self.assertIn("flex-basis: 122px", css)
         self.assertIn("flex-wrap: nowrap", css)

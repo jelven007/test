@@ -201,6 +201,48 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/reports/{tradeDate}/refresh:
+    post:
+      tags: [Reports]
+      operationId: refreshReport
+      summary: 提交指定参考日的报告重新生成任务
+      parameters:
+        - $ref: "#/components/parameters/TradeDate"
+      responses:
+        "202":
+          description: 已创建独立的报告刷新任务
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportRefreshJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/report-jobs/{jobId}:
+    get:
+      tags: [Reports]
+      operationId: getReportRefreshJob
+      summary: 查询报告刷新任务状态
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 报告刷新任务状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportRefreshJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/v1/reports/{tradeDate}/assets/{format}:
     get:
       tags: [Reports]
@@ -276,6 +318,12 @@ components:
         type: string
         format: date
   responses:
+    BadRequest:
+      description: 请求参数无效
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
     Unauthorized:
       description: 未认证
       content:
@@ -681,6 +729,48 @@ components:
               type: integer
             disclaimer:
               type: string
+    ReportRefreshJob:
+      type: object
+      required: [job_id, status, payload, created_at]
+      properties:
+        job_id:
+          type: string
+        job_type:
+          type: string
+          enum: [report_refresh]
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, cancelled]
+        attempt:
+          type: integer
+          minimum: 0
+        payload:
+          type: object
+          required: [trade_date]
+          properties:
+            trade_date:
+              type: string
+              format: date
+            requested_by:
+              type: string
+        result:
+          type: object
+          nullable: true
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
     StrategyRun:
       type: object
       required:

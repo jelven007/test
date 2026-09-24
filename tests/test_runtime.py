@@ -20,7 +20,11 @@ from banxia_strategy.application.report_worker import (
 )
 from banxia_strategy.config import RuntimeSettings
 from banxia_strategy.ports.storage import ReportIdentity
-from banxia_strategy.service import _catch_up_report, _generate_scheduled_report
+from banxia_strategy.service import (
+    _catch_up_report,
+    _consume_report_refresh,
+    _generate_scheduled_report,
+)
 from banxia_strategy.storage_config import StorageSettings
 from banxia_strategy.strategy import DailyReport
 
@@ -189,6 +193,39 @@ class ReportSchedulerTest(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(generate.call_count, 2)
         stop.wait.assert_called_once_with(0.01)
+
+    def test_queued_refresh_uses_the_scheduled_report_transaction(self):
+        repository = Mock()
+        repository.claim_report_refresh.return_value = {
+            "job_id": "job-1",
+            "payload": {"trade_date": "2026-09-24"},
+        }
+        settings = RuntimeSettings(report_output_dir=Path("reports"))
+        logger = Mock()
+        stop = Mock()
+
+        with patch(
+            "banxia_strategy.service._generate_scheduled_report",
+            return_value=True,
+        ) as generate:
+            consumed = _consume_report_refresh(
+                repository,
+                settings,
+                logger,
+                stop,
+            )
+
+        self.assertTrue(consumed)
+        generate.assert_called_once()
+        self.assertEqual(generate.call_args.args[2], date(2026, 9, 24))
+        repository.finish_report_refresh.assert_called_once()
+        finish = repository.finish_report_refresh.call_args
+        self.assertEqual(finish.args, ("job-1",))
+        self.assertTrue(finish.kwargs["succeeded"])
+        self.assertEqual(
+            finish.kwargs["result"]["trade_date"],
+            "2026-09-24",
+        )
 
 
 class ReportWorkerTest(unittest.TestCase):

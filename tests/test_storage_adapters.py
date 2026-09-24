@@ -316,6 +316,54 @@ class FakeConnection:
 
 
 class PostgresAdapterTest(unittest.TestCase):
+    def test_report_refresh_jobs_are_enqueued_claimed_and_completed(self):
+        created_at = datetime.fromisoformat("2026-09-25T09:00:00+08:00")
+        started_at = datetime.fromisoformat("2026-09-25T09:00:01+08:00")
+        finished_at = datetime.fromisoformat("2026-09-25T09:00:02+08:00")
+        payload = {"trade_date": "2026-09-24", "requested_by": "request-1"}
+        cursor = FakeCursor(
+            [
+                ("job-1", "queued", payload, created_at),
+                ("job-1", "running", 1, payload, created_at, started_at),
+                (
+                    "job-1",
+                    "report_refresh",
+                    "succeeded",
+                    1,
+                    payload,
+                    {"trade_date": "2026-09-24"},
+                    None,
+                    created_at,
+                    started_at,
+                    finished_at,
+                ),
+            ]
+        )
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+
+        queued = storage.enqueue_report_refresh(
+            "2026-09-24",
+            requested_by="request-1",
+        )
+        claimed = storage.claim_report_refresh()
+        storage.finish_report_refresh(
+            "job-1",
+            succeeded=True,
+            result={"trade_date": "2026-09-24"},
+        )
+        completed = storage.get_job_execution("job-1")
+
+        self.assertEqual(queued["status"], "queued")
+        self.assertEqual(claimed["status"], "running")
+        self.assertEqual(completed["status"], "succeeded")
+        statements = "\n".join(call[0] for call in cursor.calls)
+        self.assertIn("INSERT INTO banxia.job_execution", statements)
+        self.assertIn("FOR UPDATE SKIP LOCKED", statements)
+        self.assertIn("INTERVAL '15 minutes'", statements)
+        self.assertIn("SET status = %s", statements)
+
     def test_report_transaction_writes_plan_candidate_and_asset_metadata(self):
         ids = [
             ("11111111-1111-1111-1111-111111111111",),

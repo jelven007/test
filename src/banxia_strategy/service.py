@@ -367,9 +367,80 @@ def _catch_up_report(
             return
 
 
+def _consume_report_refresh(
+    repository: PostgresStorage,
+    settings: RuntimeSettings,
+    logger: Any,
+    stop: threading.Event,
+) -> bool:
+    job = repository.claim_report_refresh()
+    if job is None:
+        return False
+    job_id = str(job["job_id"])
+    try:
+        requested_date = date.fromisoformat(str(job["payload"]["trade_date"]))
+        requested_at = datetime.now(SHANGHAI)
+        result = _generate_scheduled_report(
+            settings,
+            logger,
+            requested_date,
+            requested_at,
+            stop,
+        )
+        if result:
+            repository.finish_report_refresh(
+                job_id,
+                succeeded=True,
+                result={
+                    "trade_date": requested_date.isoformat(),
+                    "generated_at": datetime.now(SHANGHAI).isoformat(
+                        timespec="seconds"
+                    ),
+                },
+            )
+            logger.info(
+                "report refresh completed",
+                extra={
+                    "job_id": job_id,
+                    "trade_date": requested_date.isoformat(),
+                },
+            )
+        else:
+            message = (
+                "report date is not a trading day"
+                if result is False
+                else "report generation failed after retries"
+            )
+            repository.finish_report_refresh(
+                job_id,
+                succeeded=False,
+                error_message=message,
+            )
+            logger.error(
+                "report refresh failed",
+                extra={
+                    "job_id": job_id,
+                    "trade_date": requested_date.isoformat(),
+                    "reason": message,
+                },
+            )
+    except Exception as exc:
+        logger.exception(
+            "report refresh job failed",
+            extra={"job_id": job_id},
+        )
+        repository.finish_report_refresh(
+            job_id,
+            succeeded=False,
+            error_message=str(exc),
+        )
+    return True
+
+
 def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
     schedule = parse_schedule(settings.report_schedule)
     stop = threading.Event()
+    repository = _postgres(settings)
 
     def request_stop(_signum, _frame):
         stop.set()
@@ -390,24 +461,37 @@ def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
         datetime.now(SHANGHAI),
         stop,
     )
+    scheduled_at = next_scheduled_at(datetime.now(SHANGHAI), schedule)
+    logger.info(
+        "next report scheduled",
+        extra={"scheduled_at": scheduled_at.isoformat()},
+    )
     try:
         while not stop.is_set():
+            try:
+                _consume_report_refresh(repository, settings, logger, stop)
+            except Exception:
+                logger.exception("report refresh queue check failed")
             now = datetime.now(SHANGHAI)
-            scheduled_at = next_scheduled_at(now, schedule)
-            logger.info(
-                "next report scheduled",
-                extra={"scheduled_at": scheduled_at.isoformat()},
-            )
-            if stop.wait(max(0.0, (scheduled_at - now).total_seconds())):
-                break
-            _generate_scheduled_report(
-                settings,
-                logger,
-                scheduled_at.date(),
-                scheduled_at,
-                stop,
-            )
+            if now >= scheduled_at:
+                _generate_scheduled_report(
+                    settings,
+                    logger,
+                    scheduled_at.date(),
+                    scheduled_at,
+                    stop,
+                )
+                scheduled_at = next_scheduled_at(
+                    datetime.now(SHANGHAI),
+                    schedule,
+                )
+                logger.info(
+                    "next report scheduled",
+                    extra={"scheduled_at": scheduled_at.isoformat()},
+                )
+            stop.wait(1.0)
     finally:
+        repository.close()
         logger.info("report scheduler stopped")
 
 

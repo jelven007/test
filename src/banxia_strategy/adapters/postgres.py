@@ -947,6 +947,144 @@ class PostgresStorage:
             "error": row[7],
         }
 
+    def enqueue_report_refresh(
+        self,
+        trade_date: str,
+        *,
+        requested_by: str = "web",
+    ) -> Mapping[str, Any]:
+        job_id = str(uuid.uuid4())
+        payload = {
+            "trade_date": trade_date,
+            "requested_by": requested_by,
+        }
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO banxia.job_execution (
+                        job_id, job_type, idempotency_key, status, payload
+                    ) VALUES (%s, 'report_refresh', %s, 'queued', %s::jsonb)
+                    RETURNING job_id, status, payload, created_at
+                    """,
+                    (
+                        job_id,
+                        f"report-refresh:{job_id}",
+                        _json(payload),
+                    ),
+                )
+                row = cursor.fetchone()
+        return {
+            "job_id": str(row[0]),
+            "status": str(row[1]),
+            "payload": dict(_mapping(row[2])),
+            "created_at": _datetime(row[3]).isoformat(),
+        }
+
+    def claim_report_refresh(self) -> Optional[Mapping[str, Any]]:
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    WITH next_job AS (
+                        SELECT job_id
+                        FROM banxia.job_execution
+                        WHERE job_type = 'report_refresh'
+                          AND (
+                            status = 'queued'
+                            OR (
+                              status = 'running'
+                              AND started_at < now() - INTERVAL '15 minutes'
+                            )
+                          )
+                        ORDER BY created_at
+                        FOR UPDATE SKIP LOCKED
+                        LIMIT 1
+                    )
+                    UPDATE banxia.job_execution AS job
+                    SET status = 'running',
+                        attempt = job.attempt + 1,
+                        started_at = now(),
+                        finished_at = NULL,
+                        error_message = NULL
+                    FROM next_job
+                    WHERE job.job_id = next_job.job_id
+                    RETURNING
+                        job.job_id, job.status, job.attempt, job.payload,
+                        job.created_at, job.started_at
+                    """
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "job_id": str(row[0]),
+            "status": str(row[1]),
+            "attempt": int(row[2]),
+            "payload": dict(_mapping(row[3])),
+            "created_at": _datetime(row[4]).isoformat(),
+            "started_at": _datetime(row[5]).isoformat(),
+        }
+
+    def finish_report_refresh(
+        self,
+        job_id: str,
+        *,
+        succeeded: bool,
+        result: Optional[Mapping[str, Any]] = None,
+        error_message: Optional[str] = None,
+    ) -> None:
+        status = "succeeded" if succeeded else "failed"
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE banxia.job_execution
+                    SET status = %s,
+                        result = %s::jsonb,
+                        error_message = %s,
+                        finished_at = now()
+                    WHERE job_id = %s
+                      AND job_type = 'report_refresh'
+                      AND status = 'running'
+                    """,
+                    (
+                        status,
+                        _json(result or {}),
+                        error_message,
+                        job_id,
+                    ),
+                )
+
+    def get_job_execution(self, job_id: str) -> Optional[Mapping[str, Any]]:
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        job_id, job_type, status, attempt, payload, result,
+                        error_message, created_at, started_at, finished_at
+                    FROM banxia.job_execution
+                    WHERE job_id = %s
+                    """,
+                    (job_id,),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "job_id": str(row[0]),
+            "job_type": str(row[1]),
+            "status": str(row[2]),
+            "attempt": int(row[3]),
+            "payload": dict(_mapping(row[4])),
+            "result": dict(_mapping(row[5])) if row[5] is not None else None,
+            "error": row[6],
+            "created_at": _datetime(row[7]).isoformat(),
+            "started_at": _datetime(row[8]).isoformat() if row[8] else None,
+            "finished_at": _datetime(row[9]).isoformat() if row[9] else None,
+        }
+
     def get_report_asset(
         self,
         trade_date: str,

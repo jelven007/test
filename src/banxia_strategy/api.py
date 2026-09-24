@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
@@ -533,6 +533,34 @@ def create_api_app(services: ApiServices):
         if value is None:
             raise HTTPException(status_code=404, detail="report not found")
         return _report_payload(value, services.strategy_version)
+
+    @app.post("/api/v1/reports/{tradeDate}/refresh", status_code=202)
+    def refresh_report(tradeDate: str, request: Request):
+        try:
+            date.fromisoformat(tradeDate)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="tradeDate must be a valid ISO date",
+            ) from exc
+        return services.repository.enqueue_report_refresh(
+            tradeDate,
+            requested_by=request.state.request_id,
+        )
+
+    @app.get("/api/v1/report-jobs/{jobId}")
+    def report_job(jobId: str):
+        try:
+            uuid.UUID(jobId)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="jobId must be a valid UUID",
+            ) from exc
+        result = services.repository.get_job_execution(jobId)
+        if result is None or result.get("job_type") != "report_refresh":
+            raise HTTPException(status_code=404, detail="report job not found")
+        return result
 
     @app.get("/api/v1/reports/{tradeDate}/assets/{format}")
     def report_asset(tradeDate: str, format: str):

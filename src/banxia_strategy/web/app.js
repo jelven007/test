@@ -256,11 +256,15 @@ function renderError(message) {
   sourceLabel.textContent = "读取失败";
 }
 
-async function fetchJson(path) {
-  const response = await fetch(path, { cache: "no-store" });
+async function fetchJson(path, options = {}) {
+  const response = await fetch(path, { cache: "no-store", ...options });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error?.message || `请求失败（${response.status}）`);
   return payload;
+}
+
+function wait(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 async function loadReport(asOf) {
@@ -276,6 +280,39 @@ async function loadReport(asOf) {
     renderError(error.message);
   } finally {
     refreshButton.disabled = false;
+  }
+}
+
+async function refreshReport(asOf) {
+  refreshButton.disabled = true;
+  refreshButton.textContent = "生成中…";
+  sourceStatus.className = "source-status";
+  sourceLabel.textContent = "正在重新生成日报";
+  try {
+    const job = await fetchJson(
+      `/api/v1/reports/${encodeURIComponent(asOf)}/refresh`,
+      { method: "POST" },
+    );
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      const status = await fetchJson(
+        `/api/v1/report-jobs/${encodeURIComponent(job.job_id)}`,
+      );
+      if (status.status === "succeeded") {
+        await loadReport(status.result?.trade_date || asOf);
+        return;
+      }
+      if (status.status === "failed" || status.status === "cancelled") {
+        throw new Error(status.error || "日报生成失败");
+      }
+      await wait(1000);
+    }
+    throw new Error("日报生成超时，请稍后重试");
+  } catch (error) {
+    sourceStatus.className = "source-status error";
+    sourceLabel.textContent = `刷新失败：${error.message}`;
+  } finally {
+    refreshButton.disabled = false;
+    refreshButton.textContent = "刷新";
   }
 }
 
@@ -298,7 +335,7 @@ reportDateInput.addEventListener("change", () => {
 });
 refreshButton.addEventListener("click", () => {
   const requestedDate = reportDateInput.value || activeDate;
-  if (requestedDate) loadReport(requestedDate);
+  if (requestedDate) refreshReport(requestedDate);
 });
 
 initialize();

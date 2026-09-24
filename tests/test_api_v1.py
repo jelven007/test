@@ -12,6 +12,9 @@ from banxia_strategy.web_server import ReportStore
 
 
 class FakeRepository:
+    def __init__(self):
+        self.jobs = {}
+
     def ready(self):
         return True
 
@@ -37,6 +40,29 @@ class FakeRepository:
 
     def get_strategy_run(self, run_id):
         return {"run_id": run_id, "status": "succeeded"} if run_id == "run" else None
+
+    def enqueue_report_refresh(self, trade_date, *, requested_by="web"):
+        job_id = f"00000000-0000-0000-0000-{len(self.jobs) + 1:012d}"
+        job = {
+            "job_id": job_id,
+            "job_type": "report_refresh",
+            "status": "queued",
+            "attempt": 0,
+            "payload": {
+                "trade_date": trade_date,
+                "requested_by": requested_by,
+            },
+            "result": None,
+            "error": None,
+            "created_at": "2026-09-25T09:00:00+08:00",
+            "started_at": None,
+            "finished_at": None,
+        }
+        self.jobs[job_id] = job
+        return job
+
+    def get_job_execution(self, job_id):
+        return self.jobs.get(job_id)
 
 
 class FakeCache:
@@ -171,12 +197,46 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(report["candidates"][0]["symbol"], "002635")
         self.assertEqual(report["strategy_version"], "v2")
 
+    def test_report_refresh_creates_a_new_job_for_every_request(self):
+        first = self.client.post(
+            "/api/v1/reports/2026-09-23/refresh",
+            headers={"X-Request-ID": "refresh-1"},
+        )
+        second = self.client.post("/api/v1/reports/2026-09-23/refresh")
+
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(second.status_code, 202)
+        self.assertNotEqual(first.json()["job_id"], second.json()["job_id"])
+        self.assertEqual(
+            first.json()["payload"],
+            {
+                "trade_date": "2026-09-23",
+                "requested_by": "refresh-1",
+            },
+        )
+        status = self.client.get(
+            f"/api/v1/report-jobs/{first.json()['job_id']}"
+        )
+        self.assertEqual(status.status_code, 200)
+        self.assertEqual(status.json()["status"], "queued")
+
+    def test_report_refresh_rejects_invalid_date_and_unknown_job(self):
+        invalid = self.client.post("/api/v1/reports/not-a-date/refresh")
+        malformed_job = self.client.get("/api/v1/report-jobs/missing")
+        missing = self.client.get(
+            "/api/v1/report-jobs/00000000-0000-0000-0000-999999999999"
+        )
+
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(malformed_job.status_code, 400)
+        self.assertEqual(missing.status_code, 404)
+
     def test_web_assets_are_not_served_from_stale_browser_cache(self):
         dashboard = self.client.get("/")
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store")
-        self.assertIn("/styles.css?v=20260924.1", dashboard.text)
+        self.assertIn("/styles.css?v=20260925.1", dashboard.text)
 
-        stylesheet = self.client.get("/styles.css?v=20260924.1")
+        stylesheet = self.client.get("/styles.css?v=20260925.1")
         self.assertEqual(stylesheet.status_code, 200)
         self.assertEqual(stylesheet.headers["Cache-Control"], "no-store")
         self.assertIn("@media (max-width: 480px)", stylesheet.text)
