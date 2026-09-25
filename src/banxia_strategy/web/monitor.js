@@ -6,6 +6,7 @@ let latest = null;
 let selected = null;
 let connected = false;
 let inFlight = false;
+let refreshing = false;
 let serverOffset = 0;
 let lastPageSync = 0;
 let eventSource = null;
@@ -262,13 +263,13 @@ function markDisconnected(message) {
 }
 async function sync({ userInitiated = false } = {}) {
   await window.strategyReady;
-  if (inFlight) return;
+  if (inFlight || refreshing) return;
   inFlight = true;
   refreshButton.disabled = true;
   if (userInitiated) {
     reportDateInput.disabled = true;
-    refreshButton.textContent = "生成中…";
-    write("connection", "正在按策略与日期生成");
+    refreshButton.textContent = "加载中…";
+    write("connection", "正在读取策略与日期");
     sourceStatus.className = "source-status";
   }
   const controller = new AbortController();
@@ -292,6 +293,59 @@ async function sync({ userInitiated = false } = {}) {
   } finally {
     clearTimeout(timeout);
     inFlight = false;
+    refreshButton.disabled = false;
+    reportDateInput.disabled = false;
+    refreshButton.textContent = "刷新";
+  }
+}
+function wait(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+async function fetchJson(path, options = {}) {
+  const response = await fetch(window.strategyURL(path), { cache: "no-store", ...options });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error?.message || `请求失败（${response.status}）`);
+  return payload;
+}
+async function refreshSelectedDay() {
+  await window.strategyReady;
+  if (inFlight || refreshing) return;
+  const requestedDate = reportDateInput.value;
+  if (!requestedDate || latest?.plan_date !== requestedDate || !latest.reference_date) {
+    markDisconnected("请先选择有执行计划的交易日");
+    return;
+  }
+  refreshing = true;
+  refreshButton.disabled = true;
+  reportDateInput.disabled = true;
+  refreshButton.textContent = "生成中…";
+  write("connection", "正在按最新策略重新生成");
+  sourceStatus.className = "source-status";
+  try {
+    const job = await fetchJson(
+      `/api/v1/reports/${encodeURIComponent(latest.reference_date)}/refresh`,
+      { method: "POST" },
+    );
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      const status = await fetchJson(
+        `/api/v1/report-jobs/${encodeURIComponent(job.job_id)}`,
+      );
+      if (status.status === "succeeded") {
+        refreshing = false;
+        await sync();
+        return;
+      }
+      if (status.status === "failed" || status.status === "cancelled") {
+        throw new Error(status.error || "当日实盘生成失败");
+      }
+      await wait(1000);
+    }
+    throw new Error("当日实盘生成超时，请稍后重试");
+  } catch (error) {
+    sourceStatus.className = "source-status error";
+    write("connection", `刷新失败：${error.message}`);
+  } finally {
+    refreshing = false;
     refreshButton.disabled = false;
     reportDateInput.disabled = false;
     refreshButton.textContent = "刷新";
@@ -349,7 +403,7 @@ reportDateInput.addEventListener("change", () => {
   sync({ userInitiated: true });
   connectStream();
 });
-refreshButton.addEventListener("click", () => sync({ userInitiated: true }));
+refreshButton.addEventListener("click", refreshSelectedDay);
 
 async function initialize() {
   await window.strategyReady;

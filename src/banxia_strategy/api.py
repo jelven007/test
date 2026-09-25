@@ -246,12 +246,28 @@ def create_api_app(services: ApiServices):
         strategy_id = strategy_id or (active["strategy_id"] if active else None)
         if strategy_id:
             require_strategy(strategy_id)
+        day = (
+            services.repository.get_strategy_day(strategy_id, trade_date)
+            if strategy_id and trade_date
+            else None
+        )
+        execution = day.get("execution_plan") if day else None
+        actuals = day.get("actuals", {}) if day else {}
+        if execution and "outcomes" in actuals:
+            return {
+                "plan_id": execution.get("plan_id") or "",
+                "reference_date": execution["as_of"],
+                "trade_date": trade_date,
+                "strategy_version": execution.get("strategy_version", ""),
+                "candidates": [
+                    {**candidate, "symbol": candidate["code"]}
+                    for candidate in execution["candidates"]
+                ],
+            }
         plan = services.repository.get_active_plan(
             trade_date, **({"strategy_id": strategy_id} if strategy_id else {})
         )
-        if plan is None and strategy_id and trade_date:
-            day = services.repository.get_strategy_day(strategy_id, trade_date)
-            execution = day.get("execution_plan") if day else None
+        if plan is None and day:
             if execution:
                 plan = {
                     "plan_id": execution.get("plan_id") or "",

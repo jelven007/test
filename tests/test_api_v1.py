@@ -297,6 +297,69 @@ class ApiV1Test(unittest.TestCase):
         self.assertIsNone(payload["stocks"][0]["price"])
         self.assertEqual(payload["data_status"]["state"], "unavailable")
 
+    def test_historical_monitor_prefers_materialized_execution_over_stale_active_plan(self):
+        strategy_id = "00000000-0000-0000-0000-000000000010"
+        candidates = [
+            {"code": f"60000{index}", "name": f"候选{index}", "rank": index}
+            for index in range(1, 4)
+        ]
+        outcomes = [
+            {
+                "symbol": candidate["code"],
+                "status": "observed",
+                "open": 10,
+                "high": 11,
+                "low": 9,
+                "close": 10.5,
+                "reference_close": 10,
+                "closed_limit_up": False,
+                "reason": "收盘验证",
+            }
+            for candidate in candidates
+        ]
+
+        class Repository:
+            def get_strategy(self, requested):
+                return {"strategy_id": strategy_id} if requested == strategy_id else None
+
+            def get_active_plan(self, trade_date=None, strategy_id=None):
+                return {
+                    "plan_id": "stale-plan",
+                    "reference_date": "2026-09-23",
+                    "trade_date": trade_date,
+                    "strategy_version": "stale",
+                    "candidates": [{"symbol": "600999", "name": "旧候选"}],
+                }
+
+            def get_strategy_day(self, requested, trade_date):
+                return {
+                    "trade_date": trade_date,
+                    "execution_plan": {
+                        "plan_id": "current-plan",
+                        "as_of": "2026-09-23",
+                        "strategy_version": "current",
+                        "candidates": candidates,
+                    },
+                    "actuals": {"outcomes": outcomes},
+                    "updated_at": "2026-09-24T15:00:00+08:00",
+                }
+
+        client = TestClient(create_api_app(ApiServices(
+            reports=self.services.reports,
+            repository=Repository(),
+            cache=FakeCache(),
+        )))
+        payload = client.get(
+            f"/api/v1/monitor?strategy_id={strategy_id}&trade_date=2026-09-24"
+        ).json()
+
+        self.assertEqual(payload["plan_id"], "current-plan")
+        self.assertEqual(payload["strategy_version"], "current")
+        self.assertEqual(
+            [stock["symbol"] for stock in payload["stocks"]],
+            [candidate["code"] for candidate in candidates],
+        )
+
     def test_report_refresh_creates_a_new_job_for_every_request(self):
         first = self.client.post(
             "/api/v1/reports/2026-09-23/refresh",
