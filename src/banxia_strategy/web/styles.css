@@ -1,19 +1,19 @@
 :root {
-  --paper: #f4f1e8;
-  --paper-deep: #e9e4d8;
-  --ink: #18201d;
-  --muted: #68716b;
-  --line: #cfc9bc;
-  --line-dark: #9d9a90;
-  --green: #116149;
-  --green-soft: #dfece5;
+  --paper: #f6f7f5;
+  --paper-deep: #ecefeb;
+  --ink: #17201c;
+  --muted: #66716b;
+  --line: #d7dcd8;
+  --line-dark: #aeb7b1;
+  --green: #126044;
+  --green-soft: #e5f0ea;
   --red: #a33c32;
   --red-soft: #f2dfda;
   --amber: #bc7917;
   --amber-soft: #f2e6ca;
   --blue: #315a78;
-  --white: #fcfbf7;
-  --shadow: 0 14px 32px rgba(39, 43, 38, 0.08);
+  --white: #ffffff;
+  --shadow: 0 12px 28px rgba(23, 32, 28, 0.08);
   --mono: "SFMono-Regular", "Cascadia Mono", "Liberation Mono", monospace;
   --serif: "Songti SC", "STSong", "Noto Serif CJK SC", serif;
   --sans: "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -32,10 +32,6 @@ body {
   min-width: 320px;
   color: var(--ink);
   background-color: var(--paper);
-  background-image:
-    linear-gradient(rgba(24, 32, 29, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(24, 32, 29, 0.035) 1px, transparent 1px);
-  background-size: 32px 32px;
   font-family: var(--sans);
   line-height: 1.55;
 }

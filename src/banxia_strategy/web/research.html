@@ -4,15 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#f6f7f5">
   <title>回测优化 · 一进二</title>
   <link rel="stylesheet" href="/styles.css?v=20260925.1">
   <link rel="stylesheet" href="/research.css?v=20260925.1">
+  <link rel="stylesheet" href="/ui-standard.css?v=20260925.1">
   <script src="/research.js?v=20260925.1" defer></script>
 </head>
 <body class="research-body">
   <header class="topbar research-topbar">
     <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">B</span><span><strong>一进二</strong><small>策略观察工作台</small></span></a>
-    <span class="research-source">mootdx · 历史行情重建</span>
+    <span class="research-source app-source">mootdx · 历史行情重建</span>
   </header>
   <nav class="primary-nav" aria-label="主导航">
     <a href="/strategy">策略管理</a>
@@ -20,34 +22,34 @@
     <a href="/monitor">盘中监控</a>
     <a href="/research" aria-current="page">回测优化</a>
   </nav>
-  <main class="research-main">
-    <header class="research-heading">
-      <div><p class="eyebrow">RESEARCH JOURNAL / 01</p><h1>让每一份计划，有据可查。</h1><p>历史次日计划、逐日验证，与可追溯的策略实验。</p></div>
-      <div class="research-picker"><label for="run-select">实验记录</label><select id="run-select" disabled><option>正在读取…</option></select><button id="reload-research" type="button">重新加载</button></div>
+  <main class="research-main page-main">
+    <header class="research-heading page-header">
+      <div><p class="eyebrow">BACKTEST & OPTIMIZATION</p><h1>回测优化</h1><p>查看历史计划、逐日验证、参数实验与独立留出结果。</p></div>
+      <div class="research-picker"><label for="run-select">实验记录</label><select id="run-select" class="ui-control" disabled><option>正在读取…</option></select><button id="reload-research" class="ui-button" type="button">重新加载</button></div>
     </header>
     <p id="research-status" role="status" aria-live="polite">正在读取回测数据…</p>
     <div id="research-content" hidden>
       <section class="research-verdict" aria-labelledby="verdict-title">
         <div><p class="eyebrow">实验结论 · <span id="range-label"></span></p><h2 id="verdict-title"></h2><p id="verdict-detail"></p></div>
-        <div><span class="research-tag">独立研究策略 · 未启用</span><p id="revision-label"></p><a id="download-strategy" class="research-link">下载新策略 JSON ↗</a></div>
+        <div><span class="research-tag status-badge">独立研究策略 · 未启用</span><p id="revision-label"></p><a id="download-strategy" class="research-link">下载新策略 JSON ↗</a></div>
       </section>
       <div class="metric-row" id="research-metrics"></div>
       <p class="metric-definition" id="metric-definition"></p>
       <section class="research-section">
-        <div class="section-title"><div><p class="eyebrow">01 / DAILY EVIDENCE</p><h2>逐日复盘</h2></div><div class="research-switch" aria-label="统计周期"><button type="button" data-period="days" aria-pressed="true">每日</button><button type="button" data-period="weeks" aria-pressed="false">每周</button><button type="button" data-period="months" aria-pressed="false">每月</button></div></div>
+        <div class="section-title"><div><p class="eyebrow">01 / DAILY EVIDENCE</p><h2>逐日复盘</h2></div><div class="research-switch segmented-control" aria-label="统计周期"><button type="button" data-period="days" aria-pressed="true">每日</button><button type="button" data-period="weeks" aria-pressed="false">每周</button><button type="button" data-period="months" aria-pressed="false">每月</button></div></div>
         <div class="chart-caption"><span><i class="legend-original"></i>原策略</span><span><i class="legend-optimized"></i>优化候选</span><span>收盘二板命中率 · %</span></div>
         <div id="accuracy-chart" role="img" aria-label="原策略与优化候选准确率比较"></div>
-        <div class="research-table-scroll"><table class="research-table"><caption id="period-caption">按计划执行日统计，点击日期查看候选明细</caption><thead><tr><th>计划执行日 / 周期</th><th>原策略 命中 / 样本</th><th>原准确率</th><th>新策略 命中 / 样本</th><th>新准确率</th><th>变化</th></tr></thead><tbody id="period-rows"></tbody></table></div>
+        <div class="research-table-scroll"><table class="research-table data-table"><caption id="period-caption">按计划执行日统计，点击日期查看候选明细</caption><thead><tr><th>计划执行日 / 周期</th><th>原策略 命中 / 样本</th><th>原准确率</th><th>新策略 命中 / 样本</th><th>新准确率</th><th>变化</th></tr></thead><tbody id="period-rows"></tbody></table></div>
       </section>
       <section class="research-section" id="day-section">
-        <div class="section-title"><div><p class="eyebrow">02 / PLAN & OUTCOME</p><h2 id="day-title">候选与实际行情</h2></div><label>查看策略 <select id="variant-select"><option value="baseline">原策略</option><option value="optimized">优化候选</option></select></label></div>
-        <div class="research-table-scroll"><table class="research-table"><caption>竞价采用日线开盘价近似；封板成功不表示入场成交</caption><thead><tr><th>候选 / 评分</th><th>题材</th><th>次日开 / 高 / 低 / 收</th><th>开盘涨幅</th><th>竞价范围合格</th><th>触板 / 收盘封板</th><th>计划与放弃条件</th></tr></thead><tbody id="candidate-rows"></tbody></table></div>
+        <div class="section-title"><div><p class="eyebrow">02 / PLAN & OUTCOME</p><h2 id="day-title">候选与实际行情</h2></div><label>查看策略 <select id="variant-select" class="ui-control"><option value="baseline">原策略</option><option value="optimized">优化候选</option></select></label></div>
+        <div class="research-table-scroll"><table class="research-table data-table"><caption>竞价采用日线开盘价近似；封板成功不表示入场成交</caption><thead><tr><th>候选 / 评分</th><th>题材</th><th>次日开 / 高 / 低 / 收</th><th>开盘涨幅</th><th>竞价范围合格</th><th>触板 / 收盘封板</th><th>计划与放弃条件</th></tr></thead><tbody id="candidate-rows"></tbody></table></div>
       </section>
       <section class="research-section research-columns">
-        <div><p class="eyebrow">03 / NEW STRATEGY</p><h2>独立保存的策略候选</h2><p id="strategy-note"></p><div class="research-table-scroll"><table class="research-table"><thead><tr><th>调整参数</th><th>原值</th><th>新值</th></tr></thead><tbody id="parameter-rows"></tbody></table></div><details><summary>查看完整策略参数</summary><pre id="full-config"></pre></details></div>
+        <div><p class="eyebrow">03 / NEW STRATEGY</p><h2>独立保存的策略候选</h2><p id="strategy-note"></p><div class="research-table-scroll"><table class="research-table data-table"><thead><tr><th>调整参数</th><th>原值</th><th>新值</th></tr></thead><tbody id="parameter-rows"></tbody></table></div><details><summary>查看完整策略参数</summary><pre id="full-config"></pre></details></div>
         <div><p class="eyebrow">04 / VALIDATION PROTOCOL</p><h2>按时间划分样本</h2><div id="split-rows"></div><p id="protocol-note"></p><p id="reuse-note"></p><div class="download-links"><a id="download-report">研究报告 ↗</a><a id="download-daily">逐日统计 CSV ↗</a><a id="download-archive">完整实验与行情快照 ↗</a></div></div>
       </section>
-      <section class="research-section"><p class="eyebrow">05 / EXPERIMENT LOG</p><h2>每轮调整，都有记录。</h2><p>训练阶段限定搜索范围；仅入围实验进入验证阶段。最终全区间结果包含训练样本。</p><div class="research-table-scroll"><table class="research-table"><thead><tr><th>实验</th><th>参数变化</th><th>训练命中 / 样本</th><th>训练准确率</th><th>训练目标分</th><th>验证准确率</th><th>样本约束</th></tr></thead><tbody id="trial-rows"></tbody></table></div></section>
+      <section class="research-section"><p class="eyebrow">05 / EXPERIMENT LOG</p><h2>实验记录</h2><p>训练阶段限定搜索范围；仅入围实验进入验证阶段。最终全区间结果包含训练样本。</p><div class="research-table-scroll"><table class="research-table data-table"><thead><tr><th>实验</th><th>参数变化</th><th>训练命中 / 样本</th><th>训练准确率</th><th>训练目标分</th><th>验证准确率</th><th>样本约束</th></tr></thead><tbody id="trial-rows"></tbody></table></div></section>
       <footer class="research-section research-quality"><p class="eyebrow">DATA BOUNDARIES</p><h2>数据边界与可复现信息</h2><p id="coverage-note"></p><ul id="quality-list"></ul><p id="snapshot-hash"></p></footer>
     </div>
     <div id="research-empty" hidden>尚无已保存的实验。完成历史行情采集与回测后，结果将在此展示。</div>

@@ -162,6 +162,40 @@ class ComposeLayoutTest(unittest.TestCase):
 
 
 class WebAssetTest(unittest.TestCase):
+    def test_all_pages_use_shared_ui_standards(self):
+        web = ROOT / "src/banxia_strategy/web"
+        pages = [
+            web / "index.html",
+            web / "monitor.html",
+            web / "strategy.html",
+            web / "research.html",
+        ]
+        for page in pages:
+            html = page.read_text(encoding="utf-8")
+            self.assertIn("/ui-standard.css?v=20260925.1", html, page.name)
+            self.assertIn('class="primary-nav"', html, page.name)
+            self.assertRegex(html, r'<main[^>]*class="[^"]*page-main')
+
+        for page in pages[1:]:
+            html = page.read_text(encoding="utf-8")
+            self.assertIn("page-header", html, page.name)
+        for page in (web / "monitor.html", web / "strategy.html", web / "research.html"):
+            html = page.read_text(encoding="utf-8")
+            for table in html.split("<table")[1:]:
+                self.assertIn("data-table", table.split(">", 1)[0], page.name)
+
+        standard = (web / "ui-standard.css").read_text(encoding="utf-8")
+        for selector in (
+            ".ui-control",
+            ".ui-button",
+            ".status-badge",
+            ".segmented-control",
+            ".data-table",
+            ".notice",
+        ):
+            self.assertIn(selector, standard)
+        self.assertNotRegex(standard, r"letter-spacing:\s*-")
+
     def test_report_date_control_queries_trade_date_with_fixed_size(self):
         app = (ROOT / "src/banxia_strategy/web/app.js").read_text(
             encoding="utf-8"

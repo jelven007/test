@@ -4,14 +4,15 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light">
-    <meta name="theme-color" content="#f4f1e8">
+    <meta name="theme-color" content="#f6f7f5">
     <title>一进二 · 次日执行台</title>
     <link rel="stylesheet" href="/styles.css?v=20260925.1">
+    <link rel="stylesheet" href="/ui-standard.css?v=20260925.1">
     <script src="/strategy-selector.js" defer></script>
     <script src="/app.js?v=20260925.2" defer></script>
   </head>
   <body>
-    <header class="topbar">
+    <header class="topbar dashboard-topbar">
       <a class="brand" href="/" aria-label="返回最新日报">
         <span class="brand-mark" aria-hidden="true">B</span>
         <span>
@@ -21,10 +22,10 @@
       </a>
       <div class="report-tools">
         <label for="page-strategy">策略</label>
-        <select id="page-strategy" aria-label="选择策略"></select>
+        <select id="page-strategy" class="ui-control" aria-label="选择策略"></select>
         <label for="report-date">复盘日期</label>
-        <input id="report-date" type="date" aria-label="选择策略报告日期">
-        <button id="refresh-button" type="button" title="按最新已保存策略重新生成所选日期的计划">刷新</button>
+        <input id="report-date" type="date" class="ui-control" aria-label="选择策略报告日期">
+        <button id="refresh-button" type="button" class="ui-button" title="按最新已保存策略重新生成所选日期的计划">刷新</button>
       </div>
       <div class="source-status">
         <span class="status-dot" aria-hidden="true"></span>
@@ -38,7 +39,7 @@
       <a href="/research">回测优化</a>
     </nav>
 
-    <main id="dashboard" aria-live="polite">
+    <main id="dashboard" class="page-main" aria-live="polite">
       <section class="loading-state" id="loading-state">
         <span class="loading-rule"></span>
         <p>正在读取策略日报</p>

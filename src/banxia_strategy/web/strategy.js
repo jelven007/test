@@ -124,7 +124,7 @@ async function openDay(day) {
   const target = document.querySelector("#day-detail");
   target.replaceChildren(node("h2", `${day} · 当日实盘`),
     node("p", `${statuses[item.actual_status] || item.actual_status}。收盘命中率依据 mootdx 日线验证，入场与成交情况需人工核验。`));
-  const table = node("table", undefined, "records-table");
+  const table = node("table", undefined, "records-table data-table");
   const head = node("tr");
   ["股票", "开盘", "收盘 / 最新", "结果", "说明"].forEach(text => head.append(node("th", text)));
   table.append(head);
