@@ -37,7 +37,7 @@ def param(default, label, group, low=None, high=None, unit="", scale=1, kind=Non
 class StrategyConfig:
     lookback_sessions: int = param(5, "回看交易日", "selection", 1, 60, "日")
     max_candidates: int = param(8, "候选数量上限", "selection", 1, 100, "只")
-    max_per_industry: int = param(1, "同题材数量上限", "selection", 1, 100, "只")
+    max_per_industry: int = param(5, "同题材数量上限", "selection", 1, 100, "只")
     minimum_score: float = param(58.0, "最低入选评分", "selection", 0, 1000, "分")
     minimum_industry_limit_up_count: int = param(2, "同题材涨停数量下限", "selection", 1, 100, "只")
     minimum_amount_cny: float = param(200_000_000.0, "成交额下限", "selection", 0, 1e12, "亿元", 1e8)

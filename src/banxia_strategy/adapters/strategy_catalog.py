@@ -84,6 +84,13 @@ class StrategyCatalogMixin:
                     strategy_id = str(cursor.fetchone()[0])
                 else:
                     strategy_id = str(row[0])
+                    cursor.execute("SET LOCAL banxia.allow_initial_strategy_upgrade = 'on'")
+                    cursor.execute(
+                        """UPDATE banxia.strategy_definition
+                        SET current_config=%s::jsonb
+                        WHERE strategy_id=%s AND current_config IS DISTINCT FROM %s::jsonb""",
+                        (json.dumps(values), strategy_id, json.dumps(values)),
+                    )
                     if row[1]:
                         cursor.execute(
                             """SELECT EXISTS(

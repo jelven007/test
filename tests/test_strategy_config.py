@@ -44,6 +44,14 @@ class StrategyConfigTest(unittest.TestCase):
         self.path.write_text("{}", encoding="utf-8")
         self.store = StrategyConfigStore(self.path)
 
+    def test_initialization_file_matches_complete_defaults(self):
+        config_path = Path(__file__).resolve().parents[1] / "config" / "strategy.json"
+        self.assertEqual(
+            StrategyConfigStore(config_path).payload()["config"],
+            asdict(StrategyConfig()),
+        )
+        self.assertEqual(StrategyConfig().max_per_industry, 5)
+
     def test_invalid_values_cannot_change_file(self):
         invalid_values = [
             {"minimum_score": float("nan")}, {"hard_stop_pct": float("inf")},

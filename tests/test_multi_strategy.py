@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import uuid
 from contextlib import contextmanager
+from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path
 from unittest.mock import patch
@@ -186,8 +187,22 @@ class MultiStrategyTest(unittest.TestCase):
                 self.assertEqual(cursor.fetchone()[0], 0, table)
 
     def test_initial_strategy_is_restored_and_cannot_be_deleted(self):
+        import psycopg
+
+        initial = self.repository.ensure_initial_strategy({"max_per_industry": 2})
         initial = self.repository.ensure_initial_strategy({})
         self.assertEqual(initial["code"], "banxia-first-board-second-board")
+        self.assertEqual(initial["config"], asdict(StrategyConfig()))
+        self.assertEqual(initial["config"]["max_per_industry"], 5)
+        self.connection.execute("SET LOCAL banxia.allow_initial_strategy_upgrade = 'off'")
+        with self.assertRaises(psycopg.errors.RaiseException):
+            with self.connection.transaction():
+                self.connection.execute(
+                    """UPDATE banxia.strategy_definition
+                    SET current_config=jsonb_set(current_config,'{minimum_score}','59')
+                    WHERE strategy_id=%s""",
+                    (initial["strategy_id"],),
+                )
         with self.assertRaises(PermissionError):
             self.repository.delete_strategy(initial["strategy_id"])
 
