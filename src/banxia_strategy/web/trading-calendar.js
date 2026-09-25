@@ -1,6 +1,26 @@
 "use strict";
 
 let calendarRequest;
+const tradingDateCachePrefix = "banxia.trade-date.";
+
+function readCachedTradingDate(defaultKey) {
+  try {
+    return window.localStorage.getItem(`${tradingDateCachePrefix}${defaultKey}`);
+  } catch {
+    return null;
+  }
+}
+
+function cacheTradingDate(defaultKey, value) {
+  try {
+    window.localStorage.setItem(
+      `${tradingDateCachePrefix}${defaultKey}`,
+      value,
+    );
+  } catch {
+    // Date selection still works when browser storage is unavailable.
+  }
+}
 
 function fetchTradingCalendar() {
   if (!calendarRequest) {
@@ -59,14 +79,22 @@ window.initializeTradingDateControl = async function(
   }));
 
   const requested = new URLSearchParams(location.search).get("trade_date");
-  const selected = resolveSelectedDate(
-    sessions,
-    requested,
-    calendar.defaults[defaultKey],
-  );
+  const cached = readCachedTradingDate(defaultKey);
+  const selected = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested)
+    ? resolveSelectedDate(sessions, requested, calendar.defaults[defaultKey])
+    : sessions.includes(cached)
+      ? cached
+      : resolveSelectedDate(sessions, null, calendar.defaults[defaultKey]);
   control.value = selected;
   control.disabled = false;
   updateTradeDateInUrl(selected);
+  cacheTradingDate(defaultKey, selected);
+
+  control.addEventListener("change", () => {
+    if (!sessions.includes(control.value)) return;
+    updateTradeDateInUrl(control.value);
+    cacheTradingDate(defaultKey, control.value);
+  });
 
   control.addEventListener("keydown", (event) => {
     if (

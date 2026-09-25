@@ -307,7 +307,7 @@ class WebAssetTest(unittest.TestCase):
             app,
         )
         self.assertIn("resolvedFromNonTradingDay", app)
-        self.assertIn("/trading-calendar.js?v=20260926.1", html)
+        self.assertIn("/trading-calendar.js?v=20260926.2", html)
         self.assertIn("/app.js?v=20260926.3", html)
         self.assertIn('timeZone: "Asia/Shanghai"', app)
         self.assertIn('select id="report-date"', html)
@@ -316,7 +316,7 @@ class WebAssetTest(unittest.TestCase):
         self.assertNotIn("复盘日期", html)
         self.assertIn('class="topbar dashboard-topbar"', monitor_html)
         self.assertIn('select id="report-date"', monitor_html)
-        self.assertIn("/trading-calendar.js?v=20260926.1", monitor_html)
+        self.assertIn("/trading-calendar.js?v=20260926.2", monitor_html)
         self.assertIn('{ defaultKey: "monitor" }', monitor_app)
         self.assertRegex(
             monitor_html,
@@ -343,6 +343,11 @@ class WebAssetTest(unittest.TestCase):
         )
         self.assertIn("/monitor.js?v=20260926.5", monitor_html)
         self.assertIn("/api/v1/trading-calendar", calendar_app)
+        self.assertIn('"banxia.trade-date."', calendar_app)
+        self.assertIn("window.localStorage.getItem", calendar_app)
+        self.assertIn("window.localStorage.setItem", calendar_app)
+        self.assertIn("sessions.includes(cached)", calendar_app)
+        self.assertIn("cacheTradingDate(defaultKey, control.value)", calendar_app)
         self.assertIn('"ArrowLeft", "ArrowRight"', calendar_app)
         self.assertIn('control.dispatchEvent(new Event("change"', calendar_app)
         self.assertIn("session < requested", calendar_app)
