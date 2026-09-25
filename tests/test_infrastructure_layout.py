@@ -277,14 +277,15 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('sync({ userInitiated: true })', monitor_app)
         self.assertIn('params.set("trade_date", reportDateInput.value)', monitor_app)
         self.assertIn(
-            "/api/v1/reports/${encodeURIComponent(latest.reference_date)}/refresh",
+            "/api/v1/monitor/${encodeURIComponent(requestedDate)}/refresh",
             monitor_app,
         )
+        self.assertNotIn("latest.reference_date", monitor_app)
         self.assertIn(
             "/api/v1/report-jobs/${encodeURIComponent(job.job_id)}",
             monitor_app,
         )
-        self.assertIn("/monitor.js?v=20260926.1", monitor_html)
+        self.assertIn("/monitor.js?v=20260926.2", monitor_html)
         self.assertNotIn("刷新数据", html)
         self.assertIn("width: 148px", css)
         self.assertIn("flex-basis: 122px", css)

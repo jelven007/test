@@ -438,11 +438,29 @@ class PostgresAdapterTest(unittest.TestCase):
             )
         )
 
+    def test_previous_trading_session_uses_persisted_calendar(self):
+        cursor = FakeCursor([(date(2026, 9, 23),)])
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+
+        previous = storage.previous_trading_session(date(2026, 9, 24))
+
+        self.assertEqual(previous, "2026-09-23")
+        statement, params = cursor.calls[0]
+        self.assertIn("SELECT max(trade_date)", statement)
+        self.assertIn("banxia.trading_session", statement)
+        self.assertEqual(params, (date(2026, 9, 24),))
+
     def test_report_refresh_jobs_are_enqueued_claimed_and_completed(self):
         created_at = datetime.fromisoformat("2026-09-25T09:00:00+08:00")
         started_at = datetime.fromisoformat("2026-09-25T09:00:01+08:00")
         finished_at = datetime.fromisoformat("2026-09-25T09:00:02+08:00")
-        payload = {"trade_date": "2026-09-24", "requested_by": "request-1"}
+        payload = {
+            "trade_date": "2026-09-24",
+            "execution_date": "2026-09-25",
+            "requested_by": "request-1",
+        }
         cursor = FakeCursor(
             [
                 ("job-1", "queued", payload, created_at),
@@ -468,6 +486,7 @@ class PostgresAdapterTest(unittest.TestCase):
         queued = storage.enqueue_report_refresh(
             "2026-09-24",
             requested_by="request-1",
+            execution_date="2026-09-25",
         )
         claimed = storage.claim_report_refresh()
         storage.finish_report_refresh(

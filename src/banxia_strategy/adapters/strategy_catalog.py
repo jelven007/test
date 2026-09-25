@@ -628,6 +628,17 @@ class StrategyCatalogMixin:
                 row = cursor.fetchone()
         return bool(row and row[0])
 
+    def previous_trading_session(self, target):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT max(trade_date) FROM banxia.trading_session
+                    WHERE trade_date < %s""",
+                    (target,),
+                )
+                row = cursor.fetchone()
+        return row[0].isoformat() if row and row[0] else None
+
     def latest_closed_session(self, now):
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:

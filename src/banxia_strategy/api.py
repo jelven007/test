@@ -841,6 +841,35 @@ def create_api_app(services: ApiServices):
             },
         )
 
+    @app.post("/api/v1/monitor/{tradeDate}/refresh", status_code=202)
+    def refresh_monitor(tradeDate: str, request: Request, strategy_id: Optional[str] = None):
+        try:
+            execution_date = date.fromisoformat(tradeDate)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="tradeDate must be a valid ISO date",
+            ) from exc
+        if execution_date > datetime.now(SHANGHAI).date():
+            raise HTTPException(status_code=400, detail="所选交易日不能晚于今天")
+        if not services.repository.is_trading_session(execution_date):
+            raise HTTPException(status_code=400, detail="所选日期不是交易日")
+        reference_date = services.repository.previous_trading_session(
+            execution_date
+        )
+        if reference_date is None:
+            raise HTTPException(
+                status_code=400,
+                detail="交易日历中缺少所选日期的前一交易日",
+            )
+        selected = require_strategy(strategy_id) if strategy_id else active_strategy()
+        return services.repository.enqueue_report_refresh(
+            reference_date,
+            requested_by=request.state.request_id,
+            execution_date=tradeDate,
+            **({"strategy_id": selected["strategy_id"]} if selected else {}),
+        )
+
     @app.get("/api/v1/reports")
     def reports(limit: int = 50, cursor: Optional[str] = None, strategy_id: Optional[str] = None):
         if limit < 1 or limit > 200:

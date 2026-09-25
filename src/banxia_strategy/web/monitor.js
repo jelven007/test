@@ -311,8 +311,8 @@ async function refreshSelectedDay() {
   await window.strategyReady;
   if (inFlight || refreshing) return;
   const requestedDate = reportDateInput.value;
-  if (!requestedDate || latest?.plan_date !== requestedDate || !latest.reference_date) {
-    markDisconnected("请先选择有执行计划的交易日");
+  if (!requestedDate) {
+    markDisconnected("请先选择交易日");
     return;
   }
   refreshing = true;
@@ -323,7 +323,7 @@ async function refreshSelectedDay() {
   sourceStatus.className = "source-status";
   try {
     const job = await fetchJson(
-      `/api/v1/reports/${encodeURIComponent(latest.reference_date)}/refresh`,
+      `/api/v1/monitor/${encodeURIComponent(requestedDate)}/refresh`,
       { method: "POST" },
     );
     for (let attempt = 0; attempt < 300; attempt += 1) {

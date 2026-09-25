@@ -943,6 +943,7 @@ class PostgresStorage(StrategyCatalogMixin):
         *,
         requested_by: str = "web",
         strategy_id: Optional[str] = None,
+        execution_date: Optional[str] = None,
     ) -> Mapping[str, Any]:
         job_id = str(uuid.uuid4())
         payload = {
@@ -951,6 +952,8 @@ class PostgresStorage(StrategyCatalogMixin):
         }
         if strategy_id:
             payload["strategy_id"] = strategy_id
+        if execution_date:
+            payload["execution_date"] = execution_date
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(

@@ -20,6 +20,7 @@ from banxia_strategy.web_server import ReportStore
 class FakeRepository:
     def __init__(self):
         self.jobs = {}
+        self.trading_sessions = {"2026-09-23", "2026-09-24"}
 
     def ready(self):
         return True
@@ -47,7 +48,14 @@ class FakeRepository:
     def get_strategy_run(self, run_id):
         return {"run_id": run_id, "status": "succeeded"} if run_id == "run" else None
 
-    def enqueue_report_refresh(self, trade_date, *, requested_by="web", strategy_id=None):
+    def enqueue_report_refresh(
+        self,
+        trade_date,
+        *,
+        requested_by="web",
+        strategy_id=None,
+        execution_date=None,
+    ):
         job_id = f"00000000-0000-0000-0000-{len(self.jobs) + 1:012d}"
         job = {
             "job_id": job_id,
@@ -66,8 +74,21 @@ class FakeRepository:
         }
         if strategy_id:
             job["payload"]["strategy_id"] = strategy_id
+        if execution_date:
+            job["payload"]["execution_date"] = execution_date
         self.jobs[job_id] = job
         return job
+
+    def is_trading_session(self, target):
+        return str(target) in self.trading_sessions
+
+    def previous_trading_session(self, target):
+        previous = sorted(
+            session
+            for session in self.trading_sessions
+            if session < str(target)
+        )
+        return previous[-1] if previous else None
 
     def get_job_execution(self, job_id):
         return self.jobs.get(job_id)
@@ -392,6 +413,38 @@ class ApiV1Test(unittest.TestCase):
         )
         self.assertEqual(selected.status_code, 202)
         self.assertEqual(selected.json()["payload"]["strategy_id"], strategy_id)
+
+    def test_monitor_refresh_resolves_reference_date_from_selected_execution_date(self):
+        strategy_id = "00000000-0000-0000-0000-000000000099"
+        self.services.repository.get_strategy = lambda value: (
+            {"strategy_id": value} if value == strategy_id else None
+        )
+
+        response = self.client.post(
+            f"/api/v1/monitor/2026-09-24/refresh?strategy_id={strategy_id}",
+            headers={"X-Request-ID": "monitor-refresh-1"},
+        )
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(
+            response.json()["payload"],
+            {
+                "trade_date": "2026-09-23",
+                "execution_date": "2026-09-24",
+                "requested_by": "monitor-refresh-1",
+                "strategy_id": strategy_id,
+            },
+        )
+
+    def test_monitor_refresh_rejects_invalid_nontrading_and_future_dates(self):
+        invalid = self.client.post("/api/v1/monitor/not-a-date/refresh")
+        nontrading = self.client.post("/api/v1/monitor/2026-09-25/refresh")
+        future = self.client.post("/api/v1/monitor/2999-01-01/refresh")
+
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(nontrading.status_code, 400)
+        self.assertEqual(nontrading.json()["error"]["message"], "所选日期不是交易日")
+        self.assertEqual(future.status_code, 400)
 
     def test_report_refresh_rejects_invalid_date_and_unknown_job(self):
         invalid = self.client.post("/api/v1/reports/not-a-date/refresh")
