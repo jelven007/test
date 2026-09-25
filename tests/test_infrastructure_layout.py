@@ -197,7 +197,7 @@ class WebAssetTest(unittest.TestCase):
         ]
         for page in pages:
             html = page.read_text(encoding="utf-8")
-            self.assertIn("/ui-standard.css?v=20260925.4", html, page.name)
+            self.assertIn("/ui-standard.css?v=20260925.5", html, page.name)
             self.assertIn('class="primary-nav"', html, page.name)
             self.assertRegex(html, r'<main[^>]*class="[^"]*page-main')
 
@@ -226,8 +226,9 @@ class WebAssetTest(unittest.TestCase):
             ".settings-fields {\n    grid-template-columns: minmax(0, 1fr);",
             standard,
         )
-        self.assertIn(
-            ".dashboard-topbar #page-strategy.ui-control {\n    grid-column: 1 / -1;",
+        self.assertNotIn(
+            ".dashboard-topbar #page-strategy.ui-control {\n"
+            "    grid-column: 1 / -1;",
             standard,
         )
         self.assertNotRegex(standard, r"letter-spacing:\s*-")
@@ -279,6 +280,13 @@ class WebAssetTest(unittest.TestCase):
             )
             self.assertNotIn("策略观察工作台", html, name)
             self.assertNotIn("<small>策略观察工作台</small>", html, name)
+        standard = (web / "ui-standard.css").read_text(encoding="utf-8")
+        self.assertIn(
+            "grid-template-columns: auto 112px auto 132px 52px;",
+            standard,
+        )
+        self.assertIn("grid-template-columns: 92px 122px 48px;", standard)
+        self.assertIn("grid-template-columns: 78px 114px 42px;", standard)
 
     def test_strategy_page_defaults_to_list_and_links_to_detail(self):
         web = ROOT / "src/banxia_strategy/web"

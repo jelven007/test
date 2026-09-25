@@ -92,7 +92,38 @@ h1 {
 }
 
 .dashboard-topbar {
-  grid-template-columns: minmax(180px, 1fr) auto minmax(150px, 1fr);
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 16px;
+}
+
+.dashboard-topbar .brand {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.dashboard-topbar .report-tools {
+  display: grid;
+  grid-template-columns: auto 112px auto 132px 52px;
+  gap: 6px;
+  width: auto;
+}
+
+.dashboard-topbar #page-strategy.ui-control {
+  width: 112px;
+  min-width: 112px;
+  max-width: 112px;
+}
+
+.dashboard-topbar #report-date.ui-control {
+  width: 132px;
+  min-width: 132px;
+  max-width: 132px;
+}
+
+.dashboard-topbar #refresh-button.ui-button {
+  width: 52px;
+  min-width: 52px;
+  padding-inline: 6px;
 }
 
 .settings-topbar,
@@ -718,16 +749,17 @@ details > summary {
   }
 
   .dashboard-topbar {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 9px;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
   }
 
   .dashboard-topbar .report-tools {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 110px 58px;
-    width: 100%;
-    gap: 6px;
+    grid-template-columns: 92px 122px 48px;
+    flex: 0 0 auto;
+    gap: 5px;
+    width: auto;
   }
 
   .dashboard-topbar .report-tools label {
@@ -737,9 +769,27 @@ details > summary {
   .dashboard-topbar #page-strategy.ui-control,
   .dashboard-topbar #report-date.ui-control,
   .dashboard-topbar #refresh-button.ui-button {
-    width: 100%;
-    min-width: 0;
-    max-width: none;
+    min-height: 34px;
+    height: 34px;
+    padding-inline: 7px;
+    font-size: 11px;
+  }
+
+  .dashboard-topbar #page-strategy.ui-control {
+    width: 92px;
+    min-width: 92px;
+    max-width: 92px;
+  }
+
+  .dashboard-topbar #report-date.ui-control {
+    width: 122px;
+    min-width: 122px;
+    max-width: 122px;
+  }
+
+  .dashboard-topbar #refresh-button.ui-button {
+    width: 48px;
+    min-width: 48px;
   }
 
   .records-heading {
@@ -879,12 +929,33 @@ details > summary {
 }
 
 @media (max-width: 480px) {
+  .dashboard-topbar {
+    gap: 5px;
+    padding-inline: 6px;
+  }
+
   .dashboard-topbar .report-tools {
-    grid-template-columns: minmax(0, 1fr) 64px;
+    grid-template-columns: 78px 114px 42px;
+    gap: 4px;
   }
 
   .dashboard-topbar #page-strategy.ui-control {
-    grid-column: 1 / -1;
+    grid-column: auto;
+    width: 78px;
+    min-width: 78px;
+    max-width: 78px;
+  }
+
+  .dashboard-topbar #report-date.ui-control {
+    width: 114px;
+    min-width: 114px;
+    max-width: 114px;
+  }
+
+  .dashboard-topbar #refresh-button.ui-button {
+    width: 42px;
+    min-width: 42px;
+    padding-inline: 3px;
   }
 
   .dashboard-topbar .brand-mark {
