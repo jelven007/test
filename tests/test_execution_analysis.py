@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import csv
+import tempfile
 import unittest
+from pathlib import Path
 
 from banxia_strategy.execution_analysis import (
     aggregate_periods,
     classify_candidate,
     summarize_stocks,
+    write_reports,
 )
 
 
@@ -93,6 +97,46 @@ class ExecutionAggregationTest(unittest.TestCase):
         self.assertEqual(week["success_rate_pct"], 25)
         self.assertEqual(len(aggregate_periods(days, "month")), 1)
         self.assertEqual(len(aggregate_periods(days, "year")), 1)
+
+    def test_csv_export_ignores_internal_fields_not_declared_as_columns(self):
+        stock = {
+            "trade_date": "2026-09-24",
+            "symbol": "600001",
+            "name": "测试股份",
+            "buyable": False,
+            "success": False,
+            "open": 10.2,
+            "high": 11.0,
+            "low": 10.0,
+            "close": 11.0,
+            "minute_complete": True,
+            "internal_future_field": "must not break csv",
+        }
+        strategy = {
+            "strategy_name": "测试策略",
+            "summary": summarize_stocks([stock]),
+            "periods": {
+                frequency: aggregate_periods(
+                    [{"trade_date": "2026-09-24", "stocks": [stock]}],
+                    frequency,
+                )
+                for frequency in ("day", "week", "month", "year")
+            },
+            "days": [{"trade_date": "2026-09-24", "stocks": [stock]}],
+        }
+        result = {
+            "start": "2026-09-24",
+            "end": "2026-09-24",
+            "strategies": [strategy],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            write_reports(result, output)
+            with (output / "stocks.csv").open(encoding="utf-8-sig", newline="") as handle:
+                rows = list(csv.DictReader(handle))
+        self.assertEqual(rows[0]["strategy_name"], "测试策略")
+        self.assertEqual(rows[0]["symbol"], "600001")
+        self.assertNotIn("internal_future_field", rows[0])
 
 
 if __name__ == "__main__":

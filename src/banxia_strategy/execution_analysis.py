@@ -408,13 +408,12 @@ def write_reports(result: Mapping[str, Any], output: Path) -> None:
         "reason_code", "reason",
     ]
     with (output / "stocks.csv").open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         for strategy in result["strategies"]:
             for day in strategy["days"]:
                 for stock in day["stocks"]:
-                    row = {**stock, "strategy_name": strategy["strategy_name"]}
-                    writer.writerow({field: row.get(field) for field in fields})
+                    writer.writerow({**stock, "strategy_name": strategy["strategy_name"]})
 
     lines = [
         "# 双策略实盘可执行性对比",
