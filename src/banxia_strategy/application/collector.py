@@ -31,6 +31,7 @@ class MarketCollector:
         idle_interval_seconds: float = 60.0,
         config_store=None,
         candidate_loader=None,
+        session_checker=None,
     ):
         if not candidates and candidate_loader is None:
             raise ValueError("collector requires at least one watchlist candidate")
@@ -46,6 +47,8 @@ class MarketCollector:
         self.idle_interval_seconds = idle_interval_seconds
         self.config_store = config_store
         self.candidate_loader = candidate_loader
+        self.session_checker = session_checker
+        self._verified_session_date = None
         self.stop_event = threading.Event()
         self._bar_event_ids = set()
         self._lock = threading.Lock()
@@ -57,6 +60,9 @@ class MarketCollector:
             "failures": 0,
             "last_success_at": None,
             "last_error": None,
+            "paused": False,
+            "pause_reason": None,
+            "session_date": None,
         }
 
     @staticmethod
@@ -73,7 +79,34 @@ class MarketCollector:
             self.idle_interval_seconds = cfg.idle_interval_seconds
             self.source.bar_interval = cfg.bar_interval_seconds
 
+    def _collection_allowed(self, now: datetime) -> bool:
+        session_date = now.date()
+        reason = None
+        error = None
+        if now.weekday() >= 5:
+            reason = "non_trading_day"
+        elif self._verified_session_date == session_date:
+            pass
+        elif self.session_checker is not None:
+            try:
+                if self.session_checker(session_date):
+                    self._verified_session_date = session_date
+                else:
+                    reason = "non_trading_day"
+            except Exception as exc:
+                reason = "trading_calendar_unavailable"
+                error = str(exc)
+        with self._lock:
+            self._status["paused"] = reason is not None
+            self._status["pause_reason"] = reason
+            self._status["session_date"] = session_date.isoformat()
+            if error is not None:
+                self._status["last_error"] = error
+        return reason is None
+
     def collect_once(self) -> int:
+        if not self._collection_allowed(self.clock()):
+            return 0
         if self.candidate_loader is not None:
             candidates = self.candidate_loader()
             unique = {str(item["code"]): dict(item) for item in candidates}

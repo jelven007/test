@@ -21,10 +21,12 @@ from banxia_strategy.application.report_worker import (
 from banxia_strategy.config import RuntimeSettings
 from banxia_strategy.ports.storage import ReportIdentity
 from banxia_strategy.service import (
+    _automatic_collection_allowed,
     _catch_up_report,
     _consume_report_refresh,
     _consume_strategy_history,
     _generate_scheduled_report,
+    run_report_scheduler,
 )
 from banxia_strategy.storage_config import StorageSettings
 from banxia_strategy.strategy import DailyReport
@@ -82,6 +84,62 @@ class RuntimeSettingsTest(unittest.TestCase):
 
 
 class ReportSchedulerTest(unittest.TestCase):
+    def test_weekend_is_rejected_without_querying_calendar(self):
+        repository = Mock()
+
+        self.assertFalse(
+            _automatic_collection_allowed(
+                repository,
+                date(2026, 9, 26),
+                Mock(),
+            )
+        )
+
+        repository.is_trading_session.assert_not_called()
+
+    def test_non_trading_day_scheduler_never_initializes_mootdx(self):
+        timezone = ZoneInfo("Asia/Shanghai")
+        holiday = datetime(2026, 9, 25, 9, 30, tzinfo=timezone)
+        repository = Mock()
+        repository.claim_report_refresh.return_value = None
+        repository.claim_strategy_history.return_value = None
+        repository.is_trading_session.return_value = False
+        stop = Mock()
+        stop.is_set.side_effect = [False, True]
+        clock = Mock(wraps=datetime)
+        clock.now.return_value = holiday
+
+        with patch(
+            "banxia_strategy.service._postgres",
+            return_value=repository,
+        ), patch(
+            "banxia_strategy.service.ensure_initial_catalog",
+        ), patch(
+            "banxia_strategy.service.threading.Event",
+            return_value=stop,
+        ), patch(
+            "banxia_strategy.service.signal.signal",
+        ), patch(
+            "banxia_strategy.service.datetime",
+            clock,
+        ), patch(
+            "banxia_strategy.mootdx_provider.MootdxProvider",
+        ) as provider:
+            run_report_scheduler(
+                RuntimeSettings(report_output_dir=Path("reports")),
+                Mock(),
+            )
+
+        provider.assert_not_called()
+        repository.is_trading_session.assert_called_once_with(holiday.date())
+        repository.claim_strategy_history.assert_called_once_with(
+            allow_automatic=False
+        )
+        repository.save_trading_sessions.assert_not_called()
+        repository.ensure_strategy_days.assert_not_called()
+        repository.latest_closed_session.assert_not_called()
+        repository.close.assert_called_once()
+
     def test_next_schedule_uses_shanghai_time_and_rolls_to_next_day(self):
         schedule = parse_schedule(("16:30", "23:30"))
         timezone = ZoneInfo("Asia/Shanghai")

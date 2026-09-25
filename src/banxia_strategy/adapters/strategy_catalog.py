@@ -525,13 +525,17 @@ class StrategyCatalogMixin:
                 row = cursor.fetchone()
         return self._strategy_history_job_row(row) if row else None
 
-    def claim_strategy_history(self):
+    def claim_strategy_history(self, *, allow_automatic=True):
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """WITH next_job AS (
                         SELECT job_id FROM banxia.job_execution
                         WHERE job_type='strategy_history'
+                          AND (
+                            %s
+                            OR payload->>'requested_by' NOT IN ('startup','system')
+                          )
                           AND (
                             status='queued'
                             OR (
@@ -550,7 +554,8 @@ class StrategyCatalogMixin:
                     WHERE job.job_id=next_job.job_id
                     RETURNING job.job_id,job.status,job.payload,job.created_at,
                         job.started_at,job.finished_at,job.result,
-                        job.error_message,job.attempt"""
+                        job.error_message,job.attempt""",
+                    (allow_automatic,),
                 )
                 row = cursor.fetchone()
         return self._strategy_history_job_row(row) if row else None
@@ -612,6 +617,16 @@ class StrategyCatalogMixin:
                     AND d.next_plan IS NULL AND d.execution_plan IS NULL AND d.actuals='{}'::jsonb
                     AND NOT EXISTS(SELECT 1 FROM banxia.trading_session t WHERE t.trade_date=d.trade_date)""",
                     (sessions[0], sessions[-1]))
+
+    def is_trading_session(self, target):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT EXISTS(SELECT 1 FROM banxia.trading_session WHERE trade_date=%s)",
+                    (target,),
+                )
+                row = cursor.fetchone()
+        return bool(row and row[0])
 
     def latest_closed_session(self, now):
         with self.connection_factory() as connection:

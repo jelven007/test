@@ -26,7 +26,6 @@ from .application.projection import ProjectionWorker
 from .application.reliable_publish import ReliableEventPublisher
 from .application.report_scheduler import (
     SHANGHAI,
-    next_scheduled_at,
     parse_schedule,
     recent_scheduled_slots,
     report_is_fresh,
@@ -199,6 +198,7 @@ def run_collector(settings: RuntimeSettings, logger: Any) -> None:
         idle_interval_seconds=settings.idle_interval_seconds,
         config_store=SharedCollectionConfig(repository, _config_store(settings)),
         candidate_loader=candidates,
+        session_checker=repository.is_trading_session,
     )
 
     def request_stop(_signum, _frame):
@@ -352,6 +352,24 @@ def run_report_worker(settings: RuntimeSettings, logger: Any) -> None:
         if settings.report_date
         else datetime.now(SHANGHAI).date()
     )
+    if not settings.report_date:
+        repository = _postgres(settings)
+        try:
+            if not _automatic_collection_allowed(
+                repository,
+                requested_date,
+                logger,
+            ):
+                logger.info(
+                    "automatic report skipped",
+                    extra={
+                        "trade_date": requested_date.isoformat(),
+                        "reason": "non_trading_day",
+                    },
+                )
+                return
+        finally:
+            repository.close()
     _generate_report(settings, logger, requested_date)
 
 
@@ -504,8 +522,10 @@ def _consume_strategy_history(
     repository: PostgresStorage,
     settings: RuntimeSettings,
     logger: Any,
+    *,
+    allow_automatic: bool = True,
 ) -> bool:
-    job = repository.claim_strategy_history()
+    job = repository.claim_strategy_history(allow_automatic=allow_automatic)
     if job is None:
         return False
     job_id = job["job_id"]
@@ -549,6 +569,23 @@ def _consume_strategy_history(
     return True
 
 
+def _automatic_collection_allowed(
+    repository: PostgresStorage,
+    target_date: date,
+    logger: Any,
+) -> bool:
+    if target_date.weekday() >= 5:
+        return False
+    try:
+        return repository.is_trading_session(target_date)
+    except Exception:
+        logger.exception(
+            "trading calendar check failed; automatic mootdx collection paused",
+            extra={"trade_date": target_date.isoformat()},
+        )
+        return False
+
+
 def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
     stop = threading.Event()
     repository = _postgres(settings)
@@ -558,6 +595,7 @@ def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
     signal.signal(signal.SIGINT, request_stop)
     calendar_date = None
     calendar_attempt = 0
+    paused_date = None
     checked = {}
     logger.info("multi-strategy report scheduler started")
     try:
@@ -565,39 +603,85 @@ def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
         while not stop.is_set():
             try:
                 _consume_report_refresh(repository, settings, logger, stop)
-                _consume_strategy_history(repository, settings, logger)
                 now = datetime.now(SHANGHAI)
-                if calendar_date != now.date() and now.timestamp() - calendar_attempt >= 300:
-                    from .mootdx_provider import MootdxProvider
-                    calendar_attempt = now.timestamp()
-                    try:
-                        repository.save_trading_sessions(MootdxProvider().trading_dates())
-                        calendar_date = now.date()
-                    except Exception:
-                        logger.exception("calendar refresh failed; retaining last verified calendar")
-                repository.ensure_strategy_days(now.date())
-                latest = repository.latest_closed_session(now)
-                strategy = repository.get_active_strategy()
-                for strategy in ([strategy] if strategy else []):
-                    if not latest or stop.is_set():
-                        continue
-                    sid = strategy["strategy_id"]
-                    store = CatalogConfigStore(repository, sid)
-                    schedule = parse_schedule(store.read().report_schedule.split(","))
-                    due = [datetime.combine(date.fromisoformat(latest), slot, tzinfo=SHANGHAI)
-                           for slot in schedule]
-                    due = [slot for slot in due if slot <= now]
-                    if not due:
-                        continue
-                    slot = max(due)
-                    # Retry failed slots after five minutes, without creating duplicate daily rows.
-                    if (now.timestamp() - checked.get((sid, slot), 0)) < 300:
-                        continue
-                    output = settings.report_output_dir / "strategies" / sid
-                    if report_is_fresh(output, slot):
-                        continue
-                    checked[(sid, slot)] = now.timestamp()
-                    _generate_scheduled_report(settings, logger, slot.date(), slot, stop, strategy_id=sid)
+                is_trading_day = _automatic_collection_allowed(
+                    repository,
+                    now.date(),
+                    logger,
+                )
+                _consume_strategy_history(
+                    repository,
+                    settings,
+                    logger,
+                    allow_automatic=is_trading_day,
+                )
+                if not is_trading_day:
+                    if paused_date != now.date():
+                        logger.info(
+                            "automatic mootdx collection paused",
+                            extra={
+                                "trade_date": now.date().isoformat(),
+                                "reason": "non_trading_day",
+                            },
+                        )
+                        paused_date = now.date()
+                else:
+                    paused_date = None
+                    if (
+                        calendar_date != now.date()
+                        and now.timestamp() - calendar_attempt >= 300
+                    ):
+                        from .mootdx_provider import MootdxProvider
+                        calendar_attempt = now.timestamp()
+                        try:
+                            repository.save_trading_sessions(
+                                MootdxProvider().trading_dates()
+                            )
+                            calendar_date = now.date()
+                        except Exception:
+                            logger.exception(
+                                "calendar refresh failed; retaining last verified calendar"
+                            )
+                    repository.ensure_strategy_days(now.date())
+                    latest = repository.latest_closed_session(now)
+                    strategy = repository.get_active_strategy()
+                    for strategy in ([strategy] if strategy else []):
+                        if not latest or stop.is_set():
+                            continue
+                        sid = strategy["strategy_id"]
+                        store = CatalogConfigStore(repository, sid)
+                        schedule = parse_schedule(
+                            store.read().report_schedule.split(",")
+                        )
+                        due = [
+                            datetime.combine(
+                                date.fromisoformat(latest),
+                                slot,
+                                tzinfo=SHANGHAI,
+                            )
+                            for slot in schedule
+                        ]
+                        due = [slot for slot in due if slot <= now]
+                        if not due:
+                            continue
+                        slot = max(due)
+                        # Retry failed slots after five minutes.
+                        if (
+                            now.timestamp() - checked.get((sid, slot), 0)
+                        ) < 300:
+                            continue
+                        output = settings.report_output_dir / "strategies" / sid
+                        if report_is_fresh(output, slot):
+                            continue
+                        checked[(sid, slot)] = now.timestamp()
+                        _generate_scheduled_report(
+                            settings,
+                            logger,
+                            slot.date(),
+                            slot,
+                            stop,
+                            strategy_id=sid,
+                        )
             except Exception:
                 logger.exception("multi-strategy scheduler iteration failed")
             stop.wait(1.0)

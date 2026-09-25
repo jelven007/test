@@ -4,7 +4,7 @@ import hashlib
 import json
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
@@ -420,6 +420,24 @@ class FakeConnection:
 
 
 class PostgresAdapterTest(unittest.TestCase):
+    def test_trading_session_check_uses_persisted_calendar(self):
+        cursor = FakeCursor([(True,), (False,)])
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+
+        self.assertTrue(storage.is_trading_session(date(2026, 9, 24)))
+        self.assertFalse(storage.is_trading_session(date(2026, 9, 25)))
+
+        self.assertEqual(len(cursor.calls), 2)
+        self.assertTrue(
+            all(
+                "SELECT EXISTS" in statement
+                and "banxia.trading_session" in statement
+                for statement, _params in cursor.calls
+            )
+        )
+
     def test_report_refresh_jobs_are_enqueued_claimed_and_completed(self):
         created_at = datetime.fromisoformat("2026-09-25T09:00:00+08:00")
         started_at = datetime.fromisoformat("2026-09-25T09:00:01+08:00")

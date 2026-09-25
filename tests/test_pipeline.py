@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import Mock
 
 from banxia_strategy.adapters.wal import SQLiteEventWAL
 from banxia_strategy.application.collector import MarketCollector
@@ -131,6 +132,54 @@ class CollectorTest(unittest.TestCase):
         self.assertFalse(collector.status()["leader"])
         collector.close()
         self.assertTrue(lease.closed)
+
+    def test_non_trading_day_does_not_contact_market_dependencies(self):
+        source = Mock()
+        publisher = Mock()
+        candidate_loader = Mock()
+        session_checker = Mock(return_value=False)
+        holiday = datetime.fromisoformat("2026-09-25T09:45:00+08:00")
+        collector = MarketCollector(
+            candidates=[{"code": "002635"}],
+            publisher=publisher,
+            source=source,
+            clock=lambda: holiday,
+            candidate_loader=candidate_loader,
+            session_checker=session_checker,
+        )
+
+        self.assertEqual(collector.collect_once(), 0)
+
+        session_checker.assert_called_once_with(holiday.date())
+        candidate_loader.assert_not_called()
+        source.fetch.assert_not_called()
+        publisher.replay.assert_not_called()
+        self.assertTrue(collector.status()["paused"])
+        self.assertEqual(
+            collector.status()["pause_reason"],
+            "non_trading_day",
+        )
+
+    def test_calendar_failure_pauses_collection(self):
+        source = Mock()
+        collector = MarketCollector(
+            candidates=[{"code": "002635"}],
+            publisher=Mock(),
+            source=source,
+            clock=lambda: STAMP,
+            session_checker=Mock(
+                side_effect=RuntimeError("calendar offline")
+            ),
+        )
+
+        self.assertEqual(collector.collect_once(), 0)
+
+        source.fetch.assert_not_called()
+        self.assertEqual(
+            collector.status()["pause_reason"],
+            "trading_calendar_unavailable",
+        )
+        self.assertEqual(collector.status()["last_error"], "calendar offline")
 
 
 class FeatureProcessorTest(unittest.TestCase):
