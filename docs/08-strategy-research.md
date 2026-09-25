@@ -50,7 +50,9 @@ PYTHONPATH=src .venv/bin/python -m banxia_strategy.catalog_backfill \
 
 ## 严格可买执行分析
 
-`execution_analysis` 对策略目录中的历史计划加载 mootdx 分钟线。严格可买必须同时满足：
+`execution_analysis` 对策略目录中的历史计划加载 mootdx 分钟线。回测优化页面以
+“严格可买候选数 / 分钟数据完整候选数”作为成功率；可买后收盘封板率单独展示为质量指标。
+严格可买必须同时满足：
 
 1. 次日竞价涨幅位于计划区间。
 2. 当日最低价未跌破昨日收盘价。
@@ -60,23 +62,26 @@ PYTHONPATH=src .venv/bin/python -m banxia_strategy.catalog_backfill \
 
 这只是分钟级保守成交代理，不含逐笔委托、排队位置、板块分钟成分和真实滑点。
 
-一年对比结果：
+2025-01-01 至 2026-09-24 对比结果：
 
-| 策略 | 候选 | 严格可买 | 收盘封板 | 可买后封板率 |
-| --- | ---: | ---: | ---: | ---: |
-| 首板晋级二板策略 | 706 | 12 | 11 | 91.67% |
-| 题材分散优化策略 | 723 | 13 | 11 | 84.62% |
+| 策略 | 候选 | 严格可买 | 可买成功率 | 收盘封板 | 可买后封板率 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 01 | 3041 | 53 | 1.74% | 47 | 88.68% |
+| 011 | 4076 | 60 | 1.47% | 50 | 83.33% |
 
-宽松策略多产生 17 个候选，但成功数没有增加，因此不替换原策略。
+011 产生更多严格可买样本，但相对于完整候选池的可买成功率低于 01。
 
 ```bash
 PYTHONPATH=src .venv/bin/python -m banxia_strategy.execution_analysis \
-  --start 2025-09-25 --end 2026-09-24 \
-  --snapshot research/catalog-backfill/20250925-20260924/snapshot.json \
-  --output research/execution-analysis/20250925-20260924
+  --start 2025-01-01 --end 2026-09-24 \
+  --snapshot \
+    research/catalog-backfill/20250101-20250924/snapshot.json \
+    research/catalog-backfill/20250925-20260924/snapshot.json \
+  --output research/execution-analysis/20250101-20260924
 ```
 
-主要产物为 `report.md`、`report.json`、`stocks.csv` 和 `minute-cache.json`。
+主要产物为 `report.md`、`report.json`、`stocks.csv` 和 `minute-cache.json`，最新结果同时
+写入 PostgreSQL 的 `execution_comparison` 表供回测优化页面读取。
 
 ## T+1 与后续表现
 

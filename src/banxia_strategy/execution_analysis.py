@@ -19,8 +19,8 @@ from .storage_config import StorageSettings
 
 
 METRIC = {
-    "name": "严格可执行成功率",
-    "formula": "严格可买入且次日收盘封板数 / 分钟数据完整的计划候选数",
+    "name": "严格可买成功率",
+    "formula": "严格可买入候选数 / 分钟数据完整的计划候选数",
     "buyable_formula": "严格可买入且次日收盘封板数 / 严格可买入数",
     "strict_buyable": [
         "次日开盘涨幅位于计划竞价区间",
@@ -49,6 +49,18 @@ def _daily_bar(snapshot: Mapping[str, Any], symbol: str, trade_date: str):
         if str(bar.get("datetime", ""))[:10] == trade_date:
             return bar
     return None
+
+
+def _daily_bar_from_minutes(minute: Optional[Mapping[str, Sequence[Any]]]):
+    prices = list((minute or {}).get("prices") or [])
+    if len(prices) != 240 or any(not _finite_positive(value) for value in prices):
+        return None
+    return {
+        "open": float(prices[0]),
+        "high": float(max(prices)),
+        "low": float(min(prices)),
+        "close": float(prices[-1]),
+    }
 
 
 def _cutoff_index(value: str) -> int:
@@ -204,6 +216,8 @@ def summarize_stocks(stocks: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "verified_count": len(verified),
         "missing_count": len(stocks) - len(verified),
         "buyable_count": len(buyable),
+        "execution_success_count": len(buyable),
+        "execution_success_rate_pct": rate(len(buyable), len(verified)),
         "success_count": len(successes),
         "success_rate_pct": rate(len(successes), len(verified)),
         "buyable_rate_pct": rate(len(buyable), len(verified)),
@@ -266,7 +280,8 @@ def build_strategy_result(
             classify_candidate(
                 candidate if candidate.get("plan") else {**candidate, "plan": default_rules},
                 trade_date,
-                _daily_bar(snapshot, str(candidate["code"]), trade_date),
+                _daily_bar(snapshot, str(candidate["code"]), trade_date)
+                or _daily_bar_from_minutes(minutes.get(f"{trade_date}:{candidate['code']}")),
                 minutes.get(f"{trade_date}:{candidate['code']}"),
             )
             for candidate in plan.get("candidates", [])
@@ -306,6 +321,27 @@ def required_pairs(
             for candidate in (record.get("execution_plan") or {}).get("candidates", []):
                 pairs.add((trade_date, str(candidate["code"])))
     return sorted(pairs)
+
+
+def load_daily_snapshot(
+    paths: Sequence[Path],
+    pairs: Sequence[tuple[str, str]],
+) -> dict[str, Any]:
+    required = defaultdict(set)
+    for trade_date, symbol in pairs:
+        required[symbol].add(trade_date)
+    histories: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+    seen: set[tuple[str, str]] = set()
+    for path in paths:
+        snapshot = json.loads(path.read_text())
+        for symbol, dates in required.items():
+            for bar in snapshot.get("histories", {}).get(symbol, []):
+                trade_date = str(bar.get("datetime", ""))[:10]
+                key = (symbol, trade_date)
+                if trade_date in dates and key not in seen:
+                    histories[symbol].append(bar)
+                    seen.add(key)
+    return {"histories": dict(histories)}
 
 
 def load_strategy_records(repository: PostgresStorage, strategy_id: str) -> list[dict[str, Any]]:
@@ -380,13 +416,16 @@ def collect_minutes(
 
 
 def _period_markdown(strategy: Mapping[str, Any], frequency: str, title: str) -> list[str]:
-    lines = [f"### {title}", "", "| 周期 | 候选 | 可买 | 成功 | 成功率 | 可买后封板率 | 成功股票 |",
+    lines = [f"### {title}", "", "| 周期 | 候选 | 可买成功 | 收盘封板 | 可买成功率 | 可买后封板率 | 封板股票 |",
              "|---|---:|---:|---:|---:|---:|---|"]
     for row in strategy["periods"][frequency]:
         stocks = "、".join(
             f"{item['name']}({item['symbol']})" for item in row["success_stocks"]
         ) or "-"
-        success_rate = f"{row['success_rate_pct']}%" if row["success_rate_pct"] is not None else "-"
+        success_rate = (
+            f"{row['execution_success_rate_pct']}%"
+            if row["execution_success_rate_pct"] is not None else "-"
+        )
         close_rate = (
             f"{row['buyable_close_rate_pct']}%"
             if row["buyable_close_rate_pct"] is not None else "-"
@@ -426,7 +465,7 @@ def write_reports(result: Mapping[str, Any], output: Path) -> None:
         "",
         "## 总览",
         "",
-        "| 策略 | 候选 | 完整分钟 | 可买 | 成功 | 成功率 | 可买后封板率 |",
+        "| 策略 | 候选 | 完整分钟 | 可买成功 | 收盘封板 | 可买成功率 | 可买后封板率 |",
         "|---|---:|---:|---:|---:|---:|---:|",
     ]
     for strategy in result["strategies"]:
@@ -434,7 +473,7 @@ def write_reports(result: Mapping[str, Any], output: Path) -> None:
         lines.append(
             f"| {strategy['strategy_name']} | {summary['candidate_count']} | {summary['verified_count']} | "
             f"{summary['buyable_count']} | {summary['success_count']} | "
-            f"{summary['success_rate_pct'] if summary['success_rate_pct'] is not None else '-'}% | "
+            f"{summary['execution_success_rate_pct'] if summary['execution_success_rate_pct'] is not None else '-'}% | "
             f"{summary['buyable_close_rate_pct'] if summary['buyable_close_rate_pct'] is not None else '-'}% |"
         )
     lines.append("")
@@ -495,14 +534,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="按日、周、月、年比较策略的严格可执行成功率")
     parser.add_argument("--start", type=date.fromisoformat, required=True)
     parser.add_argument("--end", type=date.fromisoformat, required=True)
-    parser.add_argument("--snapshot", type=Path, required=True)
+    parser.add_argument("--snapshot", type=Path, nargs="+", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--workers", type=int, default=7)
     args = parser.parse_args(argv)
     if args.start > args.end:
         raise ValueError("start must be on or before end")
 
-    snapshot = json.loads(args.snapshot.read_text())
     settings = StorageSettings.from_env()
     repository = PostgresStorage(settings.postgres_dsn)
     try:
@@ -512,17 +550,31 @@ def main(argv=None):
             for item in strategies
         }
         pairs = required_pairs(records, args.start, args.end)
+        snapshot = load_daily_snapshot(args.snapshot, pairs)
         minutes = collect_minutes(pairs, args.output / "minute-cache.json", workers=args.workers)
         result = analyze(repository, snapshot, minutes, args.start, args.end)
     finally:
         repository.close()
     write_reports(result, args.output)
+    repository = PostgresStorage(settings.postgres_dsn)
+    try:
+        comparison_id = repository.replace_execution_comparison(result)
+    finally:
+        repository.close()
     print(json.dumps({
         "output": str(args.output),
+        "comparison_id": comparison_id,
         "required_pairs": len(pairs),
         "minute_pairs": len(minutes),
         "strategies": [
-            {"name": item["strategy_name"], **item["summary"]}
+            {
+                "name": item["strategy_name"],
+                **{
+                    key: value
+                    for key, value in item["summary"].items()
+                    if key != "success_stocks"
+                },
+            }
             for item in result["strategies"]
         ],
     }, ensure_ascii=False, indent=2), flush=True)

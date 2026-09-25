@@ -778,6 +778,46 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(self.client.get(root + "/assets/strategy.json").status_code, 404)
         self.assertEqual(self.client.get("/api/v1/research/bad-id").status_code, 400)
         self.assertEqual(self.client.get(root[:-1] + "2").status_code, 404)
+        comparison = {
+            "schema_version": 1,
+            "generated_at": "2026-09-26T06:00:00+08:00",
+            "start": "2025-01-01",
+            "end": "2026-09-24",
+            "source": "mootdx",
+            "metric": {"name": "严格可买成功率"},
+            "strategies": [
+                {
+                    "strategy_id": "one",
+                    "strategy_code": "one",
+                    "strategy_name": "01",
+                    "enabled": True,
+                    "summary": {},
+                    "periods": {},
+                    "days": [{
+                        "trade_date": "2026-09-24",
+                        "reference_date": "2026-09-23",
+                        "summary": {},
+                        "stocks": [{"buyable": True}, {"buyable": False}],
+                    }],
+                },
+                {
+                    "strategy_id": "two",
+                    "strategy_code": "two",
+                    "strategy_name": "011",
+                    "enabled": False,
+                    "summary": {},
+                    "periods": {},
+                    "days": [],
+                },
+            ],
+        }
+        self.services.repository.get_execution_comparison = lambda: comparison
+        response = self.client.get("/api/v1/research/comparison")
+        self.assertEqual(response.json()["start"], comparison["start"])
+        self.assertEqual(
+            response.json()["strategies"][0]["days"][0]["stocks"],
+            [{"buyable": True}],
+        )
         page = self.client.get("/research")
         self.assertEqual(page.status_code, 200)
         self.assertIn("回测优化", page.text)
@@ -785,6 +825,10 @@ class ApiV1Test(unittest.TestCase):
         secured = TestClient(create_api_app(self.services))
         for suffix in ("", "/strategy", "/assets/report.md"):
             self.assertEqual(secured.get(root + suffix).status_code, 401)
+        self.assertEqual(
+            secured.get("/api/v1/research/comparison").status_code,
+            401,
+        )
 
 
 if __name__ == "__main__":

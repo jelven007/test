@@ -1144,6 +1144,61 @@ class PostgresStorage(StrategyCatalogMixin):
             return None
         return {**dict(_mapping(row[0])), "assets": row[1]}
 
+    def replace_execution_comparison(self, payload):
+        comparison_id = str(uuid.uuid4())
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM banxia.execution_comparison")
+                cursor.execute(
+                    """INSERT INTO banxia.execution_comparison (
+                        comparison_id, start_date, end_date, generated_at, payload
+                    ) VALUES (%s, %s, %s, %s, %s::jsonb)""",
+                    (
+                        comparison_id,
+                        payload["start"],
+                        payload["end"],
+                        _datetime(payload["generated_at"]),
+                        _json(payload),
+                    ),
+                )
+        return comparison_id
+
+    def get_execution_comparison(self):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT payload FROM banxia.execution_comparison
+                    ORDER BY generated_at DESC LIMIT 1"""
+                )
+                row = cursor.fetchone()
+        return dict(_mapping(row[0])) if row else None
+
+    def clear_research_data(self):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT assets FROM banxia.research_run")
+                assets = [
+                    dict(asset)
+                    for row in cursor.fetchall()
+                    for asset in (_mapping(row[0]) or [])
+                    if isinstance(asset, Mapping)
+                ]
+                cursor.execute("DELETE FROM banxia.research_daily")
+                research_daily = cursor.rowcount
+                cursor.execute("DELETE FROM banxia.research_strategy")
+                research_strategies = cursor.rowcount
+                cursor.execute("DELETE FROM banxia.research_run")
+                research_runs = cursor.rowcount
+                cursor.execute("DELETE FROM banxia.execution_comparison")
+                execution_comparisons = cursor.rowcount
+        return {
+            "research_runs": research_runs,
+            "research_daily": research_daily,
+            "research_strategies": research_strategies,
+            "execution_comparisons": execution_comparisons,
+            "assets": assets,
+        }
+
     def close(self) -> None:
         if self._pool is not None:
             self._pool.close()

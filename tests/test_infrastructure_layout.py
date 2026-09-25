@@ -239,7 +239,9 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('class="strategy-table-wrap" tabindex="0" role="region"', strategy_html)
         self.assertIn('id="settings-message" class="ui-status"', strategy_html)
         self.assertIn('id="research-status" class="ui-status"', research_html)
-        self.assertEqual(research_html.count('class="research-table-scroll" tabindex="0" role="region"'), 4)
+        self.assertEqual(research_html.count('class="research-table-scroll" tabindex="0" role="region"'), 2)
+        self.assertIn('data-period="year"', research_html)
+        self.assertIn("成功标准：当日存在符合计划约束的严格可买窗口", research_html)
 
     def test_primary_page_headers_stay_compact_and_single_row(self):
         web = ROOT / "src/banxia_strategy/web"

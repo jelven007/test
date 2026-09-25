@@ -1103,6 +1103,53 @@ def create_api_app(services: ApiServices):
             return {"items": []}
         return {"items": reader()}
 
+    @app.get("/api/v1/research/comparison")
+    def execution_comparison():
+        reader = getattr(services.repository, "get_execution_comparison", None)
+        result = reader() if reader else None
+        if result is None:
+            raise HTTPException(status_code=404, detail="尚无实盘成功率对比数据")
+        def compact_summary(summary):
+            return {
+                key: value for key, value in summary.items()
+                if key != "success_stocks"
+            }
+        return {
+            **{key: result[key] for key in (
+                "schema_version", "generated_at", "start", "end", "source", "metric"
+            )},
+            "strategies": [
+                {
+                    **{
+                        key: strategy[key]
+                        for key in (
+                            "strategy_id", "strategy_code", "strategy_name",
+                            "enabled",
+                        )
+                    },
+                    "summary": compact_summary(strategy["summary"]),
+                    "periods": {
+                        frequency: [
+                            compact_summary(item)
+                            for item in rows
+                        ]
+                        for frequency, rows in strategy["periods"].items()
+                    },
+                    "days": [
+                        {
+                            **{key: day[key] for key in ("trade_date", "reference_date")},
+                            "summary": compact_summary(day["summary"]),
+                            "stocks": [
+                                stock for stock in day["stocks"] if stock.get("buyable")
+                            ],
+                        }
+                        for day in strategy["days"]
+                    ],
+                }
+                for strategy in result["strategies"]
+            ],
+        }
+
     @app.get("/api/v1/research/{run_id}")
     def research_run(run_id: str):
         try:
