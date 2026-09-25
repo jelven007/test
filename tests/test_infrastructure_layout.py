@@ -45,6 +45,20 @@ class StorageSchemaTest(unittest.TestCase):
         for state in DecisionState:
             self.assertIn(f"- {state.value}", contracts)
 
+    def test_strategy_name_is_mutable_but_config_and_lineage_are_not(self):
+        migration = (
+            ROOT / "migrations/postgres/007_mutable_strategy_name.sql"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("NEW.name IS DISTINCT FROM OLD.name", migration)
+        self.assertIn(
+            "NEW.current_config IS DISTINCT FROM OLD.current_config",
+            migration,
+        )
+        self.assertIn(
+            "NEW.parent_strategy_id IS DISTINCT FROM OLD.parent_strategy_id",
+            migration,
+        )
+
     def test_clickhouse_schema_contains_history_tables_and_ttls(self):
         schema = (ROOT / "migrations/clickhouse/001_initial.sql").read_text(
             encoding="utf-8"
@@ -233,6 +247,19 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn("white-space: nowrap", css)
         self.assertIn(".brand-mark,\n  .brand small {\n    display: none;", css)
         self.assertNotIn("<select id=\"report-date\"", html)
+
+    def test_strategy_page_defaults_to_list_and_links_to_detail(self):
+        web = ROOT / "src/banxia_strategy/web"
+        html = (web / "strategy.html").read_text(encoding="utf-8")
+        script = (web / "strategy.js").read_text(encoding="utf-8")
+        self.assertIn('id="strategy-list-view"', html)
+        self.assertIn('id="strategy-detail-view" hidden', html)
+        self.assertIn('id="strategy-name-form"', html)
+        self.assertIn('id="save-strategy-dialog"', html)
+        self.assertIn("/strategy?strategy_id=${encodeURIComponent(item.strategy_id)}", script)
+        self.assertIn("JSON.stringify({name})", script)
+        self.assertIn("parent_strategy_id: strategyId", script)
+        self.assertIn("参数变化不会覆盖当前策略", script)
 
 
 if __name__ == "__main__":

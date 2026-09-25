@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -10,6 +11,7 @@ from unittest.mock import Mock
 from fastapi.testclient import TestClient
 
 from banxia_strategy.api import ApiServices, create_api_app
+from banxia_strategy.strategy_config import StrategyConfig
 from banxia_strategy.web_server import ReportStore
 
 
@@ -155,6 +157,39 @@ def write_report(root: Path):
     (directory / "report.md").write_text("# report", encoding="utf-8")
 
 
+class FakeStrategyRepository:
+    def __init__(self):
+        self.config = asdict(StrategyConfig())
+        self.item = {
+            "strategy_id": "00000000-0000-0000-0000-000000000010",
+            "code": "one-to-two",
+            "name": "首板晋级二板策略",
+            "description": "",
+            "enabled": True,
+            "archived": False,
+            "config": self.config.copy(),
+            "parent_strategy_id": None,
+            "config_changes": {},
+        }
+
+    def list_strategies(self):
+        return [self.item.copy()]
+
+    def get_strategy(self, strategy_id):
+        return self.item.copy() if strategy_id == self.item["strategy_id"] else None
+
+    def rename_strategy(self, strategy_id, name):
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
+            raise ValueError("策略名称需为 1 至 80 个字符")
+        self.item["name"] = name.strip()
+        return self.item.copy()
+
+    def update_strategy(self, strategy_id, *, enabled, archived=False):
+        self.item["enabled"] = enabled
+        self.item["archived"] = archived
+        return self.item.copy()
+
+
 class ApiV1Test(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -282,6 +317,36 @@ class ApiV1Test(unittest.TestCase):
         ]["get"]
         parameters = operation.get("parameters", [])
         self.assertNotIn("request", {item["name"] for item in parameters})
+
+    def test_strategy_list_summary_and_name_only_patch(self):
+        repository = FakeStrategyRepository()
+        client = TestClient(create_api_app(ApiServices(
+            reports=self.services.reports,
+            repository=repository,
+            cache=FakeCache(),
+        )))
+        listed = client.get("/api/v1/strategies")
+        self.assertEqual(listed.status_code, 200)
+        item = listed.json()["items"][0]
+        self.assertEqual(item["key_parameters"]["minimum_score"], 58)
+        self.assertEqual(item["key_parameters"]["entry_cutoff_time"], "10:00")
+        self.assertNotIn("config", item)
+
+        strategy_id = repository.item["strategy_id"]
+        renamed = client.patch(
+            f"/api/v1/strategies/{strategy_id}",
+            json={"name": "首板晋级二板策略（严格版）"},
+        )
+        self.assertEqual(renamed.status_code, 200)
+        self.assertEqual(renamed.json()["name"], "首板晋级二板策略（严格版）")
+        self.assertEqual(repository.item["config"], asdict(StrategyConfig()))
+
+        for payload in (
+            {"name": "组合修改", "enabled": False},
+            {"config": {"minimum_score": 70}},
+        ):
+            response = client.patch(f"/api/v1/strategies/{strategy_id}", json=payload)
+            self.assertEqual(response.status_code, 422)
 
     def test_research_history_strategy_download_and_asset_stream(self):
         run_id = "00000000-0000-0000-0000-000000000001"

@@ -181,9 +181,9 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/v1/strategies` | 列出未归档策略、状态、血缘、差异和 revision |
+| GET | `/api/v1/strategies` | 列出未归档策略、状态、血缘、差异、revision 和横向展示所需关键参数 |
 | POST | `/api/v1/strategies` | 从来源策略创建不可变子策略，可选立即激活 |
-| PATCH | `/api/v1/strategies/{strategy_id}` | 仅修改 `enabled` 激活状态 |
+| PATCH | `/api/v1/strategies/{strategy_id}` | 单独修改 `name` 或 `enabled`；一次请求不得混合字段 |
 | DELETE | `/api/v1/strategies/{strategy_id}` | 软删除策略并停用 |
 | GET | `/api/v1/strategy-config?strategy_id=...` | 读取配置、默认值、字段 Schema 和 revision |
 | PUT | `/api/v1/strategy-config` | 仅文件兼容模式可覆盖；目录模式固定返回 `409` |
@@ -202,8 +202,9 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 }
 ```
 
-服务使用完整 `StrategyConfig` 校验配置，并记录相对父策略的逐项差异。名称、参数和血缘保存后
-不可修改；激活新策略会在同一事务停用旧策略。
+服务使用完整 `StrategyConfig` 校验配置，并记录相对父策略的逐项差异。名称可通过
+`{"name": "新名称"}` 原地修正；参数和血缘保存后不可修改。参数变化必须调用创建接口并提供
+新策略名称。激活新策略会在同一事务停用旧策略。
 
 ### 4.5 策略运行
 
@@ -314,6 +315,7 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 - API 返回的每个策略状态都可关联到 PostgreSQL 决策事件。
 - SSE 断开不会造成权威状态丢失。
 - 策略目录模式禁止 `PUT /strategy-config` 原地覆盖配置。
+- 策略更新接口仅接受单一 `name` 或单一 `enabled` 字段，禁止将重命名与状态变化合并提交。
 - 刷新任务结果记录实际使用的 `strategy_version`、`strategy_revision`、`run_id` 和生成时间。
 - 研究资产下载只允许数据库索引中的文件名，拒绝路径穿越。
 - 无任何自动下单接口。

@@ -14,6 +14,19 @@ from .adapters.postgres import STRATEGY_CODE
 from .adapters.strategy_catalog import CatalogConfigStore
 
 
+STRATEGY_LIST_PARAMETER_KEYS = (
+    "minimum_score",
+    "minimum_amount_cny",
+    "maximum_amount_cny",
+    "minimum_turnover_pct",
+    "maximum_turnover_pct",
+    "minimum_float_market_cap_cny",
+    "maximum_float_market_cap_cny",
+    "minimum_industry_limit_up_count",
+    "entry_cutoff_time",
+)
+
+
 @dataclass
 class ApiServices:
     reports: ReportStore
@@ -276,13 +289,25 @@ def create_api_app(services: ApiServices):
         item = require_strategy(strategy_id) if strategy_id else active_strategy()
         return CatalogConfigStore(services.repository, item["strategy_id"]) if item else config_store
 
+    def catalog_response(item):
+        result = dict(item)
+        payload = selected_store(result["strategy_id"]).payload()
+        result["revision"] = payload["revision"]
+        result["key_parameters"] = {
+            key: payload["config"][key]
+            for key in STRATEGY_LIST_PARAMETER_KEYS
+        }
+        result.pop("config", None)
+        return result
+
     @app.get("/api/v1/strategies")
     def strategies():
-        items = services.repository.list_strategies()
-        for item in items:
-            item["revision"] = selected_store(item["strategy_id"]).payload()["revision"]
-            item.pop("config", None)
-        return {"items": items}
+        return {
+            "items": [
+                catalog_response(item)
+                for item in services.repository.list_strategies()
+            ]
+        }
 
     @app.post("/api/v1/strategies", status_code=201)
     async def create_strategy(request: Request):
@@ -309,7 +334,7 @@ def create_api_app(services: ApiServices):
                 payload.get("name"), validated, parent_strategy_id=parent_id,
                 config_changes=changes, enabled=payload.get("activate") is True,
             )
-            return item
+            return catalog_response(item)
         except ConfigConflict as exc:
             return error_response(request, status_code=409, code="CONFIG_CONFLICT", message=str(exc))
         except (ConfigError, ValueError, TypeError) as exc:
@@ -317,14 +342,18 @@ def create_api_app(services: ApiServices):
 
     @app.patch("/api/v1/strategies/{strategy_id}")
     async def update_strategy(strategy_id: str, request: Request):
-        item = require_strategy(strategy_id)
+        require_strategy(strategy_id)
         try:
             payload = await request.json()
-            if not isinstance(payload, dict) or set(payload) - {"enabled"} or "enabled" not in payload:
-                raise ValueError("仅允许修改激活状态")
-            return services.repository.update_strategy(
-                strategy_id, enabled=payload["enabled"], archived=False,
-            )
+            if not isinstance(payload, dict) or set(payload) not in ({"enabled"}, {"name"}):
+                raise ValueError("仅允许单独修改策略名称或激活状态")
+            if "name" in payload:
+                item = services.repository.rename_strategy(strategy_id, payload["name"])
+            else:
+                item = services.repository.update_strategy(
+                    strategy_id, enabled=payload["enabled"], archived=False,
+                )
+            return catalog_response(item)
         except (ValueError, TypeError) as exc:
             return error_response(request, status_code=422, code="VALIDATION_ERROR", message=str(exc))
 

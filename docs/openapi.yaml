@@ -331,19 +331,16 @@ paths:
       - $ref: "#/components/parameters/StrategyIdPath"
     patch:
       tags: [Strategies]
-      operationId: setStrategyActiveState
-      summary: 激活或停用策略
+      operationId: updateStrategyMetadataOrState
+      summary: 单独修改策略名称或激活状态
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [enabled]
-              additionalProperties: false
-              properties:
-                enabled:
-                  type: boolean
+              oneOf:
+                - $ref: "#/components/schemas/RenameStrategyRequest"
+                - $ref: "#/components/schemas/SetStrategyActiveRequest"
       responses:
         "200":
           description: 更新后的策略
@@ -1120,7 +1117,7 @@ components:
           nullable: true
     Strategy:
       type: object
-      required: [strategy_id, code, name, enabled, archived, revision]
+      required: [strategy_id, code, name, enabled, archived, key_parameters, revision]
       properties:
         strategy_id:
           type: string
@@ -1142,9 +1139,59 @@ components:
         config_changes:
           type: object
           additionalProperties: true
+        key_parameters:
+          $ref: "#/components/schemas/StrategyKeyParameters"
         revision:
           type: string
           pattern: '^[a-f0-9]{64}$'
+    StrategyKeyParameters:
+      type: object
+      required:
+        - minimum_score
+        - minimum_amount_cny
+        - maximum_amount_cny
+        - minimum_turnover_pct
+        - maximum_turnover_pct
+        - minimum_float_market_cap_cny
+        - maximum_float_market_cap_cny
+        - minimum_industry_limit_up_count
+        - entry_cutoff_time
+      properties:
+        minimum_score:
+          type: number
+        minimum_amount_cny:
+          type: number
+        maximum_amount_cny:
+          type: number
+        minimum_turnover_pct:
+          type: number
+        maximum_turnover_pct:
+          type: number
+        minimum_float_market_cap_cny:
+          type: number
+        maximum_float_market_cap_cny:
+          type: number
+        minimum_industry_limit_up_count:
+          type: integer
+        entry_cutoff_time:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+    RenameStrategyRequest:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+    SetStrategyActiveRequest:
+      type: object
+      required: [enabled]
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
     CreateStrategyRequest:
       type: object
       required: [name, parent_strategy_id, revision]

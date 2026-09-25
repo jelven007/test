@@ -1,12 +1,14 @@
 # 多策略与交易日记录
 
-`/strategy` 管理多条不可变策略。修改参数后只能“保存为新策略”，系统记录
-`parent_strategy_id` 与逐项 `config_changes`，原策略及历史计划不会被覆盖。
+`/strategy` 默认展示策略列表，横向对比最低评分、成交额、换手率、流通市值、题材涨停
+门槛和入场截止时间。点击策略名称进入 `?strategy_id=...` 详情，查看交易日记录和参数。
+仅修改名称可保存到原策略；修改任一参数后只能“保存为新策略”，系统要求输入新名称，
+并记录 `parent_strategy_id` 与逐项 `config_changes`。原策略及历史计划不会被覆盖。
 新策略默认处于“未激活”，也可在保存时立即激活。
 
 策略只有“激活”和“未激活”两种可见状态，全库最多一条激活策略。激活新策略会在
 同一事务内取消原激活策略；删除采用软删除，策略血缘与历史交易日数据仍然保留。
-数据库触发器禁止修改已保存策略的名称、完整配置、父策略和差异；部分唯一索引
+数据库触发器禁止修改已保存策略的完整配置、父策略和差异，名称作为展示元数据允许修正；部分唯一索引
 `strategy_definition_single_active` 保证未归档策略最多一条 `enabled=true`。
 
 当前配置文件 `config/strategy.json` 仍用于兼容文件模式。完整策略目录模式以 PostgreSQL
@@ -45,7 +47,7 @@
 ## API
 
 - `GET/POST /api/v1/strategies`
-- `PATCH /api/v1/strategies/{strategy_id}`：切换激活状态
+- `PATCH /api/v1/strategies/{strategy_id}`：单独修改名称或切换激活状态
 - `DELETE /api/v1/strategies/{strategy_id}`：软删除并保留历史
 - `GET /api/v1/strategy-config?strategy_id=...`
 - `GET /api/v1/strategies/{strategy_id}/days?limit=30&before=YYYY-MM-DD`
@@ -57,14 +59,18 @@
 文件模式旧 Web 服务保留原参数编辑，
 完整多策略功能通过 FastAPI 服务提供。
 
+列表响应通过 `key_parameters` 返回横向对比所需的九项参数。`PATCH` 请求必须严格只包含
+`name` 或 `enabled` 之一，不能在同一请求中混合修改。
+
 创建子策略请求必须提供来源 `parent_strategy_id` 和来源 revision。revision 不匹配返回
 `409 CONFIG_CONFLICT`，字段或参数无效返回 `422 VALIDATION_ERROR`。策略名称限制为
 1 至 80 个字符。
 
 ## 迁移与验证
 
-依次应用 `migrations/postgres/005_multi_strategy.sql` 和
-`migrations/postgres/006_immutable_active_strategy.sql`，再使用已配置数据库环境执行：
+依次应用 `migrations/postgres/005_multi_strategy.sql`、
+`migrations/postgres/006_immutable_active_strategy.sql` 和
+`migrations/postgres/007_mutable_strategy_name.sql`，再使用已配置数据库环境执行：
 
 ```sh
 PYTHONPATH=src python -m banxia_strategy.catalog_bootstrap

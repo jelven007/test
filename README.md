@@ -113,7 +113,7 @@ python3 -m venv .venv
 
 浏览器打开 <http://127.0.0.1:8765>。FastAPI 提供四个统一页面：
 
-- `/strategy`：不可变策略管理、激活切换、血缘和逐日记录。
+- `/strategy`：策略列表、关键参数对比、详情、重命名、参数版本化、激活切换、血缘和逐日记录。
 - `/`：次日计划、策略选择、历史日期和完整报告刷新。
 - `/monitor`：盘中行情、策略状态、分时和决策事件。
 - `/research`：历史准确率、参数实验和研究资产。
@@ -231,11 +231,13 @@ rm "$HOME/Library/LaunchAgents/com.jelven.banxia-strategy.plist"
 ## 策略管理
 
 打开 <http://127.0.0.1:8765/strategy>，主导航中的“策略管理”位于“次日计划”之前。
-页面分为候选筛选、个股评分、市场环境、竞价与入场、仓位与退出、运行设置六组。
+默认页面横向展示全部策略的关键参数；点击策略名称进入详情。详情参数分为候选筛选、
+个股评分、市场环境、竞价与入场、仓位与退出、运行设置六组。
 成交额和市值以亿元输入，比例以百分数输入；文件仍保留元和小数比例的计算单位。
 
+- 仅修改策略名称时可直接保存，策略 ID、配置、血缘和历史记录保持不变。
 - 完整策略目录模式下，“保存为新策略”会校验类型、上下限、理想评分区间和组合仓位关系，
-  创建不可变子策略，并保存父策略与逐项差异；原策略不被覆盖。
+  提示输入新策略名，创建参数不可变的子策略，并保存父策略与逐项差异；原策略不被覆盖。
 - 全库最多一条策略激活。创建时可立即激活，也可稍后切换；删除为软删除。
 - 文件兼容模式仍可保存到 `BANXIA_STRATEGY_CONFIG` 指定的文件
   （默认 `config/strategy.json`），但不具备完整多策略能力。
@@ -264,7 +266,8 @@ rm "$HOME/Library/LaunchAgents/com.jelven.banxia-strategy.plist"
   页面调整不会增加自动成交或自动下单能力。
 
 读取接口为 `GET /api/v1/strategy-config?strategy_id=...`。目录模式通过
-`POST /api/v1/strategies` 创建新策略，`PATCH /api/v1/strategies/{strategy_id}` 切换状态；
+`POST /api/v1/strategies` 创建新策略，`PATCH /api/v1/strategies/{strategy_id}` 单独修改
+名称或切换状态；
 此时 `PUT /api/v1/strategy-config` 固定返回 409，防止覆盖。参数校验失败返回 422，
 revision 冲突返回 409；配置了 API Bearer token 时沿用相同鉴权。
 字段定义和默认值见 `src/banxia_strategy/strategy_config.py`。

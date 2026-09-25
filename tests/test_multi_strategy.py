@@ -109,6 +109,9 @@ class MultiStrategyTest(unittest.TestCase):
         a = CatalogConfigStore(self.repository, self.a["strategy_id"])
         b = CatalogConfigStore(self.repository, self.b["strategy_id"])
         old = a.payload()
+        renamed = self.repository.rename_strategy(self.a["strategy_id"], "隔离测试 A 已重命名")
+        self.assertEqual(renamed["name"], "隔离测试 A 已重命名")
+        self.assertEqual(a.payload()["config"], old["config"])
         with self.assertRaises(ConfigConflict):
             a.save({**old["config"], "minimum_score": 70}, old["revision"])
         self.assertEqual(b.read().minimum_score, 58)
@@ -133,6 +136,17 @@ class MultiStrategyTest(unittest.TestCase):
             })
             self.assertEqual(response.status_code, 201)
             sid = response.json()["strategy_id"]
+            listed = client.get("/api/v1/strategies").json()["items"]
+            summary = next(item for item in listed if item["strategy_id"] == sid)["key_parameters"]
+            self.assertEqual(summary["minimum_score"], 58)
+            self.assertEqual(summary["entry_cutoff_time"], "10:00")
+            self.assertEqual(client.patch(
+                f"/api/v1/strategies/{sid}", json={"name": "API 副本已重命名"},
+            ).status_code, 200)
+            self.assertEqual(self.repository.get_strategy(sid)["name"], "API 副本已重命名")
+            self.assertEqual(client.patch(
+                f"/api/v1/strategies/{sid}", json={"name": "非法组合", "enabled": True},
+            ).status_code, 422)
             self.assertEqual(client.patch(f"/api/v1/strategies/{sid}", json={"enabled": True}).status_code, 200)
             self.assertFalse(self.repository.get_strategy(self.a["strategy_id"])["enabled"])
             self.assertTrue(self.repository.get_strategy(sid)["enabled"])

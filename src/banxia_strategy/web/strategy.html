@@ -7,9 +7,9 @@
     <meta name="theme-color" content="#f6f7f5">
     <title>策略管理 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260925.1">
-    <link rel="stylesheet" href="/strategy.css?v=20260925.2">
+    <link rel="stylesheet" href="/strategy.css?v=20260925.3">
     <link rel="stylesheet" href="/ui-standard.css?v=20260925.2">
-    <script src="/strategy.js?v=20260925.2" defer></script>
+    <script src="/strategy.js?v=20260925.3" defer></script>
   </head>
   <body class="settings-body">
     <header class="topbar settings-topbar">
@@ -25,51 +25,68 @@
     <main class="settings-main page-main">
       <header class="settings-heading page-header">
         <div><p class="eyebrow">STRATEGY LIBRARY</p><h1>策略管理</h1><p>每条策略独立运行，每个交易日一条记录：次日计划与当日实盘。</p></div>
-        <div class="settings-revision"><span>当前配置版本</span><code id="config-revision">读取中</code><a href="/">查看次日计划 ↗</a></div>
+        <div class="settings-revision"><span id="revision-label">策略总数</span><code id="config-revision">读取中</code><a id="plan-link" href="/">查看次日计划 ↗</a></div>
       </header>
-      <section class="catalog-toolbar" aria-label="策略选择与管理">
-        <label>当前策略<select id="strategy-select" class="ui-control"></select></label>
-        <div class="strategy-meta"><span id="strategy-status" class="status-badge">未激活</span><small id="strategy-lineage">初始策略</small></div>
-        <div class="catalog-buttons">
-          <button type="button" class="ui-button" id="toggle-strategy">激活</button>
-          <button type="button" class="ui-button" id="copy-strategy">另存为新策略</button>
-          <button type="button" class="ui-button danger-button" id="archive-strategy">删除</button>
-        </div>
-      </section>
-      <div id="settings-message" role="status" aria-live="polite">正在读取策略参数…</div>
+      <div id="settings-message" role="status" aria-live="polite">正在读取策略列表…</div>
       <div id="settings-errors" class="notice is-error" role="alert" hidden></div>
-      <div class="catalog-tabs segmented-control" role="group" aria-label="策略内容">
-        <button type="button" id="records-tab" aria-pressed="true">交易日记录</button>
-        <button type="button" id="parameters-tab" aria-pressed="false">策略参数</button>
-      </div>
-      <section id="strategy-records">
-        <div class="records-heading"><div><h2>计划与实盘</h2><p>按交易日归档；重复刷新更新同一条记录。实盘为行情及策略观察，非券商成交记录。</p></div><button type="button" class="ui-button" id="reload-days">刷新记录</button></div>
-        <div class="records-table-wrap"><table class="records-table data-table">
-          <thead><tr><th>交易日</th><th>次日计划</th><th>当日实盘</th><th>收盘封板命中率</th><th>操作</th></tr></thead>
-          <tbody id="strategy-days"></tbody>
-        </table></div>
-        <button type="button" class="ui-button" id="more-days" hidden>更早记录</button>
-        <section id="day-detail" hidden aria-live="polite"></section>
-      </section>
-      <form id="strategy-form" novalidate hidden>
-        <div class="settings-workspace">
-          <aside class="settings-index">
-            <p class="eyebrow">参数分组</p>
-            <nav id="settings-nav" aria-label="参数分组"></nav>
-            <div class="settings-scope"><strong>执行边界</strong><p>仅提供候选与观察建议。<br>不自动下单，遵循 A 股 T+1。</p></div>
-          </aside>
-          <div class="settings-editor" id="settings-groups"></div>
+      <section id="strategy-list-view" aria-labelledby="strategy-list-title">
+        <div class="strategy-list-heading">
+          <div><h2 id="strategy-list-title">全部策略</h2><p>点击策略名称查看交易日记录、调整名称或创建参数新版本。</p></div>
         </div>
-        <footer class="settings-actions">
-          <div><strong id="dirty-state">已保存</strong><small id="change-summary">修改参数后保存，新计划即可使用。</small></div>
-          <div class="settings-buttons">
-            <button id="defaults-button" class="ui-button" type="button">恢复默认值</button>
-            <button id="reload-button" class="ui-button" type="button">撤销修改</button>
-            <button id="save-button" class="ui-button primary-button" type="submit" disabled>保存为新策略</button>
+        <div class="strategy-table-wrap">
+          <table class="strategy-table data-table">
+            <thead><tr><th>策略名称</th><th>状态</th><th>最低评分</th><th>成交额</th><th>换手率</th><th>流通市值</th><th>题材涨停</th><th>入场截止</th><th>来源</th></tr></thead>
+            <tbody id="strategy-list"></tbody>
+          </table>
+        </div>
+      </section>
+      <section id="strategy-detail-view" hidden>
+        <a class="back-link" href="/strategy">← 返回策略列表</a>
+        <section class="catalog-toolbar" aria-label="策略信息与管理">
+          <form id="strategy-name-form">
+            <label>策略名称<input id="strategy-name" class="ui-control" maxlength="80" required></label>
+            <button type="submit" class="ui-button" id="save-strategy-name" disabled>保存名称</button>
+          </form>
+          <div class="strategy-meta"><span id="strategy-status" class="status-badge">未激活</span><small id="strategy-lineage">初始策略</small></div>
+          <div class="catalog-buttons">
+            <button type="button" class="ui-button" id="toggle-strategy">激活</button>
+            <button type="button" class="ui-button" id="copy-strategy">另存为新策略</button>
+            <button type="button" class="ui-button danger-button" id="archive-strategy">删除</button>
           </div>
-        </footer>
-      </form>
-      <button id="retry-button" class="ui-button" type="button" hidden>重新加载</button>
+        </section>
+        <div class="catalog-tabs segmented-control" role="group" aria-label="策略内容">
+          <button type="button" id="records-tab" aria-pressed="true">交易日记录</button>
+          <button type="button" id="parameters-tab" aria-pressed="false">策略参数</button>
+        </div>
+        <section id="strategy-records">
+          <div class="records-heading"><div><h2>计划与实盘</h2><p>按交易日归档；重复刷新更新同一条记录。实盘为行情及策略观察，非券商成交记录。</p></div><button type="button" class="ui-button" id="reload-days">刷新记录</button></div>
+          <div class="records-table-wrap"><table class="records-table data-table">
+            <thead><tr><th>交易日</th><th>次日计划</th><th>当日实盘</th><th>收盘封板命中率</th><th>操作</th></tr></thead>
+            <tbody id="strategy-days"></tbody>
+          </table></div>
+          <button type="button" class="ui-button" id="more-days" hidden>更早记录</button>
+          <section id="day-detail" hidden aria-live="polite"></section>
+        </section>
+        <form id="strategy-form" novalidate hidden>
+          <div class="settings-workspace">
+            <aside class="settings-index">
+              <p class="eyebrow">参数分组</p>
+              <nav id="settings-nav" aria-label="参数分组"></nav>
+              <div class="settings-scope"><strong>执行边界</strong><p>仅提供候选与观察建议。<br>不自动下单，遵循 A 股 T+1。</p></div>
+            </aside>
+            <div class="settings-editor" id="settings-groups"></div>
+          </div>
+          <footer class="settings-actions">
+            <div><strong id="dirty-state">已保存</strong><small id="change-summary">修改参数后保存，新计划即可使用。</small></div>
+            <div class="settings-buttons">
+              <button id="defaults-button" class="ui-button" type="button">恢复默认值</button>
+              <button id="reload-button" class="ui-button" type="button">撤销修改</button>
+              <button id="save-button" class="ui-button primary-button" type="submit" disabled>保存为新策略</button>
+            </div>
+          </footer>
+        </form>
+        <button id="retry-button" class="ui-button" type="button" hidden>重新加载</button>
+      </section>
       <dialog id="save-strategy-dialog">
         <form id="save-strategy-form" method="dialog">
           <header><p class="eyebrow">NEW STRATEGY</p><h2>保存为新策略</h2></header>

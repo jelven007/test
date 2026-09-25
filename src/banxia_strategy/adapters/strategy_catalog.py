@@ -73,8 +73,7 @@ class StrategyCatalogMixin:
 
     def create_strategy(self, name, config, *, description="", enabled=False, strategy_id=None,
                         parent_strategy_id=None, config_changes=None):
-        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
-            raise ValueError("策略名称需为 1 至 80 个字符")
+        name = self._validated_name(name)
         values = asdict(StrategyConfig.from_mapping(config))
         strategy_id = strategy_id or str(uuid.uuid4())
         with self.connection_factory() as connection:
@@ -87,7 +86,7 @@ class StrategyCatalogMixin:
                 cursor.execute("""INSERT INTO banxia.strategy_definition
                     (strategy_id,code,name,description,current_config,enabled,parent_strategy_id,config_changes)
                     VALUES (%s,%s,%s,%s,%s::jsonb,%s,%s,%s::jsonb)""",
-                    (strategy_id, f"custom-{strategy_id}", name.strip(), description,
+                    (strategy_id, f"custom-{strategy_id}", name, description,
                      json.dumps(values), False, parent_strategy_id, json.dumps(config_changes or {})))
                 cursor.execute("""INSERT INTO banxia.strategy_day(strategy_id,trade_date)
                     SELECT %s,trade_date FROM banxia.trading_session
@@ -95,6 +94,22 @@ class StrategyCatalogMixin:
                     AND trade_date <= CURRENT_DATE ON CONFLICT DO NOTHING""", (strategy_id,))
         if enabled:
             return self.activate_strategy(strategy_id)
+        return self.get_strategy(strategy_id)
+
+    @staticmethod
+    def _validated_name(name):
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
+            raise ValueError("策略名称需为 1 至 80 个字符")
+        return name.strip()
+
+    def rename_strategy(self, strategy_id, name):
+        name = self._validated_name(name)
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""UPDATE banxia.strategy_definition SET name=%s
+                    WHERE strategy_id=%s AND NOT archived""", (name, strategy_id))
+                if cursor.rowcount != 1:
+                    raise ValueError("策略不存在或已归档")
         return self.get_strategy(strategy_id)
 
     def update_strategy(self, strategy_id, *, enabled, archived=False):

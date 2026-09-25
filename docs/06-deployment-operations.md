@@ -54,8 +54,9 @@
 
 ### 3.2 策略配置
 
-策略目录存入 PostgreSQL `strategy_definition.current_config`，发布后不可原地修改。
-修改任何阈值都创建新策略，并记录父子关系；每次报告仍生成对应 `strategy_version`，
+策略目录存入 PostgreSQL。`strategy_definition.name` 可单独修正，
+`current_config` 发布后不可原地修改。修改任何阈值都创建新策略并记录父子关系；
+每次报告仍生成对应 `strategy_version`，
 并保存：
 
 - 配置 JSON。
@@ -324,7 +325,7 @@ mootdx 在 Kafka 确认前产生但尚未被系统接收的行情无法保证零
 - 备份处于成功状态。
 - 看板显示正确交易日、计划版本和数据时效。
 - 当前生产计划不包含自动下单能力。
-- 数据库已应用 `004_strategy_research.sql`、`005_multi_strategy.sql` 和
-  `006_immutable_active_strategy.sql`。
+- 数据库已应用 `004_strategy_research.sql`、`005_multi_strategy.sql`、
+  `006_immutable_active_strategy.sql` 和 `007_mutable_strategy_name.sql`。
 - 至少一条未归档策略处于激活状态，且唯一激活索引有效。
 - 四个 Web 页面加载同版本共享 UI 样式并通过桌面/移动端检查。
