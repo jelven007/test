@@ -291,6 +291,7 @@ async function loadReport(asOf) {
   try {
     const path = `/api/v1/reports/${encodeURIComponent(asOf)}`;
     const report = await fetchJson(path);
+    if (activeDate !== asOf) return;
     const selectedDate = (
       report.requested_date || report.trade_date || report.as_of
     );
@@ -298,7 +299,7 @@ async function loadReport(asOf) {
     reportDateInput.value = selectedDate;
     rememberDate(selectedDate);
   } catch (error) {
-    renderError(error.message);
+    if (activeDate === asOf) renderError(error.message);
   } finally {
     refreshButton.disabled = resolvedFromNonTradingDay;
   }
@@ -342,13 +343,11 @@ async function refreshReport(asOf) {
 async function initialize() {
   await window.strategyReady;
   try {
-    const payload = await fetchJson("/api/v1/reports");
-    if (!payload.items.length) {
-      throw new Error("未发现 candidates.json，请先执行 .venv/bin/banxia-strategy run");
-    }
-    const latestDate = new URLSearchParams(location.search).get("trade_date") || payload.items[0].trade_date;
-    reportDateInput.value = latestDate;
-    await loadReport(latestDate);
+    const calendar = await window.initializeTradingDateControl(
+      reportDateInput,
+      { defaultKey: "next_plan" },
+    );
+    await loadReport(calendar.value);
   } catch (error) {
     renderError(error.message);
   }

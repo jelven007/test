@@ -254,6 +254,9 @@ class WebAssetTest(unittest.TestCase):
         monitor_app = (ROOT / "src/banxia_strategy/web/monitor.js").read_text(
             encoding="utf-8"
         )
+        calendar_app = (
+            ROOT / "src/banxia_strategy/web/trading-calendar.js"
+        ).read_text(encoding="utf-8")
         css = (ROOT / "src/banxia_strategy/web/styles.css").read_text(
             encoding="utf-8"
         )
@@ -268,13 +271,17 @@ class WebAssetTest(unittest.TestCase):
             app,
         )
         self.assertIn("resolvedFromNonTradingDay", app)
-        self.assertIn("/app.js?v=20260926.1", html)
+        self.assertIn("/trading-calendar.js?v=20260926.1", html)
+        self.assertIn("/app.js?v=20260926.2", html)
         self.assertIn('timeZone: "Asia/Shanghai"', app)
-        self.assertIn('id="report-date" type="date"', html)
+        self.assertIn('select id="report-date"', html)
+        self.assertIn('{ defaultKey: "next_plan" }', app)
         self.assertRegex(html, r'<button id="refresh-button" type="button"[^>]*>刷新</button>')
         self.assertNotIn("复盘日期", html)
         self.assertIn('class="topbar dashboard-topbar"', monitor_html)
-        self.assertIn('id="report-date" type="date"', monitor_html)
+        self.assertIn('select id="report-date"', monitor_html)
+        self.assertIn("/trading-calendar.js?v=20260926.1", monitor_html)
+        self.assertIn('{ defaultKey: "monitor" }', monitor_app)
         self.assertRegex(
             monitor_html,
             r'<button id="refresh-button" type="button"[^>]*>刷新</button>',
@@ -298,14 +305,18 @@ class WebAssetTest(unittest.TestCase):
             "data.requested_date || data.plan_date",
             monitor_app,
         )
-        self.assertIn("/monitor.js?v=20260926.4", monitor_html)
+        self.assertIn("/monitor.js?v=20260926.5", monitor_html)
+        self.assertIn("/api/v1/trading-calendar", calendar_app)
+        self.assertIn('"ArrowLeft", "ArrowRight"', calendar_app)
+        self.assertIn('control.dispatchEvent(new Event("change"', calendar_app)
+        self.assertIn("session < requested", calendar_app)
         self.assertNotIn("刷新数据", html)
         self.assertIn("width: 148px", css)
         self.assertIn("flex-basis: 122px", css)
         self.assertIn("flex-wrap: nowrap", css)
         self.assertIn("white-space: nowrap", css)
         self.assertIn(".brand-mark {\n    display: none;", css)
-        self.assertNotIn("<select id=\"report-date\"", html)
+        self.assertNotIn('id="report-date" type="date"', html)
 
     def test_all_pages_use_compact_bx_brand(self):
         web = ROOT / "src/banxia_strategy/web"

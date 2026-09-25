@@ -650,6 +650,21 @@ class StrategyCatalogMixin:
                 row = cursor.fetchone()
         return row[0].isoformat() if row and row[0] else None
 
+    def list_trading_sessions(self, end, *, limit=1500):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT trade_date FROM (
+                        SELECT trade_date FROM banxia.trading_session
+                        WHERE trade_date <= %s
+                        ORDER BY trade_date DESC
+                        LIMIT %s
+                    ) recent ORDER BY trade_date""",
+                    (end, limit),
+                )
+                rows = cursor.fetchall()
+        return [row[0].isoformat() for row in rows]
+
     def latest_closed_session(self, now):
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:

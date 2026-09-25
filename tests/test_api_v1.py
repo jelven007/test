@@ -4,9 +4,10 @@ import json
 import tempfile
 import unittest
 from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -89,6 +90,13 @@ class FakeRepository:
             if session < str(target)
         )
         return previous[-1] if previous else None
+
+    def list_trading_sessions(self, end, *, limit=1500):
+        return sorted(
+            session
+            for session in self.trading_sessions
+            if session <= str(end)
+        )[-limit:]
 
     def get_job_execution(self, job_id):
         return self.jobs.get(job_id)
@@ -309,6 +317,32 @@ class ApiV1Test(unittest.TestCase):
         report = self.client.get("/api/v1/reports/2026-09-23").json()
         self.assertEqual(report["candidates"][0]["symbol"], "002635")
         self.assertEqual(report["strategy_version"], "v2")
+
+    def test_trading_calendar_returns_page_specific_default_dates(self):
+        class TradingDay(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 9, 24, 10, tzinfo=tz)
+
+        with patch("banxia_strategy.api.datetime", TradingDay):
+            payload = self.client.get("/api/v1/trading-calendar").json()
+
+        self.assertEqual(payload["sessions"], ["2026-09-23", "2026-09-24"])
+        self.assertTrue(payload["current_is_trading_day"])
+        self.assertEqual(payload["defaults"]["next_plan"], "2026-09-23")
+        self.assertEqual(payload["defaults"]["monitor"], "2026-09-24")
+
+        class ClosedDay(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 9, 26, 10, tzinfo=tz)
+
+        with patch("banxia_strategy.api.datetime", ClosedDay):
+            payload = self.client.get("/api/v1/trading-calendar").json()
+
+        self.assertFalse(payload["current_is_trading_day"])
+        self.assertEqual(payload["defaults"]["next_plan"], "2026-09-24")
+        self.assertEqual(payload["defaults"]["monitor"], "2026-09-24")
 
     def test_monitor_does_not_mix_quotes_from_another_day(self):
         self.services.cache.get_latest_quote = Mock(return_value={

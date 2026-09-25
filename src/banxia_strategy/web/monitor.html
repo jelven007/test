@@ -10,7 +10,8 @@
     <link rel="stylesheet" href="/monitor.css?v=20260925.3">
     <link rel="stylesheet" href="/ui-standard.css?v=20260925.5">
     <script src="/strategy-selector.js?v=20260925.2" defer></script>
-    <script src="/monitor.js?v=20260926.4" defer></script>
+    <script src="/trading-calendar.js?v=20260926.1" defer></script>
+    <script src="/monitor.js?v=20260926.5" defer></script>
   </head>
   <body class="monitor-body">
     <header class="topbar dashboard-topbar">
@@ -19,7 +20,7 @@
         <label for="page-strategy">策略</label>
         <select id="page-strategy" class="ui-control" aria-label="选择策略"></select>
         <label for="report-date">日期</label>
-        <input id="report-date" type="date" class="ui-control" aria-label="选择计划交易日期">
+        <select id="report-date" class="ui-control" aria-label="选择计划交易日" disabled></select>
         <button id="refresh-button" type="button" class="ui-button" title="按所选策略和日期重新生成当日实盘数据">刷新</button>
       </div>
       <div class="source-status">

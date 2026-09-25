@@ -404,6 +404,9 @@ class FakeCursor:
     def fetchone(self):
         return self.fetch_results.pop(0)
 
+    def fetchall(self):
+        return self.fetch_results.pop(0)
+
 
 class FakeConnection:
     def __init__(self, cursor):
@@ -451,6 +454,26 @@ class PostgresAdapterTest(unittest.TestCase):
         self.assertIn("SELECT max(trade_date)", statement)
         self.assertIn("banxia.trading_session", statement)
         self.assertEqual(params, (date(2026, 9, 24),))
+
+    def test_list_trading_sessions_returns_oldest_first(self):
+        cursor = FakeCursor([[
+            (date(2026, 9, 23),),
+            (date(2026, 9, 24),),
+        ]])
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+
+        sessions = storage.list_trading_sessions(
+            date(2026, 9, 24),
+            limit=500,
+        )
+
+        self.assertEqual(sessions, ["2026-09-23", "2026-09-24"])
+        statement, params = cursor.calls[0]
+        self.assertIn("ORDER BY trade_date DESC", statement)
+        self.assertIn("recent ORDER BY trade_date", statement)
+        self.assertEqual(params, (date(2026, 9, 24), 500))
 
     def test_report_refresh_jobs_are_enqueued_claimed_and_completed(self):
         created_at = datetime.fromisoformat("2026-09-25T09:00:00+08:00")

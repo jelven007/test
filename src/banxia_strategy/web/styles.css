@@ -110,6 +110,7 @@ a:focus-visible {
 }
 
 .report-tools input,
+.report-tools select,
 .report-tools button {
   height: 36px;
   border: 1px solid var(--line-dark);
@@ -118,7 +119,8 @@ a:focus-visible {
   color: var(--ink);
 }
 
-.report-tools input[type="date"] {
+.report-tools input[type="date"],
+.report-tools #report-date {
   box-sizing: border-box;
   flex: 0 0 148px;
   width: 148px;
@@ -911,7 +913,8 @@ h1 {
     margin-right: 0;
   }
 
-  .report-tools input[type="date"] {
+  .report-tools input[type="date"],
+  .report-tools #report-date {
     width: 148px;
     min-width: 148px;
     max-width: 148px;
@@ -1096,7 +1099,8 @@ h1 {
     font-size: 10px;
   }
 
-  .report-tools input[type="date"] {
+  .report-tools input[type="date"],
+  .report-tools #report-date {
     flex-basis: 122px;
     width: 122px;
     min-width: 122px;

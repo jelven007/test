@@ -616,6 +616,26 @@ def create_api_app(services: ApiServices):
             "storage": payload["dependencies"],
         }
 
+    @app.get("/api/v1/trading-calendar")
+    def trading_calendar():
+        today = datetime.now(SHANGHAI).date()
+        sessions = services.repository.list_trading_sessions(today)
+        today_value = today.isoformat()
+        previous = next(
+            (session for session in reversed(sessions) if session < today_value),
+            None,
+        )
+        current_is_trading_day = today_value in sessions
+        return {
+            "today": today_value,
+            "current_is_trading_day": current_is_trading_day,
+            "sessions": sessions,
+            "defaults": {
+                "next_plan": previous,
+                "monitor": today_value if current_is_trading_day else previous,
+            },
+        }
+
     @app.get("/api/v1/monitor")
     def monitor(trade_date: Optional[str] = None, symbols: Optional[str] = None, strategy_id: Optional[str] = None):
         active = active_strategy() if not strategy_id else None

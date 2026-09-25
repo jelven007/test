@@ -268,6 +268,7 @@ function markDisconnected(message) {
 async function sync({ userInitiated = false } = {}) {
   await window.strategyReady;
   if (inFlight || refreshing) return;
+  const requestedDate = reportDateInput.value;
   inFlight = true;
   refreshButton.disabled = true;
   if (userInitiated) {
@@ -287,6 +288,7 @@ async function sync({ userInitiated = false } = {}) {
     const events = await eventsResponse.json();
     if (!snapshotResponse.ok) throw new Error(snapshot.error?.message || `请求失败 ${snapshotResponse.status}`);
     if (!eventsResponse.ok) throw new Error(events.error?.message || `事件请求失败 ${eventsResponse.status}`);
+    if (requestedDate !== reportDateInput.value) return;
     const data = normalize(snapshot, events);
     serverOffset = new Date(data.server_time).valueOf() - Date.now();
     lastPageSync = Date.now();
@@ -302,6 +304,9 @@ async function sync({ userInitiated = false } = {}) {
     );
     reportDateInput.disabled = false;
     refreshButton.textContent = "刷新";
+    if (requestedDate !== reportDateInput.value) {
+      queueMicrotask(() => sync({ userInitiated: true }));
+    }
   }
 }
 function wait(milliseconds) {
@@ -414,15 +419,16 @@ refreshButton.addEventListener("click", refreshSelectedDay);
 
 async function initialize() {
   await window.strategyReady;
-  reportDateInput.max = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-  reportDateInput.value = new URLSearchParams(location.search).get("trade_date") || "";
-  await sync();
-  connectStream();
+  try {
+    await window.initializeTradingDateControl(
+      reportDateInput,
+      { defaultKey: "monitor" },
+    );
+    await sync();
+    connectStream();
+  } catch (error) {
+    markDisconnected(error.message);
+  }
 }
 
 initialize();
