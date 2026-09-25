@@ -496,7 +496,10 @@ async function mutate(action) {
       saveDialog.showModal();
       return;
     } else if (action === "archive") {
-      if (!confirm(`确认删除策略“${current.name}”？历史记录和来源关系会保留。`)) return;
+      const activeWarning = current.enabled ? "\n该策略当前已激活，删除后系统将暂时没有激活策略。" : "";
+      if (!confirm(
+        `确认永久删除策略“${current.name}”？\n关联的次日计划、盘中监控、回测优化和报告文件将同时删除，且无法恢复。${activeWarning}`,
+      )) return;
       await api(`/api/v1/strategies/${strategyId}`, {method: "DELETE"});
       strategyId = null;
       history.replaceState(null, "", "/strategy");
@@ -512,7 +515,7 @@ async function mutate(action) {
       await loadDays();
       document.querySelector("#day-detail").hidden = true;
     }
-    setMessage(action === "archive" ? "策略已删除。" : "策略状态已更新。");
+    setMessage(action === "archive" ? "策略及全部关联数据已永久删除。" : "策略状态已更新。");
   } catch (error) { showError(error); }
   finally {
     buttons.forEach(button => { button.disabled = false; });

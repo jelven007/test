@@ -7,7 +7,8 @@
 新策略默认处于“未激活”，也可在保存时立即激活。
 
 策略只有“激活”和“未激活”两种可见状态，全库最多一条激活策略。激活新策略会在
-同一事务内取消原激活策略；删除采用软删除，策略血缘与历史交易日数据仍然保留。
+同一事务内取消原激活策略。删除会永久移除目标策略及其历史交易日、计划、候选、盘中
+决策、回测优化和报告资产；子策略保留，但解除对已删除父策略的引用。
 数据库触发器禁止修改已保存策略的完整配置、父策略和差异，名称作为展示元数据允许修正；部分唯一索引
 `strategy_definition_single_active` 保证未归档策略最多一条 `enabled=true`。
 
@@ -48,7 +49,7 @@
 
 - `GET/POST /api/v1/strategies`
 - `PATCH /api/v1/strategies/{strategy_id}`：单独修改名称或切换激活状态
-- `DELETE /api/v1/strategies/{strategy_id}`：软删除并保留历史
+- `DELETE /api/v1/strategies/{strategy_id}`：永久删除策略及关联业务数据
 - `GET /api/v1/strategy-config?strategy_id=...`
 - `GET /api/v1/strategies/{strategy_id}/days?limit=30&before=YYYY-MM-DD`
 - `GET /api/v1/strategies/{strategy_id}/days/{trade_date}`
@@ -69,8 +70,9 @@
 ## 迁移与验证
 
 依次应用 `migrations/postgres/005_multi_strategy.sql`、
-`migrations/postgres/006_immutable_active_strategy.sql` 和
-`migrations/postgres/007_mutable_strategy_name.sql`，再使用已配置数据库环境执行：
+`migrations/postgres/006_immutable_active_strategy.sql`、
+`migrations/postgres/007_mutable_strategy_name.sql` 和
+`migrations/postgres/008_strategy_cascade_delete.sql`，再使用已配置数据库环境执行：
 
 ```sh
 PYTHONPATH=src python -m banxia_strategy.catalog_bootstrap

@@ -360,7 +360,29 @@ def create_api_app(services: ApiServices):
     @app.delete("/api/v1/strategies/{strategy_id}", status_code=204)
     def delete_strategy(strategy_id: str):
         require_strategy(strategy_id)
-        services.repository.update_strategy(strategy_id, enabled=False, archived=True)
+
+        def cleanup(manifest):
+            remove_objects = getattr(services.object_store, "remove_objects", None)
+            if remove_objects is not None:
+                remove_objects(manifest["object_keys"])
+            delete_cache = getattr(services.cache, "delete_strategy_data", None)
+            if delete_cache is not None:
+                delete_cache(
+                    strategy_id,
+                    manifest["plan_ids"],
+                    manifest["trade_dates"],
+                )
+            delete_reports = getattr(services.reports, "delete_strategy", None)
+            if delete_reports is not None:
+                delete_reports(strategy_id)
+
+        try:
+            services.repository.delete_strategy(strategy_id, cleanup=cleanup)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"策略关联数据删除失败：{exc}",
+            ) from exc
         return Response(status_code=204)
 
     @app.get("/api/v1/strategies/{strategy_id}/days")

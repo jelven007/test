@@ -44,7 +44,7 @@ flowchart LR
 - mootdx 长连接、批量盘口、1 秒交易时段轮询、60 秒分钟线和节点切换。
 - SQLite 持久 WAL、Kafka Topic/DLQ、ClickHouse Sink、Flink 特征和 Redis 投影。
 - PostgreSQL Inbox/Outbox、策略状态、报告任务和多策略目录。
-- 可重命名策略目录、不可变策略参数与血缘、软删除和全局唯一激活策略。
+- 可重命名策略目录、不可变策略参数与血缘、永久删除关联数据和全局唯一激活策略。
 - 16:30/23:30 调度、启动补跑、独立刷新任务及持久化完成标记。
 - 月度研究、一年历史回填、严格可买执行分析、T+1 收益和盈利约束优化。
 - FastAPI `/api/v1`、SSE、Prometheus 和策略管理/次日计划/盘中监控/回测优化页面。
@@ -179,7 +179,8 @@ Flink 输出进入新的 Kafka Topic，再由策略引擎和存储 Sink 消费�
 - PostgreSQL 部分唯一索引保证全库最多一条未归档激活策略。
 - `strategy_day` 按 `(strategy_id, trade_date)` 保存 `next_plan`、`execution_plan` 和 `actuals`。
 - 调度、刷新和默认监控在执行开始时解析当前激活策略，避免队列固化旧配置。
-- 软删除只改变可见性与执行资格，不删除策略血缘和历史记录。
+- 永久删除在 PostgreSQL 事务内移除策略定义及其策略日、运行、计划、候选、决策和精确关联的研究记录，并清理 MinIO、Redis 与本地报告；共享行情不删除。
+- 删除父策略时保留子策略，但将其 `parent_strategy_id` 置空，避免连带删除仍可独立运行的策略。
 
 ### 4.6 日报与报告 Worker
 

@@ -240,6 +240,47 @@ class RedisSnapshotCache:
                     )
         return tuple(result)
 
+    def delete_strategy_data(
+        self,
+        strategy_id: str,
+        plan_ids: Iterable[str],
+        trade_dates: Iterable[str],
+    ) -> Mapping[str, int]:
+        plans = {str(plan_id) for plan_id in plan_ids}
+        deleted = {"decisions": 0, "snapshots": 0, "stream_events": 0}
+
+        for plan_id in plans:
+            pattern = self._event_key("decision", f"{plan_id}:*")
+            keys = list(self.client.scan_iter(match=pattern))
+            if keys:
+                deleted["decisions"] += int(self.client.delete(*keys))
+
+        for trade_date in set(str(value) for value in trade_dates):
+            snapshot_key = self._monitor_key(trade_date)
+            snapshot = self._deserialize(self.client.get(snapshot_key))
+            if snapshot and (
+                str(snapshot.get("strategy_id") or "") == str(strategy_id)
+                or str(snapshot.get("plan_id") or "") in plans
+            ):
+                deleted["snapshots"] += int(self.client.delete(snapshot_key))
+
+            stream_key = f"{self.key_prefix}:stream:monitor:{trade_date}"
+            entry_ids = []
+            for entry_id, fields in self.client.xrange(stream_key):
+                raw = fields.get("payload") or fields.get(b"payload")
+                event = self._deserialize(raw)
+                payload = event.get("payload", {}) if event else {}
+                if (
+                    str(payload.get("strategy_id") or "") == str(strategy_id)
+                    or str(payload.get("plan_id") or "") in plans
+                ):
+                    entry_ids.append(entry_id)
+            if entry_ids:
+                deleted["stream_events"] += int(
+                    self.client.xdel(stream_key, *entry_ids)
+                )
+        return deleted
+
     def ready(self) -> bool:
         try:
             return bool(self.client.ping())

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, call, patch
 
 from banxia_strategy.adapters.clickhouse import (
     BAR_COLUMNS,
@@ -228,6 +229,49 @@ class RedisAdapterTest(unittest.TestCase):
         cache.append_minute_bar(bar, 90)
         self.assertEqual(tuple(cache.get_minute_bars("002635")), (bar.to_dict(),))
 
+    def test_strategy_cleanup_only_removes_matching_monitor_data(self):
+        client = Mock()
+        client.scan_iter.return_value = [b"banxia:decision:latest:plan-1:002635"]
+        client.delete.side_effect = [1, 1]
+        client.get.return_value = json.dumps(
+            {"strategy_id": "strategy-1", "plan_id": "plan-1"}
+        )
+        client.xrange.return_value = [
+            (
+                b"1-0",
+                {
+                    b"payload": json.dumps(
+                        {"payload": {"plan_id": "plan-1"}}
+                    ).encode()
+                },
+            ),
+            (
+                b"2-0",
+                {
+                    b"payload": json.dumps(
+                        {"payload": {"plan_id": "other-plan"}}
+                    ).encode()
+                },
+            ),
+        ]
+        client.xdel.return_value = 1
+        cache = RedisSnapshotCache(client=client)
+
+        result = cache.delete_strategy_data(
+            "strategy-1",
+            ["plan-1"],
+            ["2026-09-24"],
+        )
+
+        self.assertEqual(
+            result,
+            {"decisions": 1, "snapshots": 1, "stream_events": 1},
+        )
+        client.xdel.assert_called_once_with(
+            "banxia:stream:monitor:2026-09-24",
+            b"1-0",
+        )
+
 
 class FakeMinioClient:
     def __init__(self):
@@ -253,6 +297,16 @@ class FakeMinioClient:
                 "metadata": metadata,
             }
         )
+
+    def list_objects(self, _bucket, **_kwargs):
+        return ()
+
+    def remove_object(self, bucket, object_key, version_id=None):
+        self.calls.append({
+            "bucket": bucket,
+            "removed": object_key,
+            "version_id": version_id,
+        })
 
 
 class MinioAdapterTest(unittest.TestCase):
@@ -282,6 +336,55 @@ class MinioAdapterTest(unittest.TestCase):
                 content=content,
                 content_type="text/markdown",
             )
+
+    def test_remove_objects_validates_and_deduplicates_keys(self):
+        client = FakeMinioClient()
+        store = MinioObjectAssetStore(
+            "unused",
+            "unused",
+            "unused",
+            client=client,
+        )
+
+        self.assertEqual(store.remove_objects(["a/report.md", "a/report.md"]), 1)
+        self.assertEqual(client.calls, [{
+            "bucket": "strategy-reports",
+            "removed": "a/report.md",
+            "version_id": None,
+        }])
+        with self.assertRaises(ValueError):
+            store.remove_objects(["../other"])
+
+    def test_remove_objects_purges_all_versions(self):
+        client = Mock()
+        client.list_objects.return_value = [
+            SimpleNamespace(object_name="a/report.md", version_id="v2"),
+            SimpleNamespace(object_name="a/report.md", version_id="v1"),
+            SimpleNamespace(object_name="a/report.md.bak", version_id="other"),
+        ]
+        store = MinioObjectAssetStore(
+            "unused",
+            "unused",
+            "unused",
+            client=client,
+        )
+
+        self.assertEqual(store.remove_objects(["a/report.md"]), 1)
+        self.assertEqual(
+            client.remove_object.call_args_list,
+            [
+                call(
+                    "strategy-reports",
+                    "a/report.md",
+                    version_id="v2",
+                ),
+                call(
+                    "strategy-reports",
+                    "a/report.md",
+                    version_id="v1",
+                ),
+            ],
+        )
 
 
 class FakeCursor:

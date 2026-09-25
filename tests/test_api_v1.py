@@ -160,6 +160,7 @@ def write_report(root: Path):
 class FakeStrategyRepository:
     def __init__(self):
         self.config = asdict(StrategyConfig())
+        self.deleted = None
         self.item = {
             "strategy_id": "00000000-0000-0000-0000-000000000010",
             "code": "one-to-two",
@@ -173,10 +174,10 @@ class FakeStrategyRepository:
         }
 
     def list_strategies(self):
-        return [self.item.copy()]
+        return [self.item.copy()] if self.item else []
 
     def get_strategy(self, strategy_id):
-        return self.item.copy() if strategy_id == self.item["strategy_id"] else None
+        return self.item.copy() if self.item and strategy_id == self.item["strategy_id"] else None
 
     def rename_strategy(self, strategy_id, name):
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
@@ -188,6 +189,22 @@ class FakeStrategyRepository:
         self.item["enabled"] = enabled
         self.item["archived"] = archived
         return self.item.copy()
+
+    def delete_strategy(self, strategy_id, *, cleanup=None):
+        manifest = {
+            "strategy_id": strategy_id,
+            "plan_ids": ["00000000-0000-0000-0000-000000000020"],
+            "trade_dates": ["2026-09-24"],
+            "object_keys": ["reports/strategy/report.md"],
+            "research_run_ids": [],
+            "strategy_days": 1,
+            "detached_children": 0,
+        }
+        if cleanup:
+            cleanup(manifest)
+        self.deleted = manifest
+        self.item = None
+        return manifest
 
 
 class ApiV1Test(unittest.TestCase):
@@ -347,6 +364,55 @@ class ApiV1Test(unittest.TestCase):
         ):
             response = client.patch(f"/api/v1/strategies/{strategy_id}", json=payload)
             self.assertEqual(response.status_code, 422)
+
+    def test_strategy_delete_removes_external_data_and_local_reports(self):
+        repository = FakeStrategyRepository()
+        cache = FakeCache()
+        cache.delete_strategy_data = Mock()
+        object_store = Mock()
+        root = Path(self.directory.name)
+        strategy_id = repository.item["strategy_id"]
+        local_report = root / "strategies" / strategy_id / "2026-09-23"
+        local_report.mkdir(parents=True)
+        (local_report / "report.md").write_text("# delete me", encoding="utf-8")
+        client = TestClient(create_api_app(ApiServices(
+            reports=ReportStore([root]),
+            repository=repository,
+            cache=cache,
+            object_store=object_store,
+        )))
+
+        response = client.delete(f"/api/v1/strategies/{strategy_id}")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertIsNone(repository.get_strategy(strategy_id))
+        self.assertFalse(local_report.parent.exists())
+        object_store.remove_objects.assert_called_once_with(
+            ["reports/strategy/report.md"]
+        )
+        cache.delete_strategy_data.assert_called_once_with(
+            strategy_id,
+            ["00000000-0000-0000-0000-000000000020"],
+            ["2026-09-24"],
+        )
+
+    def test_strategy_delete_reports_cleanup_failure(self):
+        repository = FakeStrategyRepository()
+        object_store = Mock()
+        object_store.remove_objects.side_effect = RuntimeError("storage unavailable")
+        client = TestClient(create_api_app(ApiServices(
+            reports=self.services.reports,
+            repository=repository,
+            cache=FakeCache(),
+            object_store=object_store,
+        )))
+
+        response = client.delete(
+            f"/api/v1/strategies/{repository.item['strategy_id']}"
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIsNotNone(repository.item)
 
     def test_research_history_strategy_download_and_asset_stream(self):
         run_id = "00000000-0000-0000-0000-000000000001"

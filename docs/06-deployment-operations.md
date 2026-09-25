@@ -326,6 +326,7 @@ mootdx 在 Kafka 确认前产生但尚未被系统接收的行情无法保证零
 - 看板显示正确交易日、计划版本和数据时效。
 - 当前生产计划不包含自动下单能力。
 - 数据库已应用 `004_strategy_research.sql`、`005_multi_strategy.sql`、
-  `006_immutable_active_strategy.sql` 和 `007_mutable_strategy_name.sql`。
+  `006_immutable_active_strategy.sql`、`007_mutable_strategy_name.sql` 和
+  `008_strategy_cascade_delete.sql`。
 - 至少一条未归档策略处于激活状态，且唯一激活索引有效。
 - 四个 Web 页面加载同版本共享 UI 样式并通过桌面/移动端检查。

@@ -184,7 +184,7 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 | GET | `/api/v1/strategies` | 列出未归档策略、状态、血缘、差异、revision 和横向展示所需关键参数 |
 | POST | `/api/v1/strategies` | 从来源策略创建不可变子策略，可选立即激活 |
 | PATCH | `/api/v1/strategies/{strategy_id}` | 单独修改 `name` 或 `enabled`；一次请求不得混合字段 |
-| DELETE | `/api/v1/strategies/{strategy_id}` | 软删除策略并停用 |
+| DELETE | `/api/v1/strategies/{strategy_id}` | 永久删除策略及其计划、盘中监控、回测优化和报告资产；子策略保留并解除父引用 |
 | GET | `/api/v1/strategy-config?strategy_id=...` | 读取配置、默认值、字段 Schema 和 revision |
 | PUT | `/api/v1/strategy-config` | 仅文件兼容模式可覆盖；目录模式固定返回 `409` |
 | GET | `/api/v1/strategies/{strategy_id}/days` | 按交易日倒序查询每日摘要 |

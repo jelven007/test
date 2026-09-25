@@ -86,6 +86,15 @@ class ReportStore:
             return None
         return self._read(paths[max(paths)])
 
+    def delete_strategy(self, strategy_id: str) -> int:
+        deleted = 0
+        for root in self.roots:
+            directory = root / "strategies" / strategy_id
+            if directory.is_dir():
+                shutil.rmtree(directory)
+                deleted += 1
+        return deleted
+
 
 def _json_bytes(payload: Any) -> bytes:
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")

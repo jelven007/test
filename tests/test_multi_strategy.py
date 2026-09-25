@@ -2,6 +2,7 @@
 import os
 import tempfile
 import unittest
+import uuid
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
@@ -123,6 +124,66 @@ class MultiStrategyTest(unittest.TestCase):
         self.assertEqual(child["parent_strategy_id"], self.a["strategy_id"])
         self.assertEqual(child["config_changes"]["minimum_score"]["to"], 70)
         self.assertFalse(child["enabled"])
+
+    def test_delete_strategy_cascades_private_data_and_detaches_child(self):
+        identity = self.persist(self.a)
+        child = self.repository.create_strategy(
+            "保留的子策略",
+            {},
+            parent_strategy_id=self.a["strategy_id"],
+        )
+        research_run_id = str(uuid.uuid4())
+        report_object_key = f"tests/{identity.run_id}/report.md"
+        research_object_key = f"research/{research_run_id}/report.md"
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO banxia.report_asset
+                (run_id,format,object_key,content_hash,content_type,size_bytes)
+                VALUES (%s,'markdown',%s,%s,'text/markdown',1)""",
+                (identity.run_id, report_object_key, "a" * 64),
+            )
+            cursor.execute(
+                """INSERT INTO banxia.research_run
+                (run_id,start_date,end_date,created_at,input_sha256,payload,assets)
+                VALUES (%s,'2026-09-01','2026-09-23',now(),%s,
+                  jsonb_build_object('status','completed','source_strategy_id',%s::text),
+                  jsonb_build_array(jsonb_build_object('object_key',%s::text)))""",
+                (
+                    research_run_id,
+                    "b" * 64,
+                    self.a["strategy_id"],
+                    research_object_key,
+                ),
+            )
+        captured = {}
+
+        manifest = self.repository.delete_strategy(
+            self.a["strategy_id"],
+            cleanup=lambda value: captured.update(value),
+        )
+
+        self.assertEqual(manifest, captured)
+        self.assertIsNone(self.repository.get_strategy(self.a["strategy_id"]))
+        self.assertIsNone(
+            self.repository.get_strategy(child["strategy_id"])["parent_strategy_id"]
+        )
+        self.assertIn(identity.plan_id, manifest["plan_ids"])
+        self.assertIn(report_object_key, manifest["object_keys"])
+        self.assertIn(research_object_key, manifest["object_keys"])
+        self.assertEqual(manifest["research_run_ids"], [research_run_id])
+        with self.connection.cursor() as cursor:
+            for table, column, value in (
+                ("strategy_day", "strategy_id", self.a["strategy_id"]),
+                ("strategy_version", "strategy_id", self.a["strategy_id"]),
+                ("strategy_plan", "plan_id", identity.plan_id),
+                ("strategy_run", "run_id", identity.run_id),
+                ("research_run", "run_id", research_run_id),
+            ):
+                cursor.execute(
+                    f"SELECT count(*) FROM banxia.{table} WHERE {column}=%s",
+                    (value,),
+                )
+                self.assertEqual(cursor.fetchone()[0], 0, table)
 
     def test_api_copy_update_refresh_and_empty_day(self):
         with tempfile.TemporaryDirectory() as tmp:

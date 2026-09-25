@@ -115,6 +115,30 @@ class MinioObjectAssetStore:
             )
         )
 
+    def remove_objects(self, object_keys) -> int:
+        keys = sorted({self._validate_key(str(key)) for key in object_keys})
+        for object_key in keys:
+            versions = [
+                item
+                for item in self.client.list_objects(
+                    self.bucket,
+                    prefix=object_key,
+                    recursive=True,
+                    include_version=True,
+                )
+                if item.object_name == object_key
+            ]
+            if versions:
+                for item in versions:
+                    self.client.remove_object(
+                        self.bucket,
+                        object_key,
+                        version_id=item.version_id,
+                    )
+            else:
+                self.client.remove_object(self.bucket, object_key)
+        return len(keys)
+
     def ready(self) -> bool:
         try:
             return bool(self.client.bucket_exists(self.bucket))

@@ -59,6 +59,17 @@ class StorageSchemaTest(unittest.TestCase):
             migration,
         )
 
+    def test_strategy_delete_migration_allows_only_parent_detachment(self):
+        migration = (
+            ROOT / "migrations/postgres/008_strategy_cascade_delete.sql"
+        ).read_text(encoding="utf-8")
+        self.assertIn("OLD.parent_strategy_id IS NOT NULL", migration)
+        self.assertIn("NEW.parent_strategy_id IS NULL", migration)
+        self.assertIn(
+            "NEW.config_changes IS DISTINCT FROM OLD.config_changes",
+            migration,
+        )
+
     def test_clickhouse_schema_contains_history_tables_and_ttls(self):
         schema = (ROOT / "migrations/clickhouse/001_initial.sql").read_text(
             encoding="utf-8"

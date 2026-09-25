@@ -134,6 +134,195 @@ class StrategyCatalogMixin:
     def activate_strategy(self, strategy_id):
         return self.update_strategy(strategy_id, enabled=True)
 
+    def delete_strategy(self, strategy_id, *, cleanup=None):
+        """Permanently delete one strategy and all strategy-owned records."""
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT strategy_id FROM banxia.strategy_definition
+                    WHERE strategy_id=%s FOR UPDATE""",
+                    (strategy_id,),
+                )
+                if cursor.fetchone() is None:
+                    raise ValueError("策略不存在")
+
+                cursor.execute(
+                    """SELECT v.strategy_version_id,r.run_id,p.plan_id,p.trade_date
+                    FROM banxia.strategy_version v
+                    LEFT JOIN banxia.strategy_run r USING(strategy_version_id)
+                    LEFT JOIN banxia.strategy_plan p ON p.run_id=r.run_id
+                    WHERE v.strategy_id=%s""",
+                    (strategy_id,),
+                )
+                rows = cursor.fetchall()
+                version_ids = sorted({str(row[0]) for row in rows if row[0]})
+                run_ids = sorted({str(row[1]) for row in rows if row[1]})
+                plan_ids = sorted({str(row[2]) for row in rows if row[2]})
+                trade_dates = sorted({row[3].isoformat() for row in rows if row[3]})
+
+                cursor.execute(
+                    """SELECT object_key FROM banxia.report_asset
+                    WHERE run_id=ANY(%s::uuid[])""",
+                    (run_ids,),
+                )
+                object_keys = {str(row[0]) for row in cursor.fetchall()}
+
+                cursor.execute(
+                    """SELECT DISTINCT run.run_id,run.assets
+                    FROM banxia.research_run run
+                    WHERE jsonb_path_exists(
+                        run.payload,
+                        '$.** ? (@ == $strategy_id)',
+                        jsonb_build_object('strategy_id',to_jsonb(%s::text))
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM banxia.research_strategy research
+                        WHERE research.run_id=run.run_id
+                        AND (
+                            research.strategy_id=%s
+                            OR jsonb_path_exists(
+                                research.metadata,
+                                '$.** ? (@ == $strategy_id)',
+                                jsonb_build_object('strategy_id',to_jsonb(%s::text))
+                            )
+                        )
+                    )
+                    OR run.run_id::text IN (
+                        SELECT day.next_plan->>'research_run_id'
+                        FROM banxia.strategy_day day
+                        WHERE day.strategy_id=%s AND day.next_plan ? 'research_run_id'
+                        UNION
+                        SELECT day.execution_plan->>'research_run_id'
+                        FROM banxia.strategy_day day
+                        WHERE day.strategy_id=%s AND day.execution_plan ? 'research_run_id'
+                    )""",
+                    (
+                        str(strategy_id),
+                        str(strategy_id),
+                        str(strategy_id),
+                        strategy_id,
+                        strategy_id,
+                    ),
+                )
+                research_rows = cursor.fetchall()
+                research_run_ids = sorted(str(row[0]) for row in research_rows)
+                for _run_id, assets in research_rows:
+                    if isinstance(assets, str):
+                        assets = json.loads(assets)
+                    for asset in assets or ():
+                        if isinstance(asset, dict) and asset.get("object_key"):
+                            object_keys.add(str(asset["object_key"]))
+
+                # Descendant strategies remain usable, but no longer reference
+                # the strategy being permanently deleted.
+                cursor.execute(
+                    """UPDATE banxia.strategy_definition SET parent_strategy_id=NULL
+                    WHERE parent_strategy_id=%s""",
+                    (strategy_id,),
+                )
+                detached_children = cursor.rowcount
+
+                if research_run_ids:
+                    cursor.execute(
+                        "DELETE FROM banxia.research_daily WHERE run_id=ANY(%s::uuid[])",
+                        (research_run_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM banxia.research_strategy WHERE run_id=ANY(%s::uuid[])",
+                        (research_run_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM banxia.research_run WHERE run_id=ANY(%s::uuid[])",
+                        (research_run_ids,),
+                    )
+
+                cursor.execute(
+                    "DELETE FROM banxia.strategy_day WHERE strategy_id=%s",
+                    (strategy_id,),
+                )
+                strategy_days = cursor.rowcount
+
+                if plan_ids:
+                    cursor.execute(
+                        """DELETE FROM banxia.outbox_event
+                        WHERE (aggregate_type='strategy_plan' AND aggregate_id=ANY(%s::text[]))
+                        OR (aggregate_type='decision'
+                            AND split_part(aggregate_id,':',1)=ANY(%s::text[]))""",
+                        (plan_ids, plan_ids),
+                    )
+                    cursor.execute(
+                        """DELETE FROM banxia.inbox_event inbox
+                        WHERE EXISTS (
+                            SELECT 1 FROM unnest(%s::text[]) plan_id
+                            WHERE inbox.topic LIKE '%%:plan:' || plan_id
+                        )""",
+                        (plan_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM banxia.watchlist WHERE plan_id=ANY(%s::uuid[])",
+                        (plan_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM banxia.strategy_plan WHERE plan_id=ANY(%s::uuid[])",
+                        (plan_ids,),
+                    )
+
+                if run_ids:
+                    cursor.execute(
+                        """DELETE FROM banxia.outbox_event
+                        WHERE aggregate_type='strategy_run' AND aggregate_id=ANY(%s::text[])""",
+                        (run_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM banxia.strategy_run WHERE run_id=ANY(%s::uuid[])",
+                        (run_ids,),
+                    )
+                if version_ids:
+                    cursor.execute(
+                        """DELETE FROM banxia.strategy_version
+                        WHERE strategy_version_id=ANY(%s::uuid[])""",
+                        (version_ids,),
+                    )
+
+                cursor.execute(
+                    """DELETE FROM banxia.job_execution
+                    WHERE jsonb_path_exists(
+                        COALESCE(payload,'{}'::jsonb),
+                        '$.** ? (@ == $strategy_id)',
+                        jsonb_build_object('strategy_id',to_jsonb(%s::text))
+                    )
+                    OR jsonb_path_exists(
+                        COALESCE(result,'{}'::jsonb),
+                        '$.** ? (@ == $strategy_id)',
+                        jsonb_build_object('strategy_id',to_jsonb(%s::text))
+                    )""",
+                    (str(strategy_id), str(strategy_id)),
+                )
+                cursor.execute(
+                    """DELETE FROM banxia.audit_log
+                    WHERE resource_id=%s
+                    OR before_value @> jsonb_build_object('strategy_id',%s::text)
+                    OR after_value @> jsonb_build_object('strategy_id',%s::text)""",
+                    (str(strategy_id), str(strategy_id), str(strategy_id)),
+                )
+                cursor.execute(
+                    "DELETE FROM banxia.strategy_definition WHERE strategy_id=%s",
+                    (strategy_id,),
+                )
+
+                manifest = {
+                    "strategy_id": str(strategy_id),
+                    "plan_ids": plan_ids,
+                    "trade_dates": trade_dates,
+                    "object_keys": sorted(object_keys),
+                    "research_run_ids": research_run_ids,
+                    "strategy_days": strategy_days,
+                    "detached_children": detached_children,
+                }
+                if cleanup is not None:
+                    cleanup(manifest)
+                return manifest
+
     def save_trading_sessions(self, sessions):
         sessions = sorted(set(str(day) for day in sessions))
         if not sessions:

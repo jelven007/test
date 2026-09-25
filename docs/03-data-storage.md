@@ -17,7 +17,7 @@
 | 一分钟线 | ClickHouse | S3/MinIO | 按股票和分钟幂等更新 |
 | Flink 衍生指标 | ClickHouse | Kafka、Redis | 历史分析与最新值查询 |
 | 策略定义和版本 | PostgreSQL | S3/MinIO | 事务控制和配置快照 |
-| 策略目录和血缘 | PostgreSQL | 无 | 可重命名展示信息、不可变参数、父子关系、唯一激活状态和软删除 |
+| 策略目录和血缘 | PostgreSQL | 无 | 可重命名展示信息、不可变参数、父子关系、唯一激活状态和永久删除 |
 | 每日计划和候选 | PostgreSQL | S3/MinIO | 权威业务数据 |
 | 每策略每日投影 | PostgreSQL | 无 | 次日计划、当日执行计划和实际行情汇总 |
 | 当前策略状态 | PostgreSQL | Redis | PostgreSQL 权威，Redis 为查询投影 |
@@ -88,7 +88,7 @@ event_id = sha256(
 
 | 表 | 主键/唯一键 | 说明 |
 | --- | --- | --- |
-| `strategy_definition` | `strategy_id`；`code` 唯一；激活状态部分唯一索引 | 可修改名称、不可变当前配置、父策略、差异、激活和软删除 |
+| `strategy_definition` | `strategy_id`；`code` 唯一；激活状态部分唯一索引 | 可修改名称、不可变当前配置、父策略、差异、激活和永久删除 |
 | `strategy_version` | `strategy_version_id` | 不可变规则、配置和代码版本 |
 | `strategy_run` | `run_id`；唯一 `(trade_date, strategy_version_id)` | 日报任务状态 |
 | `watchlist` | `watchlist_id` | 某计划的动态监控清单 |
@@ -109,8 +109,12 @@ event_id = sha256(
 | `research_strategy` | `strategy_id`；`run_id` 唯一 | 独立研究配置，数据库约束 `active=false` |
 
 `strategy_definition` 的 `current_config`、`parent_strategy_id` 和 `config_changes`
-由触发器禁止更新；`name` 作为展示元数据允许单独修正。激活、停用和归档也是允许的
-状态变化；归档策略必须同时停用。
+由触发器禁止更新；`name` 作为展示元数据允许单独修正。删除父策略时允许将子策略的
+`parent_strategy_id` 清空，除此之外血缘仍不可修改。
+
+策略删除会清理 PostgreSQL 中该策略的 `strategy_day`、版本、运行、计划、候选、监控决策、
+报告索引及精确关联的 `research_*` 记录，并依据删除清单移除 MinIO、Redis 和本地报告。
+ClickHouse 与 Kafka 中按证券和交易日保存的 mootdx 行情属于共享输入，不随单个策略删除。
 激活流程使用事务级 advisory lock，并由部分唯一索引兜底。
 
 `strategy_day` 是面向页面和研究的物化聚合，不替代底层 `strategy_run`、`strategy_plan`、

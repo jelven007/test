@@ -377,8 +377,8 @@ services:
     command: ["api"]
     volumes:
       - ../../config:/app/config
-      - ../../reports:/app/reports:ro
-      - ../../scheduled_reports:/app/scheduled_reports:ro
+      - ../../reports:/app/reports
+      - ../../scheduled_reports:/app/scheduled_reports
     environment:
       <<: *app-environment
       BANXIA_API_HOST: 0.0.0.0
