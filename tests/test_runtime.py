@@ -23,6 +23,7 @@ from banxia_strategy.ports.storage import ReportIdentity
 from banxia_strategy.service import (
     _catch_up_report,
     _consume_report_refresh,
+    _consume_strategy_history,
     _generate_scheduled_report,
 )
 from banxia_strategy.storage_config import StorageSettings
@@ -232,6 +233,40 @@ class ReportSchedulerTest(unittest.TestCase):
         self.assertEqual(finish.args, ("job-1",))
         self.assertTrue(finish.kwargs["succeeded"])
         self.assertEqual(finish.kwargs["result"], execution)
+
+    def test_queued_strategy_history_materializes_selected_strategy(self):
+        repository = Mock()
+        repository.claim_strategy_history.return_value = {
+            "job_id": "job-history",
+            "payload": {
+                "strategy_id": "strategy-1",
+                "history_range": "1m",
+                "start": "2026-08-25",
+                "end": "2026-09-24",
+            },
+        }
+        repository.get_strategy.return_value = {
+            "strategy_id": "strategy-1",
+            "name": "策略一",
+        }
+        settings = RuntimeSettings(report_output_dir=Path("reports"))
+        logger = Mock()
+        result = {"strategy_id": "strategy-1", "plans": 22, "actuals": 22}
+
+        with patch(
+            "banxia_strategy.service.materialize_strategy_history",
+            return_value=result,
+        ) as materialize:
+            consumed = _consume_strategy_history(repository, settings, logger)
+
+        self.assertTrue(consumed)
+        materialize.assert_called_once()
+        self.assertEqual(materialize.call_args.kwargs["history_range"], "1m")
+        repository.finish_strategy_history.assert_called_once_with(
+            "job-history",
+            succeeded=True,
+            result=result,
+        )
 
 
 class ReportWorkerTest(unittest.TestCase):

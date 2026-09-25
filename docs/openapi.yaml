@@ -292,6 +292,25 @@ paths:
       tags: [Strategies]
       operationId: listStrategies
       summary: 列出未归档策略
+      parameters:
+        - name: q
+          in: query
+          description: 按策略名称或编码模糊查询
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, active, inactive]
+            default: all
+        - $ref: "#/components/parameters/Limit100"
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
       responses:
         "200":
           description: 策略列表
@@ -305,10 +324,13 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/Strategy"
+                  total:
+                    type: integer
     post:
       tags: [Strategies]
       operationId: createStrategy
-      summary: 从来源策略创建不可变子策略
+      summary: 将初始策略的参数变更另存为不可变策略
+      description: 不提供独立新建或复制；来源必须是系统初始策略，且参数必须发生变化。
       requestBody:
         required: true
         content:
@@ -364,8 +386,33 @@ paths:
           description: 策略及关联数据已删除
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/strategy-jobs/{job_id}:
+    get:
+      tags: [Strategies]
+      operationId: getStrategyHistoryJob
+      summary: 查询策略历史数据生成任务
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: 历史次日计划与盘中监控生成状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StrategyHistoryJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/v1/strategy-config:
     get:
       tags: [Strategies]
@@ -1120,9 +1167,53 @@ components:
         error:
           type: string
           nullable: true
+    StrategyHistoryJob:
+      type: object
+      required: [job_id, job_type, status, payload]
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        job_type:
+          type: string
+          enum: [strategy_history]
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, cancelled]
+        attempt:
+          type: integer
+          minimum: 0
+        payload:
+          type: object
+          required: [strategy_id, history_range, start, end, datasets]
+          properties:
+            strategy_id:
+              type: string
+              format: uuid
+            history_range:
+              type: string
+              enum: [1d, 1w, 1m, 1y]
+            start:
+              type: string
+              format: date
+            end:
+              type: string
+              format: date
+            datasets:
+              type: array
+              items:
+                type: string
+                enum: [next_plan, intraday_monitor]
+        result:
+          type: object
+          nullable: true
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
     Strategy:
       type: object
-      required: [strategy_id, code, name, enabled, archived, key_parameters, revision]
+      required: [strategy_id, code, name, enabled, archived, is_initial, permissions, key_parameters, revision]
       properties:
         strategy_id:
           type: string
@@ -1137,6 +1228,22 @@ components:
           type: boolean
         archived:
           type: boolean
+        is_initial:
+          type: boolean
+        permissions:
+          type: object
+          required: [edit_parameters, save_as, delete]
+          properties:
+            edit_parameters:
+              type: boolean
+            save_as:
+              type: boolean
+            delete:
+              type: boolean
+        history_generation:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/StrategyHistoryJob"
         parent_strategy_id:
           type: string
           format: uuid
@@ -1199,7 +1306,7 @@ components:
           type: boolean
     CreateStrategyRequest:
       type: object
-      required: [name, parent_strategy_id, revision]
+      required: [name, parent_strategy_id, config, revision]
       additionalProperties: false
       properties:
         name:
@@ -1217,6 +1324,10 @@ components:
         activate:
           type: boolean
           default: false
+        history_range:
+          type: string
+          enum: [1d, 1w, 1m, 1y]
+          default: 1y
     StrategyConfigPayload:
       type: object
       required: [config, defaults, groups, fields, revision]

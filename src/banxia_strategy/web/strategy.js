@@ -14,6 +14,7 @@ let dirtyCount = 0;
 let saving = false;
 let strategyId = new URLSearchParams(location.search).get("strategy_id");
 let strategies = [];
+let catalogTotal = 0;
 let recordsVisible = true;
 let daysBefore = null;
 let pendingConfig = null;
@@ -25,6 +26,11 @@ const saveName = document.querySelector("#save-strategy-name");
 const records = document.querySelector("#strategy-records");
 const saveDialog = document.querySelector("#save-strategy-dialog");
 const statuses = {ready: "已生成", pending: "待生成 / 待行情", live: "实盘跟踪中", complete: "收盘已验证", missing: "行情不完整", no_plan: "当日无执行计划", no_candidates: "无候选 · 空仓观察"};
+const historyStatuses = {queued: "排队中", running: "生成中", succeeded: "已生成", failed: "生成失败"};
+
+function currentStrategy() {
+  return strategies.find(item => item.strategy_id === strategyId);
+}
 
 function setMessage(text, isError = false) {
   message.textContent = text;
@@ -71,13 +77,14 @@ function renderStrategyList() {
     row.append(
       nameCell,
       node("td"),
+      node("td", item.history_generation ? (historyStatuses[item.history_generation.status] || item.history_generation.status) : "尚未生成"),
       node("td", String(parameters.minimum_score)),
       node("td", formatRange(parameters.minimum_amount_cny, parameters.maximum_amount_cny, 1e8, " 亿")),
       node("td", formatRange(parameters.minimum_turnover_pct, parameters.maximum_turnover_pct, 1, "%")),
       node("td", formatRange(parameters.minimum_float_market_cap_cny, parameters.maximum_float_market_cap_cny, 1e8, " 亿")),
       node("td", `≥ ${parameters.minimum_industry_limit_up_count} 只`),
       node("td", parameters.entry_cutoff_time),
-      node("td", parent?.name || (item.parent_strategy_id ? "已删除策略" : "初始策略"), "strategy-origin"),
+      node("td", item.is_initial ? "初始策略" : parent?.name || (item.parent_strategy_id ? "已删除策略" : "历史策略"), "strategy-origin"),
     );
     row.children[1].append(status);
     body.append(row);
@@ -85,7 +92,7 @@ function renderStrategyList() {
   if (!strategies.length) {
     const row = node("tr");
     const cell = node("td", "暂无策略。");
-    cell.colSpan = 9;
+    cell.colSpan = 10;
     row.append(cell);
     body.append(row);
   }
@@ -103,18 +110,33 @@ function setView() {
 
 function refreshNameState() {
   const value = nameInput.value.trim();
-  const changed = value !== originalName;
-  saveName.disabled = saving || dirtyCount > 0 || !value || value.length > 80 || !changed;
+  const current = currentStrategy();
+  saveName.disabled = saving || dirtyCount > 0 || !value || value.length > 80;
   saveName.title = dirtyCount > 0 ? "参数已修改，请保存为新策略" : "";
+  const canSaveAs = Boolean(current?.permissions?.save_as) && dirtyCount > 0;
+  document.querySelector("#copy-strategy").disabled = saving || !canSaveAs;
+  document.querySelector("#copy-strategy").title = current?.permissions?.save_as
+    ? (dirtyCount ? "" : "修改参数后方可另存")
+    : "只有初始策略支持修改参数并另存";
+  document.querySelector("#archive-strategy").disabled = saving || !current?.permissions?.delete;
+  document.querySelector("#archive-strategy").title = current?.permissions?.delete ? "" : "初始策略不可删除";
 }
 
 async function loadCatalog() {
-  const payload = await api("/api/v1/strategies");
+  const params = new URLSearchParams();
+  if (!strategyId) {
+    const query = document.querySelector("#strategy-query").value.trim();
+    const status = document.querySelector("#strategy-status-filter").value;
+    if (query) params.set("q", query);
+    if (status !== "all") params.set("status", status);
+  }
+  const payload = await api(`/api/v1/strategies${params.size ? `?${params}` : ""}`);
   strategies = payload.items;
+  catalogTotal = payload.total ?? strategies.length;
   renderStrategyList();
   if (!strategyId) {
     setView();
-    setMessage(`已加载 ${strategies.length} 条策略。`);
+    setMessage(`查询到 ${catalogTotal} 条策略。`);
     return;
   }
   const item = strategies.find(item => item.strategy_id === strategyId);
@@ -132,10 +154,15 @@ async function loadCatalog() {
   document.querySelector("#strategy-status").textContent = item?.enabled ? "激活" : "未激活";
   document.querySelector("#strategy-status").classList.toggle("active", Boolean(item?.enabled));
   const parent = strategies.find(candidate => candidate.strategy_id === item?.parent_strategy_id);
-  document.querySelector("#strategy-lineage").textContent = item?.parent_strategy_id
-    ? `来源：${parent?.name || "已删除策略"}` : "初始策略";
+  document.querySelector("#strategy-lineage").textContent = item.is_initial
+    ? "初始策略"
+    : `来源：${parent?.name || (item.parent_strategy_id ? "已删除策略" : "历史导入")}`;
   document.querySelector("#toggle-strategy").textContent = item?.enabled ? "取消激活" : "激活";
   document.querySelector("#plan-link").href = `/?strategy_id=${strategyId}`;
+  document.querySelector("#parameters-tab").title = item.permissions.edit_parameters
+    ? "可调整参数；发生变化后另存为新策略"
+    : "派生策略参数只读";
+  refreshNameState();
 }
 
 async function loadDays(append = false) {
@@ -263,7 +290,11 @@ function selectGroup(id, updateHash = true) {
     if (link.hash === `#${id}`) link.setAttribute("aria-current", "true");
     else link.removeAttribute("aria-current");
   });
-  if (updateHash) history.replaceState(null, "", `#${id}`);
+  if (updateHash) {
+    const url = new URL(location.href);
+    url.hash = id;
+    history.replaceState(null, "", url);
+  }
 }
 
 function clearErrors() {
@@ -298,11 +329,15 @@ function refreshDirty() {
     if (changed) dirtyCount += 1;
   }
   document.querySelector("#dirty-state").textContent = dirtyCount ? `${dirtyCount} 项未保存` : "已保存";
-  document.querySelector("#change-summary").textContent = dirtyCount
-    ? "参数变化不会覆盖当前策略；保存时需指定新策略名称。"
-    : "已有计划沿用各自的参数快照。";
-  save.disabled = saving || !dirtyCount;
+  const current = currentStrategy();
+  document.querySelector("#change-summary").textContent = !current?.permissions?.edit_parameters
+    ? "派生策略参数只读；名称可直接保存。"
+    : dirtyCount
+      ? "参数变化不会覆盖初始策略；请使用“另存”。"
+      : "参数未变化时仅“保存”有效。";
+  save.disabled = saving || !dirtyCount || !current?.permissions?.save_as;
   reload.disabled = saving || !dirtyCount;
+  defaults.disabled = saving || !current?.permissions?.edit_parameters;
   refreshNameState();
 }
 
@@ -353,6 +388,7 @@ function render(payload) {
         input.id = input.name = field.key;
         input.type = field.kind === "boolean" ? "checkbox" : field.kind === "schedule" ? "text" : field.kind;
         input.required = field.kind !== "boolean";
+        input.disabled = !currentStrategy()?.permissions?.edit_parameters;
         input.autocomplete = "off";
         input.setAttribute("aria-describedby", `${field.key}-note ${field.key}-error`);
         if (field.kind === "number") {
@@ -392,7 +428,10 @@ async function load() {
     if (selectedId !== strategyId) return;
     if (!response.ok) throw new Error(payload.error?.message || "读取失败");
     render(payload);
-    setMessage("策略详情已加载。名称可直接保存；参数变化需另存为新策略。");
+    const current = currentStrategy();
+    setMessage(current?.permissions?.edit_parameters
+      ? "初始策略可修改参数；参数变化后只能另存。"
+      : "该策略参数只读；可查询、改名、激活或删除。");
   } catch (error) {
     setMessage(`读取失败：${error.message}`, true);
     retry.hidden = false;
@@ -405,8 +444,9 @@ form.addEventListener("input", () => {
   setMessage(dirtyCount ? "修改尚未保存。" : "参数与已保存版本一致。");
 });
 defaults.addEventListener("click", () => {
+  if (!currentStrategy()?.permissions?.edit_parameters) return;
   fillValues(model.defaults);
-  setMessage("默认值已填入表单，保存时会创建新策略。");
+  setMessage("默认值已填入表单；参数变化后请另存。");
 });
 reload.addEventListener("click", () => {
   fillValues(model.config);
@@ -442,9 +482,12 @@ form.addEventListener("submit", async (event) => {
   }
   pendingConfig = config;
   const current = strategies.find(item => item.strategy_id === strategyId);
-  document.querySelector("#new-strategy-name").value = nameInput.value.trim() !== originalName
-    ? nameInput.value.trim()
-    : `${current.name} - 新版本`;
+  if (!current?.permissions?.save_as) {
+    setMessage("只有初始策略支持修改参数并另存。", true);
+    return;
+  }
+  document.querySelector("#new-strategy-name").value = current.name;
+  document.querySelector("#strategy-history-range").value = "1y";
   document.querySelector("#activate-new-strategy").checked = false;
   saveDialog.showModal();
 });
@@ -453,6 +496,15 @@ document.querySelector("#records-tab").onclick = () => showRecords(true);
 document.querySelector("#parameters-tab").onclick = () => showRecords(false);
 document.querySelector("#reload-days").onclick = () => loadDays().catch(showError);
 document.querySelector("#more-days").onclick = () => loadDays(true).catch(showError);
+document.querySelector("#strategy-query-form").onsubmit = (event) => {
+  event.preventDefault();
+  loadCatalog().catch(showError);
+};
+document.querySelector("#reset-strategy-query").onclick = () => {
+  document.querySelector("#strategy-query").value = "";
+  document.querySelector("#strategy-status-filter").value = "all";
+  loadCatalog().catch(showError);
+};
 nameInput.addEventListener("input", () => {
   refreshNameState();
   if (dirtyCount && nameInput.value.trim() !== originalName) {
@@ -464,7 +516,11 @@ nameInput.addEventListener("input", () => {
 document.querySelector("#strategy-name-form").onsubmit = async (event) => {
   event.preventDefault();
   const name = nameInput.value.trim();
-  if (saving || dirtyCount || !name || name === originalName) return;
+  if (saving || dirtyCount || !name) return;
+  if (name === originalName) {
+    setMessage("名称与参数均未发生变化。");
+    return;
+  }
   saving = true;
   refreshNameState();
   try {
@@ -489,13 +545,7 @@ async function mutate(action) {
   buttons.forEach(button => { button.disabled = true; });
   try {
     const current = strategies.find(item => item.strategy_id === strategyId);
-    if (action === "copy") {
-      pendingConfig = {...model.config};
-      document.querySelector("#new-strategy-name").value = `${current.name} - 副本`;
-      document.querySelector("#activate-new-strategy").checked = false;
-      saveDialog.showModal();
-      return;
-    } else if (action === "archive") {
+    if (action === "archive") {
       const activeWarning = current.enabled ? "\n该策略当前已激活，删除后系统将暂时没有激活策略。" : "";
       if (!confirm(
         `确认永久删除策略“${current.name}”？\n关联的次日计划、盘中监控、回测优化和报告文件将同时删除，且无法恢复。${activeWarning}`,
@@ -519,11 +569,16 @@ async function mutate(action) {
   } catch (error) { showError(error); }
   finally {
     buttons.forEach(button => { button.disabled = false; });
+    refreshNameState();
   }
 }
-["toggle", "copy", "archive"].forEach(action => {
+["toggle", "archive"].forEach(action => {
   document.querySelector(`#${action}-strategy`).onclick = () => mutate(action);
 });
+document.querySelector("#copy-strategy").onclick = () => {
+  if (!currentStrategy()?.permissions?.save_as || !dirtyCount) return;
+  form.requestSubmit();
+};
 
 document.querySelector("#cancel-save-strategy").onclick = () => saveDialog.close();
 document.querySelector("#save-strategy-form").onsubmit = async (event) => {
@@ -539,6 +594,7 @@ document.querySelector("#save-strategy-form").onsubmit = async (event) => {
         config: pendingConfig,
         revision: model.revision,
         activate: document.querySelector("#activate-new-strategy").checked,
+        history_range: document.querySelector("#strategy-history-range").value,
       }),
     });
     saveDialog.close();
@@ -549,13 +605,15 @@ document.querySelector("#save-strategy-form").onsubmit = async (event) => {
     url.hash = "";
     history.replaceState(null, "", url);
     await loadCatalog(); await load(); await loadDays();
-    setMessage(result.enabled
+    const generation = result.history_generation;
+    setMessage(`${result.enabled
       ? "新策略已保存并激活，原激活策略已转为未激活。"
-      : "新策略已保存为未激活状态。");
+      : "新策略已保存为未激活状态。"} 历史数据${generation ? historyStatuses[generation.status] : "已排队"}。`);
   } catch (error) {
     setMessage(`保存失败：${error.message}`, true);
   } finally {
     saving = false;
+    refreshDirty();
   }
 };
 (async () => {

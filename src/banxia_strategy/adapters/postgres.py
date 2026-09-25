@@ -14,11 +14,11 @@ from ..ports.storage import (
     ReportAsset,
     ReportIdentity,
 )
-from .strategy_catalog import StrategyCatalogMixin
+from .strategy_catalog import INITIAL_STRATEGY_CODE, StrategyCatalogMixin
 
 
 IDENTITY_NAMESPACE = uuid.UUID("4b6067a1-05ca-4eaf-9c59-ed125f79cb45")
-STRATEGY_CODE = "banxia-first-board-second-board"
+STRATEGY_CODE = INITIAL_STRATEGY_CODE
 
 
 def _json(value: Any) -> str:

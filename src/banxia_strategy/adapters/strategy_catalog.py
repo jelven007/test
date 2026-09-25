@@ -9,6 +9,9 @@ from datetime import date
 from ..strategy_config import ConfigConflict, StrategyConfig, StrategyConfigStore
 
 
+INITIAL_STRATEGY_CODE = "banxia-first-board-second-board"
+
+
 class CatalogConfigStore(StrategyConfigStore):
     def __init__(self, repository, strategy_id):
         self.repository = repository
@@ -39,6 +42,64 @@ class SharedCollectionConfig:
 
 
 class StrategyCatalogMixin:
+    def ensure_initial_strategy(self, config, *, name="首板晋级二板策略"):
+        """Ensure the protected initial strategy exists and is visible."""
+        values = asdict(StrategyConfig.from_mapping(config))
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext('banxia-initial-strategy'))"
+                )
+                cursor.execute(
+                    """SELECT strategy_id,archived FROM banxia.strategy_definition
+                    WHERE code=%s FOR UPDATE""",
+                    (INITIAL_STRATEGY_CODE,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    cursor.execute(
+                        """SELECT EXISTS(
+                            SELECT 1 FROM banxia.strategy_definition
+                            WHERE enabled AND NOT archived
+                        )"""
+                    )
+                    has_active = bool(cursor.fetchone()[0])
+                    cursor.execute(
+                        """INSERT INTO banxia.strategy_definition
+                        (strategy_id,code,name,description,current_config,enabled,archived)
+                        VALUES (%s,%s,%s,%s,%s::jsonb,%s,false)
+                        RETURNING strategy_id""",
+                        (
+                            str(uuid.uuid5(
+                                uuid.UUID("4b6067a1-05ca-4eaf-9c59-ed125f79cb45"),
+                                f"strategy:{INITIAL_STRATEGY_CODE}",
+                            )),
+                            INITIAL_STRATEGY_CODE,
+                            name,
+                            "基于 mootdx 的沪深主板一进二条件筛选与盘中监控",
+                            json.dumps(values),
+                            not has_active,
+                        ),
+                    )
+                    strategy_id = str(cursor.fetchone()[0])
+                else:
+                    strategy_id = str(row[0])
+                    if row[1]:
+                        cursor.execute(
+                            """SELECT EXISTS(
+                                SELECT 1 FROM banxia.strategy_definition
+                                WHERE enabled AND NOT archived AND strategy_id<>%s
+                            )""",
+                            (strategy_id,),
+                        )
+                        has_active = bool(cursor.fetchone()[0])
+                        cursor.execute(
+                            """UPDATE banxia.strategy_definition
+                            SET archived=false,enabled=%s WHERE strategy_id=%s""",
+                            (not has_active, strategy_id),
+                        )
+        return self.get_strategy(strategy_id)
+
     def list_strategies(self):
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
@@ -72,7 +133,7 @@ class StrategyCatalogMixin:
                 return self._strategy_row(row) if row else None
 
     def create_strategy(self, name, config, *, description="", enabled=False, strategy_id=None,
-                        parent_strategy_id=None, config_changes=None):
+                        parent_strategy_id=None, config_changes=None, materialization=None):
         name = self._validated_name(name)
         values = asdict(StrategyConfig.from_mapping(config))
         strategy_id = strategy_id or str(uuid.uuid4())
@@ -88,6 +149,22 @@ class StrategyCatalogMixin:
                     VALUES (%s,%s,%s,%s,%s::jsonb,%s,%s,%s::jsonb)""",
                     (strategy_id, f"custom-{strategy_id}", name, description,
                      json.dumps(values), False, parent_strategy_id, json.dumps(config_changes or {})))
+                if materialization:
+                    payload = {
+                        **materialization,
+                        "strategy_id": strategy_id,
+                    }
+                    job_id = str(uuid.uuid4())
+                    cursor.execute(
+                        """INSERT INTO banxia.job_execution
+                        (job_id,job_type,idempotency_key,status,payload)
+                        VALUES (%s,'strategy_history',%s,'queued',%s::jsonb)""",
+                        (
+                            job_id,
+                            f"strategy-history:{strategy_id}:{payload['start']}:{payload['end']}",
+                            json.dumps(payload),
+                        ),
+                    )
                 cursor.execute("""INSERT INTO banxia.strategy_day(strategy_id,trade_date)
                     SELECT %s,trade_date FROM banxia.trading_session
                     WHERE trade_date >= (SELECT max(trade_date) FROM banxia.trading_session WHERE trade_date<=CURRENT_DATE)
@@ -139,12 +216,15 @@ class StrategyCatalogMixin:
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT strategy_id FROM banxia.strategy_definition
+                    """SELECT strategy_id,code FROM banxia.strategy_definition
                     WHERE strategy_id=%s FOR UPDATE""",
                     (strategy_id,),
                 )
-                if cursor.fetchone() is None:
+                strategy = cursor.fetchone()
+                if strategy is None:
                     raise ValueError("策略不存在")
+                if strategy[1] == INITIAL_STRATEGY_CODE:
+                    raise PermissionError("初始策略不可删除")
 
                 cursor.execute(
                     """SELECT v.strategy_version_id,r.run_id,p.plan_id,p.trade_date
@@ -322,6 +402,190 @@ class StrategyCatalogMixin:
                 if cleanup is not None:
                     cleanup(manifest)
                 return manifest
+
+    def enqueue_strategy_history(
+        self,
+        strategy_id,
+        history_range,
+        start,
+        end,
+        *,
+        requested_by="system",
+    ):
+        payload = {
+            "strategy_id": str(strategy_id),
+            "history_range": history_range,
+            "start": str(start),
+            "end": str(end),
+            "requested_by": requested_by,
+            "datasets": ["next_plan", "intraday_monitor"],
+        }
+        coverage = self.strategy_history_coverage(strategy_id, start, end)
+        complete = (
+            coverage["session_count"] > 0
+            and coverage["plan_count"] == coverage["session_count"]
+            and coverage["execution_count"] == coverage["session_count"]
+            and coverage["actual_count"] == coverage["session_count"]
+        )
+        status = "succeeded" if complete else "queued"
+        result = {
+            "strategy_id": str(strategy_id),
+            "history_range": history_range,
+            "start": str(start),
+            "end": str(end),
+            "datasets": payload["datasets"],
+            **coverage,
+        } if complete else None
+        job_id = str(uuid.uuid4())
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """INSERT INTO banxia.job_execution
+                    (job_id,job_type,idempotency_key,status,payload,result,finished_at)
+                    VALUES (%s,'strategy_history',%s,%s,%s::jsonb,%s::jsonb,
+                      CASE WHEN %s='succeeded' THEN now() ELSE NULL END)
+                    ON CONFLICT(idempotency_key) DO UPDATE SET
+                      status=CASE
+                        WHEN EXCLUDED.status='succeeded' THEN 'succeeded'
+                        WHEN banxia.job_execution.status='failed' THEN 'queued'
+                        ELSE banxia.job_execution.status
+                      END,
+                      result=CASE
+                        WHEN EXCLUDED.status='succeeded' THEN EXCLUDED.result
+                        ELSE banxia.job_execution.result
+                      END,
+                      error_message=CASE
+                        WHEN EXCLUDED.status='succeeded'
+                          OR banxia.job_execution.status='failed' THEN NULL
+                        ELSE banxia.job_execution.error_message
+                      END,
+                      finished_at=CASE
+                        WHEN EXCLUDED.status='succeeded' THEN EXCLUDED.finished_at
+                        WHEN banxia.job_execution.status='failed' THEN NULL
+                        ELSE banxia.job_execution.finished_at
+                      END
+                    RETURNING job_id,status,payload,created_at""",
+                    (
+                        job_id,
+                        f"strategy-history:{strategy_id}:{start}:{end}",
+                        status,
+                        json.dumps(payload),
+                        json.dumps(result) if result else None,
+                        status,
+                    ),
+                )
+                row = cursor.fetchone()
+        return self._strategy_history_job_row(row)
+
+    def strategy_history_coverage(self, strategy_id, start, end):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT count(*) AS session_count,
+                        count(day.next_plan) AS plan_count,
+                        count(day.execution_plan) AS execution_count,
+                        count(*) FILTER (
+                          WHERE day.actuals IS NOT NULL
+                            AND day.actuals<>'{}'::jsonb
+                        ) AS actual_count
+                    FROM banxia.trading_session session
+                    LEFT JOIN banxia.strategy_day day
+                      ON day.strategy_id=%s
+                     AND day.trade_date=session.trade_date
+                    WHERE session.trade_date BETWEEN %s AND %s""",
+                    (strategy_id, start, end),
+                )
+                row = cursor.fetchone()
+        return {
+            "session_count": int(row[0]),
+            "plan_count": int(row[1]),
+            "execution_count": int(row[2]),
+            "actual_count": int(row[3]),
+        }
+
+    def get_latest_strategy_history(self, strategy_id):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT job_id,status,payload,created_at,started_at,finished_at,
+                        result,error_message,attempt
+                    FROM banxia.job_execution
+                    WHERE job_type='strategy_history'
+                      AND payload->>'strategy_id'=%s
+                    ORDER BY created_at DESC LIMIT 1""",
+                    (str(strategy_id),),
+                )
+                row = cursor.fetchone()
+        return self._strategy_history_job_row(row) if row else None
+
+    def claim_strategy_history(self):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """WITH next_job AS (
+                        SELECT job_id FROM banxia.job_execution
+                        WHERE job_type='strategy_history'
+                          AND (
+                            status='queued'
+                            OR (
+                              status='running'
+                              AND started_at < now() - INTERVAL '2 hours'
+                            )
+                          )
+                        ORDER BY created_at
+                        FOR UPDATE SKIP LOCKED
+                        LIMIT 1
+                    )
+                    UPDATE banxia.job_execution AS job
+                    SET status='running',attempt=job.attempt+1,started_at=now(),
+                        finished_at=NULL,error_message=NULL
+                    FROM next_job
+                    WHERE job.job_id=next_job.job_id
+                    RETURNING job.job_id,job.status,job.payload,job.created_at,
+                        job.started_at,job.finished_at,job.result,
+                        job.error_message,job.attempt"""
+                )
+                row = cursor.fetchone()
+        return self._strategy_history_job_row(row) if row else None
+
+    def finish_strategy_history(self, job_id, *, succeeded, result=None, error_message=None):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """UPDATE banxia.job_execution
+                    SET status=%s,result=%s::jsonb,error_message=%s,finished_at=now()
+                    WHERE job_id=%s AND job_type='strategy_history' AND status='running'""",
+                    (
+                        "succeeded" if succeeded else "failed",
+                        json.dumps(result or {}),
+                        error_message,
+                        job_id,
+                    ),
+                )
+
+    @staticmethod
+    def _strategy_history_job_row(row):
+        if row is None:
+            return None
+        values = list(row) + [None] * (9 - len(row))
+        payload = values[2]
+        result = values[6]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if isinstance(result, str):
+            result = json.loads(result)
+        return {
+            "job_id": str(values[0]),
+            "job_type": "strategy_history",
+            "status": str(values[1]),
+            "payload": payload or {},
+            "created_at": values[3].isoformat(),
+            "started_at": values[4].isoformat() if values[4] else None,
+            "finished_at": values[5].isoformat() if values[5] else None,
+            "result": result,
+            "error": values[7],
+            "attempt": int(values[8] or 0),
+        }
 
     def save_trading_sessions(self, sessions):
         sessions = sorted(set(str(day) for day in sessions))

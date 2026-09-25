@@ -181,14 +181,15 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/v1/strategies` | 列出未归档策略、状态、血缘、差异、revision 和横向展示所需关键参数 |
-| POST | `/api/v1/strategies` | 从来源策略创建不可变子策略，可选立即激活 |
+| GET | `/api/v1/strategies` | 按关键词、状态列出未归档策略、权限、历史生成状态和关键参数 |
+| POST | `/api/v1/strategies` | 仅将初始策略的参数变更另存为不可变策略，并排队生成指定范围历史数据 |
 | PATCH | `/api/v1/strategies/{strategy_id}` | 单独修改 `name` 或 `enabled`；一次请求不得混合字段 |
-| DELETE | `/api/v1/strategies/{strategy_id}` | 永久删除策略及其计划、盘中监控、回测优化和报告资产；子策略保留并解除父引用 |
+| DELETE | `/api/v1/strategies/{strategy_id}` | 永久删除非初始策略及其计划、盘中监控、回测优化和报告资产；子策略保留并解除父引用 |
 | GET | `/api/v1/strategy-config?strategy_id=...` | 读取配置、默认值、字段 Schema 和 revision |
 | PUT | `/api/v1/strategy-config` | 仅文件兼容模式可覆盖；目录模式固定返回 `409` |
 | GET | `/api/v1/strategies/{strategy_id}/days` | 按交易日倒序查询每日摘要 |
 | GET | `/api/v1/strategies/{strategy_id}/days/{trade_date}` | 查询每日计划、执行计划和实际行情 |
+| GET | `/api/v1/strategy-jobs/{job_id}` | 查询次日计划与盘中监控历史生成任务 |
 
 创建策略请求：
 
@@ -198,11 +199,14 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
   "parent_strategy_id": "来源策略 UUID",
   "revision": "来源配置 SHA-256",
   "config": {"entry_cutoff_time": "09:45"},
-  "activate": false
+  "activate": false,
+  "history_range": "1y"
 }
 ```
 
-服务使用完整 `StrategyConfig` 校验配置，并记录相对父策略的逐项差异。名称可通过
+该接口不支持普通新建或复制：来源必须是系统初始策略，且完整参数必须发生变化。
+`history_range` 支持 `1d`、`1w`、`1m`、`1y`，默认 `1y`；生成内容固定包含次日计划和
+盘中监控历史。服务使用完整 `StrategyConfig` 校验配置，并记录相对父策略的逐项差异。名称可通过
 `{"name": "新名称"}` 原地修正；参数和血缘保存后不可修改。参数变化必须调用创建接口并提供
 新策略名称。激活新策略会在同一事务停用旧策略。
 

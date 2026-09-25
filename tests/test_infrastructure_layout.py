@@ -279,7 +279,12 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn("/strategy?strategy_id=${encodeURIComponent(item.strategy_id)}", script)
         self.assertIn("JSON.stringify({name})", script)
         self.assertIn("parent_strategy_id: strategyId", script)
-        self.assertIn("参数变化不会覆盖当前策略", script)
+        self.assertIn("参数变化不会覆盖初始策略", script)
+        self.assertIn('id="strategy-query-form"', html)
+        self.assertIn('id="strategy-history-range"', html)
+        self.assertIn("history_range:", script)
+        self.assertIn("只有初始策略支持修改参数并另存", script)
+        self.assertNotIn("const history = result.history_generation", script)
 
     def test_strategy_selector_keeps_management_navigation_on_list_view(self):
         web = ROOT / "src/banxia_strategy/web"

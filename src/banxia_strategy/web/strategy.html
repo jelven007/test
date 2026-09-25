@@ -7,9 +7,9 @@
     <meta name="theme-color" content="#f6f7f5">
     <title>策略管理 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260925.1">
-    <link rel="stylesheet" href="/strategy.css?v=20260925.3">
+    <link rel="stylesheet" href="/strategy.css?v=20260925.4">
     <link rel="stylesheet" href="/ui-standard.css?v=20260925.3">
-    <script src="/strategy.js?v=20260925.5" defer></script>
+    <script src="/strategy.js?v=20260925.6" defer></script>
   </head>
   <body class="settings-body">
     <header class="topbar settings-topbar">
@@ -31,11 +31,17 @@
       <div id="settings-errors" class="notice is-error" role="alert" hidden></div>
       <section id="strategy-list-view" aria-labelledby="strategy-list-title">
         <div class="strategy-list-heading">
-          <div><h2 id="strategy-list-title">全部策略</h2><p>点击策略名称查看交易日记录、调整名称或创建参数新版本。</p></div>
+          <div><h2 id="strategy-list-title">全部策略</h2><p>初始策略可调整参数并另存；其他策略仅支持查询、改名、激活或删除。</p></div>
+          <form id="strategy-query-form" class="strategy-query" role="search">
+            <label>关键词<input id="strategy-query" class="ui-control" type="search" placeholder="名称或编码"></label>
+            <label>状态<select id="strategy-status-filter" class="ui-control"><option value="all">全部</option><option value="active">激活</option><option value="inactive">未激活</option></select></label>
+            <button class="ui-button" type="submit">查询</button>
+            <button class="ui-button" id="reset-strategy-query" type="button">重置</button>
+          </form>
         </div>
         <div class="strategy-table-wrap" tabindex="0" role="region" aria-label="策略关键参数">
           <table class="strategy-table data-table">
-            <thead><tr><th>策略名称</th><th>状态</th><th>最低评分</th><th>成交额</th><th>换手率</th><th>流通市值</th><th>题材涨停</th><th>入场截止</th><th>来源</th></tr></thead>
+            <thead><tr><th>策略名称</th><th>状态</th><th>历史数据</th><th>最低评分</th><th>成交额</th><th>换手率</th><th>流通市值</th><th>题材涨停</th><th>入场截止</th><th>来源</th></tr></thead>
             <tbody id="strategy-list"></tbody>
           </table>
         </div>
@@ -45,12 +51,12 @@
         <section class="catalog-toolbar" aria-label="策略信息与管理">
           <form id="strategy-name-form">
             <label>策略名称<input id="strategy-name" class="ui-control" maxlength="80" required></label>
-            <button type="submit" class="ui-button" id="save-strategy-name" disabled>保存名称</button>
+            <button type="submit" class="ui-button" id="save-strategy-name" disabled>保存</button>
           </form>
           <div class="strategy-meta"><span id="strategy-status" class="status-badge">未激活</span><small id="strategy-lineage">初始策略</small></div>
           <div class="catalog-buttons">
             <button type="button" class="ui-button" id="toggle-strategy">激活</button>
-            <button type="button" class="ui-button" id="copy-strategy">另存为新策略</button>
+            <button type="button" class="ui-button" id="copy-strategy" disabled>另存</button>
             <button type="button" class="ui-button danger-button" id="archive-strategy">删除</button>
           </div>
         </section>
@@ -81,7 +87,7 @@
             <div class="settings-buttons">
               <button id="defaults-button" class="ui-button" type="button">恢复默认值</button>
               <button id="reload-button" class="ui-button" type="button">撤销修改</button>
-              <button id="save-button" class="ui-button primary-button" type="submit" disabled>保存为新策略</button>
+              <button id="save-button" class="ui-button primary-button" type="submit" disabled>另存</button>
             </div>
           </footer>
         </form>
@@ -90,8 +96,10 @@
       <dialog id="save-strategy-dialog">
         <form id="save-strategy-form" method="dialog">
           <header><p class="eyebrow">NEW STRATEGY</p><h2>保存为新策略</h2></header>
-          <p>当前策略不会被覆盖。新策略会记录本次参数变化及来源关系。</p>
+          <p>当前策略不会被覆盖。新策略会记录参数差异和来源，并生成所选范围的历史数据。</p>
           <label>新策略名称<input id="new-strategy-name" class="ui-control" maxlength="80" required></label>
+          <label>生成过去多久的数据<select id="strategy-history-range" class="ui-control" required><option value="1d">1 天</option><option value="1w">1 周</option><option value="1m">1 月</option><option value="1y" selected>1 年</option></select></label>
+          <div class="generated-datasets"><span>生成内容</span><strong>次日计划</strong><strong>盘中监控</strong></div>
           <label class="activate-option"><input id="activate-new-strategy" type="checkbox"> 保存后立即激活</label>
           <div class="dialog-actions">
             <button value="cancel" class="ui-button" type="button" id="cancel-save-strategy">取消</button>

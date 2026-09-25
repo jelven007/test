@@ -185,21 +185,30 @@ class MultiStrategyTest(unittest.TestCase):
                 )
                 self.assertEqual(cursor.fetchone()[0], 0, table)
 
+    def test_initial_strategy_is_restored_and_cannot_be_deleted(self):
+        initial = self.repository.ensure_initial_strategy({})
+        self.assertEqual(initial["code"], "banxia-first-board-second-board")
+        with self.assertRaises(PermissionError):
+            self.repository.delete_strategy(initial["strategy_id"])
+
     def test_api_copy_update_refresh_and_empty_day(self):
         with tempfile.TemporaryDirectory() as tmp:
             client = TestClient(create_api_app(ApiServices(
                 ReportStore([Path(tmp)]), self.repository, FakeCache(),
                 config_store=StrategyConfigStore(Path(tmp) / "strategy.json"))))
-            source = client.get(f"/api/v1/strategy-config?strategy_id={self.a['strategy_id']}").json()
+            initial = self.repository.ensure_initial_strategy({})
+            source = client.get(f"/api/v1/strategy-config?strategy_id={initial['strategy_id']}").json()
+            changed = {**source["config"], "minimum_score": 70}
             response = client.post("/api/v1/strategies", json={
-                "name": "API 副本", "parent_strategy_id": self.a["strategy_id"],
-                "config": source["config"], "revision": source["revision"],
+                "name": "API 参数版本", "parent_strategy_id": initial["strategy_id"],
+                "config": changed, "revision": source["revision"],
+                "history_range": "1w",
             })
             self.assertEqual(response.status_code, 201)
             sid = response.json()["strategy_id"]
             listed = client.get("/api/v1/strategies").json()["items"]
             summary = next(item for item in listed if item["strategy_id"] == sid)["key_parameters"]
-            self.assertEqual(summary["minimum_score"], 58)
+            self.assertEqual(summary["minimum_score"], 70)
             self.assertEqual(summary["entry_cutoff_time"], "10:00")
             self.assertEqual(client.patch(
                 f"/api/v1/strategies/{sid}", json={"name": "API 副本已重命名"},

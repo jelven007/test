@@ -10,6 +10,8 @@ from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
+from banxia_strategy.adapters.postgres import STRATEGY_CODE
+from banxia_strategy.adapters.strategy_catalog import CatalogConfigStore
 from banxia_strategy.api import ApiServices, create_api_app
 from banxia_strategy.strategy_config import StrategyConfig
 from banxia_strategy.web_server import ReportStore
@@ -158,12 +160,14 @@ def write_report(root: Path):
 
 
 class FakeStrategyRepository:
-    def __init__(self):
+    def __init__(self, *, code=STRATEGY_CODE):
         self.config = asdict(StrategyConfig())
         self.deleted = None
+        self.created = None
+        self.history_job = None
         self.item = {
             "strategy_id": "00000000-0000-0000-0000-000000000010",
-            "code": "one-to-two",
+            "code": code,
             "name": "首板晋级二板策略",
             "description": "",
             "enabled": True,
@@ -189,6 +193,38 @@ class FakeStrategyRepository:
         self.item["enabled"] = enabled
         self.item["archived"] = archived
         return self.item.copy()
+
+    def create_strategy(self, name, config, **kwargs):
+        self.created = {"name": name, "config": config, **kwargs}
+        self.item = {
+            **self.item,
+            "strategy_id": "00000000-0000-0000-0000-000000000011",
+            "code": "custom-00000000-0000-0000-0000-000000000011",
+            "name": name,
+            "enabled": kwargs.get("enabled", False),
+            "config": config,
+            "parent_strategy_id": kwargs["parent_strategy_id"],
+            "config_changes": kwargs["config_changes"],
+        }
+        materialization = kwargs["materialization"]
+        self.history_job = {
+            "job_id": "00000000-0000-0000-0000-000000000012",
+            "job_type": "strategy_history",
+            "status": "queued",
+            "payload": {
+                **materialization,
+                "strategy_id": self.item["strategy_id"],
+            },
+            "result": None,
+            "error": None,
+        }
+        return self.item.copy()
+
+    def get_latest_strategy_history(self, strategy_id):
+        return self.history_job if self.history_job and strategy_id == self.item["strategy_id"] else None
+
+    def get_job_execution(self, job_id):
+        return self.history_job if self.history_job and job_id == self.history_job["job_id"] else None
 
     def delete_strategy(self, strategy_id, *, cleanup=None):
         manifest = {
@@ -348,6 +384,24 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(item["key_parameters"]["minimum_score"], 58)
         self.assertEqual(item["key_parameters"]["entry_cutoff_time"], "10:00")
         self.assertNotIn("config", item)
+        self.assertTrue(item["is_initial"])
+        self.assertEqual(item["permissions"], {
+            "edit_parameters": True,
+            "save_as": True,
+            "delete": False,
+        })
+        self.assertEqual(
+            client.get("/api/v1/strategies?q=不存在").json(),
+            {"items": [], "total": 0},
+        )
+        self.assertEqual(
+            client.get("/api/v1/strategies?status=inactive").json()["total"],
+            0,
+        )
+        self.assertEqual(
+            client.get("/api/v1/strategies?status=invalid").status_code,
+            400,
+        )
 
         strategy_id = repository.item["strategy_id"]
         renamed = client.patch(
@@ -365,8 +419,71 @@ class ApiV1Test(unittest.TestCase):
             response = client.patch(f"/api/v1/strategies/{strategy_id}", json=payload)
             self.assertEqual(response.status_code, 422)
 
-    def test_strategy_delete_removes_external_data_and_local_reports(self):
+    def test_strategy_save_as_requires_initial_parameter_change_and_queues_history(self):
         repository = FakeStrategyRepository()
+        client = TestClient(create_api_app(ApiServices(
+            reports=self.services.reports,
+            repository=repository,
+            cache=FakeCache(),
+        )))
+        source = client.get(
+            f"/api/v1/strategy-config?strategy_id={repository.item['strategy_id']}"
+        ).json()
+        unchanged = client.post("/api/v1/strategies", json={
+            "name": "无变化",
+            "parent_strategy_id": repository.item["strategy_id"],
+            "config": source["config"],
+            "revision": source["revision"],
+        })
+        self.assertEqual(unchanged.status_code, 422)
+
+        changed = {**source["config"], "minimum_score": 66}
+        response = client.post("/api/v1/strategies", json={
+            "name": "初始策略参数版本",
+            "parent_strategy_id": repository.item["strategy_id"],
+            "config": changed,
+            "revision": source["revision"],
+            "history_range": "1m",
+        })
+        self.assertEqual(response.status_code, 201)
+        self.assertFalse(response.json()["is_initial"])
+        self.assertEqual(response.json()["history_generation"]["status"], "queued")
+        self.assertEqual(repository.created["config"]["minimum_score"], 66)
+        self.assertEqual(
+            repository.created["materialization"]["datasets"],
+            ["next_plan", "intraday_monitor"],
+        )
+        job_id = response.json()["history_generation"]["job_id"]
+        self.assertEqual(
+            client.get(f"/api/v1/strategy-jobs/{job_id}").status_code,
+            200,
+        )
+
+    def test_initial_strategy_cannot_be_deleted_or_derived_from_custom_strategy(self):
+        repository = FakeStrategyRepository()
+        client = TestClient(create_api_app(ApiServices(
+            reports=self.services.reports,
+            repository=repository,
+            cache=FakeCache(),
+        )))
+        self.assertEqual(
+            client.delete(f"/api/v1/strategies/{repository.item['strategy_id']}").status_code,
+            409,
+        )
+
+        repository.item["code"] = "custom-existing"
+        payload = CatalogConfigStore(repository, repository.item["strategy_id"]).payload()
+        changed = {**payload["config"], "minimum_score": 66}
+        response = client.post("/api/v1/strategies", json={
+            "name": "非法派生",
+            "parent_strategy_id": repository.item["strategy_id"],
+            "config": changed,
+            "revision": payload["revision"],
+        })
+        self.assertEqual(response.status_code, 422)
+
+    def test_strategy_delete_removes_external_data_and_local_reports(self):
+        repository = FakeStrategyRepository(code="custom-delete")
         cache = FakeCache()
         cache.delete_strategy_data = Mock()
         object_store = Mock()
@@ -397,7 +514,7 @@ class ApiV1Test(unittest.TestCase):
         )
 
     def test_strategy_delete_reports_cleanup_failure(self):
-        repository = FakeStrategyRepository()
+        repository = FakeStrategyRepository(code="custom-delete")
         object_store = Mock()
         object_store.remove_objects.side_effect = RuntimeError("storage unavailable")
         client = TestClient(create_api_app(ApiServices(

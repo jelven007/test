@@ -16,6 +16,7 @@ from .adapters.strategy_catalog import CatalogConfigStore, SharedCollectionConfi
 from .adapters.redis import RedisSnapshotCache
 from .adapters.wal import SQLiteEventWAL
 from .api import ApiServices, create_api_app
+from .catalog_bootstrap import ensure_initial_catalog
 from .application.collector import MarketCollector
 from .application.features import FeatureWorker
 from .application.market_sink import MarketSinkWorker
@@ -44,6 +45,7 @@ from .observability import configure_logging, start_metrics_server
 from .web_server import ReportStore
 from .ports.storage import ReportIdentity
 from .strategy_config import StrategyConfig, StrategyConfigStore, revision_for, version_for
+from .strategy_history import materialize_strategy_history
 
 
 ReportRunResult = Union[Dict[str, Any], Literal[False]]
@@ -492,6 +494,55 @@ def _consume_report_refresh(
     return True
 
 
+def _consume_strategy_history(
+    repository: PostgresStorage,
+    settings: RuntimeSettings,
+    logger: Any,
+) -> bool:
+    job = repository.claim_strategy_history()
+    if job is None:
+        return False
+    job_id = job["job_id"]
+    payload = job["payload"]
+    try:
+        strategy = repository.get_strategy(payload["strategy_id"])
+        if strategy is None:
+            raise ValueError("策略不存在或已删除")
+        result = materialize_strategy_history(
+            repository,
+            strategy,
+            history_range=payload["history_range"],
+            start=date.fromisoformat(payload["start"]),
+            end=date.fromisoformat(payload["end"]),
+            output_root=settings.report_output_dir,
+            commit=settings.storage.code_commit,
+        )
+        repository.finish_strategy_history(
+            job_id,
+            succeeded=True,
+            result=result,
+        )
+        logger.info(
+            "strategy history generated",
+            extra={
+                "job_id": job_id,
+                "strategy_id": strategy["strategy_id"],
+                "history_range": payload["history_range"],
+            },
+        )
+    except Exception as exc:
+        logger.exception(
+            "strategy history generation failed",
+            extra={"job_id": job_id},
+        )
+        repository.finish_strategy_history(
+            job_id,
+            succeeded=False,
+            error_message=str(exc),
+        )
+    return True
+
+
 def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
     stop = threading.Event()
     repository = _postgres(settings)
@@ -504,9 +555,11 @@ def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
     checked = {}
     logger.info("multi-strategy report scheduler started")
     try:
+        ensure_initial_catalog(repository, settings.strategy_config_path)
         while not stop.is_set():
             try:
                 _consume_report_refresh(repository, settings, logger, stop)
+                _consume_strategy_history(repository, settings, logger)
                 now = datetime.now(SHANGHAI)
                 if calendar_date != now.date() and now.timestamp() - calendar_attempt >= 300:
                     from .mootdx_provider import MootdxProvider
@@ -555,6 +608,18 @@ def run_api(settings: RuntimeSettings, logger: Any) -> None:
             "API service requires `pip install -e '.[production]'`"
         ) from exc
     repository = _postgres(settings)
+    initial, history_job = ensure_initial_catalog(
+        repository,
+        settings.strategy_config_path,
+    )
+    logger.info(
+        "initial strategy ready",
+        extra={
+            "strategy_id": initial["strategy_id"],
+            "history_job_id": history_job["job_id"],
+            "history_job_status": history_job["status"],
+        },
+    )
     cache = _redis(settings)
     object_store = _minio(settings)
     kafka = _publisher(settings, "api-readiness")

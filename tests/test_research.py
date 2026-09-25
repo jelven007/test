@@ -20,6 +20,10 @@ from banxia_strategy.research_data import DatedResearchProvider
 from banxia_strategy.research_files import LocalResearchStore
 from banxia_strategy.research_storage import save_research
 from banxia_strategy.strategy_config import StrategyConfig
+from banxia_strategy.strategy_history import (
+    history_window,
+    materialize_strategy_history,
+)
 
 
 def candidate():
@@ -208,6 +212,54 @@ class ResearchPersistenceTest(unittest.TestCase):
 
 
 class CatalogBackfillTest(unittest.TestCase):
+    def test_history_ranges_end_before_today_and_one_year_matches_requirement(self):
+        start, end = history_window("1y", today=date(2026, 9, 25))
+        self.assertEqual(start, date(2025, 9, 25))
+        self.assertEqual(end, date(2026, 9, 24))
+        with self.assertRaises(ValueError):
+            history_window("quarter", today=date(2026, 9, 25))
+
+    def test_history_materialization_uses_latest_session_for_nontrading_day(self):
+        class Collector:
+            def __init__(self, *, history_sessions):
+                self.history_sessions = history_sessions
+
+            def collect(self, start, end, output):
+                self.request = (start, end, output)
+                return {"calendar": ["2026-09-18", "2026-09-19"]}
+
+        class Repository:
+            def save_trading_sessions(self, sessions):
+                self.sessions = list(sessions)
+
+        repository = Repository()
+        strategy = {"strategy_id": "strategy-1", "name": "策略一"}
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "banxia_strategy.strategy_history.backfill_strategy",
+            return_value={"plans": 1, "actuals": 1},
+        ) as backfill:
+            result = materialize_strategy_history(
+                repository,
+                strategy,
+                history_range="1d",
+                start=date(2026, 9, 20),
+                end=date(2026, 9, 20),
+                output_root=Path(directory),
+                commit="test",
+                collector_factory=Collector,
+            )
+        self.assertEqual(result["start"], "2026-09-19")
+        self.assertEqual(result["end"], "2026-09-19")
+        self.assertEqual(
+            result["datasets"],
+            ["next_plan", "intraday_monitor"],
+        )
+        self.assertEqual(repository.sessions, ["2026-09-19"])
+        self.assertEqual(backfill.call_args.args[3:], (
+            date(2026, 9, 19),
+            date(2026, 9, 19),
+        ))
+
     def test_backfill_seeds_first_actual_and_preserves_existing_values(self):
         class Repository:
             def __init__(self):

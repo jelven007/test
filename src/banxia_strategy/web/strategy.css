@@ -52,8 +52,12 @@
 .strategy-list-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding-top: 10px; }
 .strategy-list-heading h2 { margin: 0 0 10px; font: 27px var(--serif); }
 .strategy-list-heading p { margin: 0; color: var(--muted); font-size: 12px; }
+.strategy-query { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 8px; }
+.strategy-query label { display: grid; gap: 6px; }
+.strategy-query input { width: 190px; }
+.strategy-query select { width: 110px; }
 .strategy-table-wrap { overflow-x: auto; padding-bottom: 48px; }
-.strategy-table { width: 100%; min-width: 1080px; margin: 20px 0 0; border-collapse: collapse; text-align: left; font-size: 12px; }
+.strategy-table { width: 100%; min-width: 1180px; margin: 20px 0 0; border-collapse: collapse; text-align: left; font-size: 12px; }
 .strategy-table th { padding: 12px 14px; border-bottom: 1px solid var(--ink); color: var(--muted); font-weight: 500; white-space: nowrap; }
 .strategy-table td { padding: 18px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .strategy-table tr:hover td { background: var(--white); }
@@ -83,6 +87,8 @@
 #save-strategy-dialog input[type="text"], #save-strategy-dialog input:not([type]) { min-height: 42px; padding: 8px 12px; border: 1px solid var(--line-dark); background: var(--white); }
 #save-strategy-dialog .activate-option { display: flex; align-items: center; font-weight: 400; }
 #save-strategy-dialog .activate-option input { width: 18px; height: 18px; accent-color: var(--green); }
+.generated-datasets { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 18px; color: var(--muted); font-size: 11px; }
+.generated-datasets strong { padding: 5px 8px; border: 1px solid var(--line-dark); border-radius: 3px; color: var(--ink); font-weight: 500; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); }
 .catalog-tabs { display: flex; gap: 24px; border-bottom: 1px solid var(--ink); margin: 8px 0 28px; }
 .catalog-tabs button { border: none; border-radius: 0; background: none; padding: 14px 0; font-size: 15px; }
@@ -101,6 +107,10 @@
 #day-detail { padding: 30px 0; border-top: 1px solid var(--ink); margin-top: 24px; }
 #strategy-records { padding-bottom: 48px; }
 @media (max-width: 720px) {
+  .strategy-query { justify-content: stretch; width: 100%; }
+  .strategy-query label:first-child { flex: 1 1 100%; }
+  .strategy-query label:nth-child(2) { flex: 1; }
+  .strategy-query input, .strategy-query select { width: 100%; }
   #strategy-name-form { width: 100%; }
   #strategy-name-form label { flex: 1; min-width: 0; }
   .catalog-toolbar input { width: 100%; min-width: 0; }

@@ -3,25 +3,35 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
+from typing import Optional
 from zoneinfo import ZoneInfo
 
-from .adapters.postgres import PostgresStorage, STRATEGY_CODE, _uuid
+from .adapters.postgres import PostgresStorage, _uuid
+from .strategy_history import history_window
 from .strategy_config import StrategyConfigStore
 from .web_server import ReportStore
 
 
-def bootstrap(repository, roots, config_path):
-    default_id = _uuid(f"strategy:{STRATEGY_CODE}")
+def ensure_initial_catalog(repository, config_path, *, today: Optional[date] = None):
     current = StrategyConfigStore(config_path).payload()["config"]
-    # Catalog exists before a report has ever succeeded.
-    with repository.connection_factory() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("""INSERT INTO banxia.strategy_definition
-                (strategy_id,code,name,current_config) VALUES (%s,%s,%s,%s::jsonb)
-                ON CONFLICT(code) DO NOTHING""",
-                (default_id, STRATEGY_CODE, "首板晋级二板策略", json.dumps(current)))
+    initial = repository.ensure_initial_strategy(current)
+    start, end = history_window("1y", today=today)
+    job = repository.enqueue_strategy_history(
+        initial["strategy_id"],
+        "1y",
+        start,
+        end,
+        requested_by="startup",
+    )
+    return initial, job
+
+
+def bootstrap(repository, roots, config_path):
+    initial, _job = ensure_initial_catalog(repository, config_path)
+    default_id = initial["strategy_id"]
+    current = StrategyConfigStore(config_path).payload()["config"]
     research = repository.list_research_runs()
     imported = 0
     if research:

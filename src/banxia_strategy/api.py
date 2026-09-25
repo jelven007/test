@@ -10,6 +10,7 @@ from typing import Any, Callable, Mapping, Optional
 from .domain.intraday import PHASE_LABELS, SHANGHAI, phase_at
 from .web_server import ReportStore
 from .strategy_config import ConfigConflict, ConfigError, StrategyConfig, StrategyConfigStore, revision_for
+from .strategy_history import HISTORY_RANGE_DAYS, history_window
 from .adapters.postgres import STRATEGY_CODE
 from .adapters.strategy_catalog import CatalogConfigStore
 
@@ -173,6 +174,7 @@ def create_api_app(services: ApiServices):
             400: "BAD_REQUEST",
             401: "UNAUTHORIZED",
             404: "NOT_FOUND",
+            409: "CONFLICT",
             422: "VALIDATION_ERROR",
             503: "SERVICE_UNAVAILABLE",
         }
@@ -292,21 +294,58 @@ def create_api_app(services: ApiServices):
     def catalog_response(item):
         result = dict(item)
         payload = selected_store(result["strategy_id"]).payload()
+        is_initial = result["code"] == STRATEGY_CODE
         result["revision"] = payload["revision"]
+        result["is_initial"] = is_initial
+        result["permissions"] = {
+            "edit_parameters": is_initial,
+            "save_as": is_initial,
+            "delete": not is_initial,
+        }
         result["key_parameters"] = {
             key: payload["config"][key]
             for key in STRATEGY_LIST_PARAMETER_KEYS
         }
+        get_history = getattr(
+            services.repository,
+            "get_latest_strategy_history",
+            None,
+        )
+        result["history_generation"] = (
+            get_history(result["strategy_id"]) if get_history else None
+        )
         result.pop("config", None)
         return result
 
     @app.get("/api/v1/strategies")
-    def strategies():
+    def strategies(
+        q: Optional[str] = None,
+        status: str = "all",
+        limit: int = 100,
+        offset: int = 0,
+    ):
+        if status not in {"all", "active", "inactive"}:
+            raise HTTPException(status_code=400, detail="status 必须是 all、active 或 inactive")
+        if not 1 <= limit <= 200 or offset < 0:
+            raise HTTPException(status_code=400, detail="limit 必须为 1..200，offset 不能小于 0")
+        items = services.repository.list_strategies()
+        if q:
+            keyword = q.strip().casefold()
+            items = [
+                item for item in items
+                if keyword in item["name"].casefold()
+                or keyword in item["code"].casefold()
+            ]
+        if status != "all":
+            enabled = status == "active"
+            items = [item for item in items if item["enabled"] is enabled]
+        total = len(items)
         return {
             "items": [
                 catalog_response(item)
-                for item in services.repository.list_strategies()
-            ]
+                for item in items[offset:offset + limit]
+            ],
+            "total": total,
         }
 
     @app.post("/api/v1/strategies", status_code=201)
@@ -315,24 +354,51 @@ def create_api_app(services: ApiServices):
             payload = await request.json()
             if not isinstance(payload, dict):
                 raise ValueError("请求必须为对象")
-            if set(payload) - {"name", "parent_strategy_id", "config", "revision", "activate"}:
+            if set(payload) - {
+                "name",
+                "parent_strategy_id",
+                "config",
+                "revision",
+                "activate",
+                "history_range",
+            }:
                 raise ValueError("请求字段无效")
+            if "activate" in payload and not isinstance(payload["activate"], bool):
+                raise ValueError("activate 必须为布尔值")
             parent_id = payload.get("parent_strategy_id")
             if not parent_id:
                 raise ValueError("必须指定来源策略")
+            parent = require_strategy(parent_id)
+            if parent["code"] != STRATEGY_CODE:
+                raise ValueError("只有初始策略支持修改参数并另存")
             parent_payload = selected_store(parent_id).payload()
             if payload.get("revision") != parent_payload["revision"]:
                 raise ConfigConflict("来源策略已变化，请重新加载")
-            config = payload.get("config", parent_payload["config"])
+            if "config" not in payload:
+                raise ValueError("另存策略必须提交修改后的完整参数")
+            config = payload["config"]
             validated = asdict(StrategyConfig.from_mapping(config))
             changes = {
                 key: {"from": parent_payload["config"].get(key), "to": value}
                 for key, value in validated.items()
                 if parent_payload["config"].get(key) != value
             }
+            if not changes:
+                raise ValueError("参数未变更，不能另存为新策略")
+            history_range = payload.get("history_range", "1y")
+            if history_range not in HISTORY_RANGE_DAYS:
+                raise ValueError("历史范围必须是 1d、1w、1m 或 1y")
+            start, end = history_window(history_range)
             item = services.repository.create_strategy(
                 payload.get("name"), validated, parent_strategy_id=parent_id,
                 config_changes=changes, enabled=payload.get("activate") is True,
+                materialization={
+                    "history_range": history_range,
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                    "requested_by": request.state.request_id,
+                    "datasets": ["next_plan", "intraday_monitor"],
+                },
             )
             return catalog_response(item)
         except ConfigConflict as exc:
@@ -359,7 +425,9 @@ def create_api_app(services: ApiServices):
 
     @app.delete("/api/v1/strategies/{strategy_id}", status_code=204)
     def delete_strategy(strategy_id: str):
-        require_strategy(strategy_id)
+        strategy = require_strategy(strategy_id)
+        if strategy["code"] == STRATEGY_CODE:
+            raise HTTPException(status_code=409, detail="初始策略不可删除")
 
         def cleanup(manifest):
             remove_objects = getattr(services.object_store, "remove_objects", None)
@@ -378,12 +446,25 @@ def create_api_app(services: ApiServices):
 
         try:
             services.repository.delete_strategy(strategy_id, cleanup=cleanup)
+        except PermissionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(
                 status_code=503,
                 detail=f"策略关联数据删除失败：{exc}",
             ) from exc
         return Response(status_code=204)
+
+    @app.get("/api/v1/strategy-jobs/{job_id}")
+    def strategy_job(job_id: str):
+        try:
+            uuid.UUID(job_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="job_id 必须是有效 UUID") from exc
+        result = services.repository.get_job_execution(job_id)
+        if result is None or result.get("job_type") != "strategy_history":
+            raise HTTPException(status_code=404, detail="策略历史生成任务不存在")
+        return result
 
     @app.get("/api/v1/strategies/{strategy_id}/days")
     def strategy_days(strategy_id: str, limit: int = 100, before: Optional[str] = None):

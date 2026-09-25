@@ -2,19 +2,24 @@
 
 `/strategy` 默认展示策略列表，横向对比最低评分、成交额、换手率、流通市值、题材涨停
 门槛和入场截止时间。点击策略名称进入 `?strategy_id=...` 详情，查看交易日记录和参数。
-仅修改名称可保存到原策略；修改任一参数后只能“保存为新策略”，系统要求输入新名称，
-并记录 `parent_strategy_id` 与逐项 `config_changes`。原策略及历史计划不会被覆盖。
-新策略默认处于“未激活”，也可在保存时立即激活。
+系统不提供独立新建或复制。仅修改名称时“保存”有效；只有固定编码
+`banxia-first-board-second-board` 的初始策略允许编辑参数，修改任一参数后仅“另存”有效。
+另存弹窗默认带入原策略名，并要求选择生成最近 1 天、1 周、1 月或 1 年数据；生成内容固定
+包括次日计划和盘中监控历史。新策略记录 `parent_strategy_id` 与逐项 `config_changes`，
+默认处于“未激活”，也可在保存时立即激活。
 
 策略只有“激活”和“未激活”两种可见状态，全库最多一条激活策略。激活新策略会在
 同一事务内取消原激活策略。删除会永久移除目标策略及其历史交易日、计划、候选、盘中
-决策、回测优化和报告资产；子策略保留，但解除对已删除父策略的引用。
+决策、回测优化和报告资产；初始策略不可删除，其他策略的子策略保留并解除父引用。
 数据库触发器禁止修改已保存策略的完整配置、父策略和差异，名称作为展示元数据允许修正；部分唯一索引
 `strategy_definition_single_active` 保证未归档策略最多一条 `enabled=true`。
 
 当前配置文件 `config/strategy.json` 仍用于兼容文件模式。完整策略目录模式以 PostgreSQL
-为权威，`PUT /api/v1/strategy-config` 返回 `409 IMMUTABLE_STRATEGY`，页面通过
-`POST /api/v1/strategies` 创建新版本。
+为权威，`PUT /api/v1/strategy-config` 返回 `409 IMMUTABLE_STRATEGY`，页面仅在初始
+策略参数发生变化后通过 `POST /api/v1/strategies` 另存新版本。
+
+API 和 report scheduler 启动时都会幂等确保初始策略存在且未归档，并为其排队补齐最近
+一年数据。同一策略与日期区间使用唯一任务键，服务重启不会重复创建任务；失败任务可重试。
 
 ## 每个交易日一条
 
@@ -47,12 +52,14 @@
 
 ## API
 
-- `GET/POST /api/v1/strategies`
+- `GET /api/v1/strategies?q=...&status=all|active|inactive`
+- `POST /api/v1/strategies`：仅将初始策略的参数变更另存
 - `PATCH /api/v1/strategies/{strategy_id}`：单独修改名称或切换激活状态
 - `DELETE /api/v1/strategies/{strategy_id}`：永久删除策略及关联业务数据
 - `GET /api/v1/strategy-config?strategy_id=...`
 - `GET /api/v1/strategies/{strategy_id}/days?limit=30&before=YYYY-MM-DD`
 - `GET /api/v1/strategies/{strategy_id}/days/{trade_date}`
+- `GET /api/v1/strategy-jobs/{job_id}`：查询历史数据生成任务
 - reports、refresh、assets、monitor、monitor/events、monitor/stream 均支持 `strategy_id`。
 - monitor 相关接口另支持 `trade_date`，报告日期表示生成日。
 
@@ -63,9 +70,10 @@
 列表响应通过 `key_parameters` 返回横向对比所需的九项参数。`PATCH` 请求必须严格只包含
 `name` 或 `enabled` 之一，不能在同一请求中混合修改。
 
-创建子策略请求必须提供来源 `parent_strategy_id` 和来源 revision。revision 不匹配返回
-`409 CONFIG_CONFLICT`，字段或参数无效返回 `422 VALIDATION_ERROR`。策略名称限制为
-1 至 80 个字符。
+另存请求必须提供初始策略的 `parent_strategy_id`、来源 revision、完整变更后配置和
+`history_range`。来源不是初始策略、参数未变化、字段或参数无效均返回
+`422 VALIDATION_ERROR`；revision 不匹配返回 `409 CONFIG_CONFLICT`。策略名称限制为
+1 至 80 个字符。删除初始策略返回 `409 CONFLICT`。
 
 ## 迁移与验证
 
