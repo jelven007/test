@@ -57,7 +57,7 @@ make integration-test
 | Schema 测试 | OpenAPI、AsyncAPI、SQL 迁移和消息兼容性 | 每次提交 |
 | 组件测试 | 单服务连接真实 PostgreSQL、Kafka、Redis、ClickHouse | 每次合并 |
 | 集成测试 | 从 Kafka 输入到数据库、缓存和 API 的完整链路 | 每次合并 |
-| 端到端测试 | 日报、盘中监控、重启恢复和 Web 展示 | 发布候选 |
+| 端到端测试 | 日报、当日实盘、重启恢复和 Web 展示 | 发布候选 |
 | 性能测试 | 1 秒采集、消息吞吐、查询延迟和资源消耗 | 发布候选 |
 | 故障测试 | 节点失败、重复消息、存储中断和重放 | 生产发布前 |
 | 恢复演练 | PostgreSQL、ClickHouse、MinIO 和 Flink 恢复 | 定期执行 |

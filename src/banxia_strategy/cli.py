@@ -57,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve = subparsers.add_parser("serve", help="Start the local strategy dashboard")
     serve.add_argument("--host", default="127.0.0.1", help="Listening host")
     serve.add_argument("--port", type=int, default=8765, help="Listening port")
-    serve.add_argument("--watch-date", type=_parse_date, help="盘中监控使用的日报日期，格式 YYYY-MM-DD")
+    serve.add_argument("--watch-date", type=_parse_date, help="当日实盘使用的日报日期，格式 YYYY-MM-DD")
     serve.add_argument(
         "--watchlist", type=Path, default=Path("config/monitor_watchlist.json"),
         help="补充监控清单，包含独立的昨收、计划日期及静态筛选结果",

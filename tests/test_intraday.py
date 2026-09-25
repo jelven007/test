@@ -275,7 +275,7 @@ class MonitorTest(unittest.TestCase):
                     with urlopen(base + "/api/monitor", timeout=2) as response:
                         self.assertEqual(json.load(response)["stocks"][0]["advice"]["state"], "watch")
                 with urlopen(base + "/monitor", timeout=2) as response:
-                    self.assertIn("盘中监控", response.read().decode())
+                    self.assertIn("当日实盘", response.read().decode())
                 self.assertEqual(self.source.calls, 1)
             finally:
                 server.shutdown()

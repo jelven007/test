@@ -133,7 +133,7 @@ class SharedNavigationTest(unittest.TestCase):
         self.assertEqual(blocks[0], blocks[3])
         self.assertEqual(
             blocks[0],
-            '<a href="/strategy">策略管理</a> <a href="/">次日计划</a> <a href="/monitor">盘中监控</a> <a href="/research">回测优化</a>',
+            '<a href="/strategy">策略管理</a> <a href="/">次日计划</a> <a href="/monitor">当日实盘</a> <a href="/research">回测优化</a>',
         )
 
 

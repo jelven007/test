@@ -76,7 +76,7 @@ class StrategyCatalogMixin:
                             )),
                             INITIAL_STRATEGY_CODE,
                             name,
-                            "基于 mootdx 的沪深主板一进二条件筛选与盘中监控",
+                            "基于 mootdx 的沪深主板一进二条件筛选与当日实盘",
                             json.dumps(values),
                             not has_active,
                         ),

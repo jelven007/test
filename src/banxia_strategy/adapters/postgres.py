@@ -113,7 +113,7 @@ class PostgresStorage(StrategyCatalogMixin):
                         strategy_id_seed,
                         strategy_code,
                         report.get("strategy_name") or "首板晋级二板策略",
-                        "基于 mootdx 的沪深主板一进二条件筛选与盘中监控",
+                        "基于 mootdx 的沪深主板一进二条件筛选与当日实盘",
                     ),
                 )
                 strategy_id = str(cursor.fetchone()[0])

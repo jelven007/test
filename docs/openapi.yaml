@@ -379,7 +379,7 @@ paths:
       operationId: deleteStrategy
       summary: 永久删除策略及其关联业务数据
       description: >-
-        删除策略定义、次日计划、盘中监控决策、回测优化记录和报告资产。
+        删除策略定义、次日计划、当日实盘决策、回测优化记录和报告资产。
         子策略保留，但解除其父策略引用；共享 mootdx 行情不删除。
       responses:
         "204":
@@ -404,7 +404,7 @@ paths:
             format: uuid
       responses:
         "200":
-          description: 历史次日计划与盘中监控生成状态
+          description: 历史次日计划与当日实盘生成状态
           content:
             application/json:
               schema:

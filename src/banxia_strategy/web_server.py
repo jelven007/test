@@ -153,7 +153,7 @@ def make_handler(store: ReportStore, static_root: Path, monitor=None, config_sto
                 return
             if path == "/api/monitor":
                 if monitor is None:
-                    self._send_json({"error": "盘中监控未启动"}, HTTPStatus.SERVICE_UNAVAILABLE)
+                    self._send_json({"error": "当日实盘未启动"}, HTTPStatus.SERVICE_UNAVAILABLE)
                 else:
                     self._send_json(monitor.snapshot())
                 return
@@ -310,7 +310,7 @@ def serve_dashboard(
     monitor.start()
     actual_host, actual_port = server.server_address[:2]
     print(f"Strategy dashboard: http://{actual_host}:{actual_port}")
-    print(f"盘中监控：http://{actual_host}:{actual_port}/monitor （盘口1秒 / 分时60秒）")
+    print(f"当日实盘：http://{actual_host}:{actual_port}/monitor （盘口1秒 / 分时60秒）")
     print("Press Ctrl+C to stop.")
     try:
         server.serve_forever()
