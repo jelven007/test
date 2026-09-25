@@ -112,7 +112,7 @@ h1 {
   border: 0;
   border-radius: 3px;
   font-family: var(--sans);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
 }
 
@@ -120,10 +120,6 @@ h1 {
   font-family: var(--sans);
   font-size: 16px;
   font-weight: 700;
-}
-
-.brand small {
-  font-size: 10px;
 }
 
 .app-source,
@@ -905,16 +901,8 @@ details > summary {
     height: 32px;
   }
 
-  .brand small {
-    display: block;
-  }
-
   .brand strong {
     font-size: 14px;
-  }
-
-  .brand small {
-    font-size: 8px;
   }
 }
 

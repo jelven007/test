@@ -84,8 +84,7 @@ a:focus-visible {
   line-height: 1;
 }
 
-.brand strong,
-.brand small {
+.brand strong {
   display: block;
 }
 
@@ -93,14 +92,6 @@ a:focus-visible {
   font-family: var(--serif);
   font-size: 18px;
   line-height: 1.1;
-}
-
-.brand small {
-  margin-top: 3px;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0;
 }
 
 .report-tools {
@@ -1088,8 +1079,7 @@ h1 {
     gap: 0;
   }
 
-  .brand-mark,
-  .brand small {
+  .brand-mark {
     display: none;
   }
 

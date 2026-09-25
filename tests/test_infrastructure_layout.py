@@ -197,7 +197,7 @@ class WebAssetTest(unittest.TestCase):
         ]
         for page in pages:
             html = page.read_text(encoding="utf-8")
-            self.assertIn("/ui-standard.css?v=20260925.3", html, page.name)
+            self.assertIn("/ui-standard.css?v=20260925.4", html, page.name)
             self.assertIn('class="primary-nav"', html, page.name)
             self.assertRegex(html, r'<main[^>]*class="[^"]*page-main')
 
@@ -265,8 +265,20 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn("flex-basis: 122px", css)
         self.assertIn("flex-wrap: nowrap", css)
         self.assertIn("white-space: nowrap", css)
-        self.assertIn(".brand-mark,\n  .brand small {\n    display: none;", css)
+        self.assertIn(".brand-mark {\n    display: none;", css)
         self.assertNotIn("<select id=\"report-date\"", html)
+
+    def test_all_pages_use_compact_bx_brand(self):
+        web = ROOT / "src/banxia_strategy/web"
+        for name in ("index.html", "monitor.html", "research.html", "strategy.html"):
+            html = (web / name).read_text(encoding="utf-8")
+            self.assertIn(
+                '<span class="brand-mark" aria-hidden="true">BX</span>',
+                html,
+                name,
+            )
+            self.assertNotIn("策略观察工作台", html, name)
+            self.assertNotIn("<small>策略观察工作台</small>", html, name)
 
     def test_strategy_page_defaults_to_list_and_links_to_detail(self):
         web = ROOT / "src/banxia_strategy/web"
