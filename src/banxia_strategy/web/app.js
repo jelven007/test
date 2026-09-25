@@ -182,7 +182,6 @@ function renderReport(report) {
   setText(fragment, "next-session", formatDate(report.next_session));
   setText(fragment, "as-of", formatDate(report.as_of));
   setText(fragment, "generated-at", formatTimestamp(report.generated_at));
-  setText(fragment, "strategy-revision", report.strategy_revision?.slice(0, 12) || "历史报告未记录");
   setText(fragment, "regime", market.regime);
   setText(fragment, "regime-guidance", regime.guidance);
   setText(fragment, "market-score", market.score);

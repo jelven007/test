@@ -6,9 +6,9 @@
     <meta name="color-scheme" content="light">
     <meta name="theme-color" content="#f6f7f5">
     <title>当日实盘 · 一进二</title>
-    <link rel="stylesheet" href="/styles.css?v=20260924.1">
-    <link rel="stylesheet" href="/monitor.css?v=20260925.3">
-    <link rel="stylesheet" href="/ui-standard.css?v=20260925.5">
+    <link rel="stylesheet" href="/styles.css?v=20260926.1">
+    <link rel="stylesheet" href="/monitor.css?v=20260926.1">
+    <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
     <script src="/strategy-selector.js?v=20260925.2" defer></script>
     <script src="/trading-calendar.js?v=20260926.1" defer></script>
     <script src="/monitor.js?v=20260926.5" defer></script>
@@ -36,9 +36,11 @@
     </nav>
     <main class="monitor-main page-main">
       <section class="monitor-title page-header">
-        <div><p class="eyebrow">INTRADAY WATCH</p><h1>当日实盘<span id="watch-count">—</span></h1>
-          <p id="scope">正在读取观察清单</p></div>
-        <small id="countdown">正在同步行情状态</small>
+        <div class="page-header-copy">
+          <h1>当日实盘<span id="watch-count">—</span></h1>
+          <p id="scope">正在读取观察清单</p>
+          <p id="countdown" class="page-header-meta">正在同步行情状态</p>
+        </div>
       </section>
       <div id="monitor-error" class="notice is-error" role="alert" hidden></div>
       <section class="session-strip" aria-label="当日实盘状态">

@@ -197,7 +197,7 @@ class WebAssetTest(unittest.TestCase):
         ]
         for page in pages:
             html = page.read_text(encoding="utf-8")
-            self.assertIn("/ui-standard.css?v=20260925.5", html, page.name)
+            self.assertIn("/ui-standard.css?v=20260926.2", html, page.name)
             self.assertIn('class="primary-nav"', html, page.name)
             self.assertRegex(html, r'<main[^>]*class="[^"]*page-main')
 
@@ -241,6 +241,42 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('id="research-status" class="ui-status"', research_html)
         self.assertEqual(research_html.count('class="research-table-scroll" tabindex="0" role="region"'), 4)
 
+    def test_primary_page_headers_stay_compact_and_single_row(self):
+        web = ROOT / "src/banxia_strategy/web"
+        strategy_html = (web / "strategy.html").read_text(encoding="utf-8")
+        research_html = (web / "research.html").read_text(encoding="utf-8")
+        monitor_html = (web / "monitor.html").read_text(encoding="utf-8")
+        plan_html = (web / "index.html").read_text(encoding="utf-8")
+        app = (web / "app.js").read_text(encoding="utf-8")
+        standard = (web / "ui-standard.css").read_text(encoding="utf-8")
+        styles = (web / "styles.css").read_text(encoding="utf-8")
+
+        for html, marker in (
+            (strategy_html, "STRATEGY LIBRARY"),
+            (research_html, "BACKTEST & OPTIMIZATION"),
+            (monitor_html, "INTRADAY WATCH"),
+            (plan_html, "NEXT SESSION PLAYBOOK"),
+        ):
+            self.assertNotIn(marker, html)
+        for html, closing_tag in (
+            (strategy_html, "</header>"),
+            (research_html, "</header>"),
+            (monitor_html, "</section>"),
+        ):
+            header = html.split("page-header", 1)[1].split(closing_tag, 1)[0]
+            self.assertEqual(header.count("<h1"), 1)
+            self.assertEqual(header.count("<p"), 2)
+        plan_header = plan_html.split('class="session-heading"', 1)[1].split("</div>", 1)[0]
+        self.assertEqual(plan_header.count("<h1"), 1)
+        self.assertEqual(plan_header.count('class="report-meta"'), 2)
+        self.assertNotIn("本次参数版本", plan_html)
+        self.assertNotIn('"strategy-revision"', app)
+        self.assertIn("height: 116px;", standard)
+        self.assertIn("flex-flow: row nowrap;", standard)
+        self.assertIn("overflow-x: auto;", standard)
+        self.assertIn("white-space: nowrap;", standard)
+        self.assertIn("grid-template-columns: 520px 320px 180px;", styles)
+
     def test_report_date_control_queries_trade_date_with_fixed_size(self):
         app = (ROOT / "src/banxia_strategy/web/app.js").read_text(
             encoding="utf-8"
@@ -272,7 +308,7 @@ class WebAssetTest(unittest.TestCase):
         )
         self.assertIn("resolvedFromNonTradingDay", app)
         self.assertIn("/trading-calendar.js?v=20260926.1", html)
-        self.assertIn("/app.js?v=20260926.2", html)
+        self.assertIn("/app.js?v=20260926.3", html)
         self.assertIn('timeZone: "Asia/Shanghai"', app)
         self.assertIn('select id="report-date"', html)
         self.assertIn('{ defaultKey: "next_plan" }', app)

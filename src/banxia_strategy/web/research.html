@@ -6,9 +6,9 @@
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#f6f7f5">
   <title>回测优化 · 一进二</title>
-  <link rel="stylesheet" href="/styles.css?v=20260925.1">
-  <link rel="stylesheet" href="/research.css?v=20260925.1">
-  <link rel="stylesheet" href="/ui-standard.css?v=20260925.5">
+  <link rel="stylesheet" href="/styles.css?v=20260926.1">
+  <link rel="stylesheet" href="/research.css?v=20260926.1">
+  <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
   <script src="/research.js?v=20260925.2" defer></script>
 </head>
 <body class="research-body">
@@ -24,7 +24,11 @@
   </nav>
   <main class="research-main page-main">
     <header class="research-heading page-header">
-      <div><p class="eyebrow">BACKTEST & OPTIMIZATION</p><h1>回测优化</h1><p>查看历史计划、逐日验证、参数实验与独立留出结果。</p></div>
+      <div class="page-header-copy">
+        <h1>回测优化</h1>
+        <p>查看历史计划、逐日验证、参数实验与独立留出结果。</p>
+        <p class="page-header-meta">数据来源：mootdx · 历史行情重建</p>
+      </div>
       <div class="research-picker"><label for="run-select">实验记录</label><select id="run-select" class="ui-control" disabled><option>正在读取…</option></select><button id="reload-research" class="ui-button" type="button">重新加载</button></div>
     </header>
     <p id="research-status" class="ui-status" role="status" aria-live="polite">正在读取回测数据…</p>

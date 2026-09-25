@@ -550,9 +550,9 @@ class ApiV1Test(unittest.TestCase):
     def test_web_assets_are_not_served_from_stale_browser_cache(self):
         dashboard = self.client.get("/")
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store")
-        self.assertIn("/styles.css?v=20260925.1", dashboard.text)
+        self.assertIn("/styles.css?v=20260926.1", dashboard.text)
 
-        stylesheet = self.client.get("/styles.css?v=20260925.1")
+        stylesheet = self.client.get("/styles.css?v=20260926.1")
         self.assertEqual(stylesheet.status_code, 200)
         self.assertEqual(stylesheet.headers["Cache-Control"], "no-store")
         self.assertIn("@media (max-width: 480px)", stylesheet.text)

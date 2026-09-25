@@ -104,6 +104,7 @@ function setView() {
   document.querySelector("#revision-label").textContent = detail ? "当前配置版本" : "策略总数";
   if (!detail) document.querySelector("#config-revision").textContent = `${strategies.length} 条`;
   else if (!model) document.querySelector("#config-revision").textContent = "读取中";
+  document.querySelector("#plan-link-separator").hidden = !detail;
   document.querySelector("#plan-link").hidden = !detail;
 }
 

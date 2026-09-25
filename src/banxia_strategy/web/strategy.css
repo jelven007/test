@@ -2,12 +2,6 @@
 .settings-topbar { display: flex; justify-content: space-between; }
 .settings-source { color: var(--muted); font-size: 12px; }
 .settings-main { max-width: 1440px; margin: auto; padding: 0 clamp(18px, 3vw, 48px); }
-.settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 32px; padding: 36px 0 28px; border-bottom: 1px solid var(--ink); }
-.settings-heading h1 { font-size: 38px; margin-bottom: 12px; }
-.settings-heading p:not(.eyebrow) { color: var(--muted); font-size: 13px; margin: 0; }
-.settings-revision { flex: 0 0 auto; display: grid; gap: 6px; text-align: right; font-size: 11px; color: var(--muted); }
-.settings-revision code { color: var(--ink); font-family: var(--mono); font-size: 13px; }
-.settings-revision a { color: var(--green); text-decoration: none; margin-top: 6px; }
 #settings-message { min-height: 48px; padding: 14px 0; color: var(--green); font-size: 12px; }
 #settings-errors { padding: 14px 18px; margin-bottom: 18px; border-left: 3px solid var(--red); background: var(--red-soft); color: var(--red); font-size: 13px; }
 .settings-workspace { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 48px; padding: 10px 0 36px; min-height: 560px; }
@@ -139,11 +133,6 @@
 }
 @media (max-width: 720px) {
   .settings-source { font-size: 10px; }
-  .settings-heading { gap: 18px; padding: 26px 0 22px; align-items: start; }
-  .settings-heading h1 { font-size: 30px; }
-  .settings-heading p:not(.eyebrow) { font-size: 12px; }
-  .settings-revision { max-width: 108px; font-size: 10px; }
-  .settings-revision code { font-size: 10px; }
   #strategy-list-view .strategy-list-heading { align-items: end; }
   .settings-workspace { display: block; padding-top: 0; }
   .settings-index { position: static; margin-bottom: 28px; }

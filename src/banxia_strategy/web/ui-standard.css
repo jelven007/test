@@ -204,36 +204,69 @@ h1 {
 .settings-heading.page-header,
 .research-heading.page-header {
   display: flex;
-  min-height: 132px;
+  width: 100%;
+  height: 116px;
+  min-height: 116px;
+  max-height: 116px;
   align-items: center;
+  flex-flow: row nowrap;
   justify-content: space-between;
-  gap: 32px;
+  gap: 28px;
+  overflow-x: auto;
+  overflow-y: hidden;
   margin: 0;
-  padding: 28px 0 24px;
+  padding: 12px 0;
   border-bottom: 1px solid var(--line-dark);
   animation: ui-enter 240ms ease-out both;
+  overscroll-behavior-inline: contain;
 }
 
-.page-header > *,
+.page-header > * {
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+
 .report-tools > *,
 .research-picker > *,
 .catalog-toolbar > * {
   min-width: 0;
 }
 
+.page-header-copy {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: center;
+  min-width: max-content;
+}
+
 .page-header h1 {
-  margin: 0 0 8px;
+  margin: 0 0 3px;
   font-family: var(--sans);
-  font-size: clamp(28px, 3vw, 40px);
+  font-size: 30px;
   font-weight: 700;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .page-header p:not(.eyebrow) {
-  max-width: 720px;
-  margin-bottom: 0;
+  max-width: none;
+  margin: 0;
   color: var(--muted);
   font-size: 12px;
-  line-height: 1.75;
+  line-height: 1.55;
+  white-space: nowrap;
+}
+
+.page-header .page-header-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.page-header-meta code {
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: inherit;
 }
 
 .page-header h1,
@@ -628,6 +661,7 @@ h1 {
 
 .ui-link,
 .settings-revision a,
+.page-header-meta a,
 .records-table a,
 #day-detail a,
 .research-link,
@@ -644,6 +678,7 @@ h1 {
 
 .ui-link:hover,
 .settings-revision a:hover,
+.page-header-meta a:hover,
 .records-table a:hover,
 #day-detail a:hover,
 .research-link:hover,
@@ -734,11 +769,13 @@ details > summary {
   .monitor-title.page-header,
   .settings-heading.page-header,
   .research-heading.page-header {
-    min-height: 0;
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 18px;
-    padding: 24px 0 20px;
+    height: 116px;
+    min-height: 116px;
+    max-height: 116px;
+    align-items: center;
+    flex-direction: row;
+    gap: 24px;
+    padding: 12px 0;
   }
 
   .page-header h1 {
@@ -815,7 +852,7 @@ details > summary {
   }
 
   .research-picker {
-    width: 100%;
+    width: auto;
     max-width: none;
   }
 

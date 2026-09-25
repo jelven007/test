@@ -6,10 +6,10 @@
     <meta name="color-scheme" content="light">
     <meta name="theme-color" content="#f6f7f5">
     <title>策略管理 · 一进二</title>
-    <link rel="stylesheet" href="/styles.css?v=20260925.1">
-    <link rel="stylesheet" href="/strategy.css?v=20260925.5">
-    <link rel="stylesheet" href="/ui-standard.css?v=20260925.5">
-    <script src="/strategy.js?v=20260925.8" defer></script>
+    <link rel="stylesheet" href="/styles.css?v=20260926.1">
+    <link rel="stylesheet" href="/strategy.css?v=20260926.1">
+    <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
+    <script src="/strategy.js?v=20260926.1" defer></script>
   </head>
   <body class="settings-body">
     <header class="topbar settings-topbar">
@@ -24,8 +24,11 @@
     </nav>
     <main class="settings-main page-main">
       <header class="settings-heading page-header">
-        <div><p class="eyebrow">STRATEGY LIBRARY</p><h1>策略管理</h1><p>每条策略独立运行，每个交易日一条记录：次日计划与当日实盘。</p></div>
-        <div class="settings-revision"><span id="revision-label">策略总数</span><code id="config-revision">读取中</code><a id="plan-link" href="/">查看次日计划 ↗</a></div>
+        <div class="page-header-copy">
+          <h1>策略管理</h1>
+          <p>每条策略独立运行，每个交易日一条记录：次日计划与当日实盘。</p>
+          <p class="page-header-meta"><span id="revision-label">策略总数</span>：<code id="config-revision">读取中</code><span id="plan-link-separator" aria-hidden="true"> · </span><a id="plan-link" href="/">查看次日计划 ↗</a></p>
+        </div>
       </header>
       <p id="settings-message" class="ui-status" role="status" aria-live="polite">正在读取策略列表…</p>
       <div id="settings-errors" class="notice is-error" role="alert" hidden></div>
