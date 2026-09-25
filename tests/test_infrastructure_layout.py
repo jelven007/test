@@ -249,6 +249,7 @@ class WebAssetTest(unittest.TestCase):
         plan_html = (web / "index.html").read_text(encoding="utf-8")
         app = (web / "app.js").read_text(encoding="utf-8")
         monitor_app = (web / "monitor.js").read_text(encoding="utf-8")
+        monitor_css = (web / "monitor.css").read_text(encoding="utf-8")
         standard = (web / "ui-standard.css").read_text(encoding="utf-8")
         styles = (web / "styles.css").read_text(encoding="utf-8")
 
@@ -275,6 +276,9 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('data-field="candidate-scope"', plan_header)
         self.assertIn('candidates.map((candidate) => candidate.name)', app)
         self.assertIn('<span id="monitor-date">—</span> 当日实盘', monitor_html)
+        self.assertIn("/monitor.css?v=20260926.2", monitor_html)
+        self.assertIn(".monitor-title #watch-count", monitor_css)
+        self.assertNotIn(".monitor-title h1 span", monitor_css)
         self.assertIn(
             'write("monitor-date", dateLabel(data.requested_date || data.plan_date))',
             monitor_app,
