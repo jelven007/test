@@ -1,19 +1,12 @@
 .monitor-body { background: var(--paper); }
-.monitor-header { display: flex; align-items: center; gap: 48px; padding: 15px 4vw; border-bottom: 1px solid var(--line-dark); }
-.feed-label { margin-left: auto; font: 11px var(--mono); color: var(--muted); }
 .monitor-main { max-width: 1500px; margin: auto; padding: 32px 4vw; }
 .monitor-title { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 24px; }
 .monitor-title h1 { font-size: 36px; margin-bottom: 10px; }
 .monitor-title h1 span { margin-left: 14px; color: var(--green); font: 18px var(--mono); vertical-align: middle; }
 #scope { color: var(--muted); font-size: 12px; margin: 0; max-width: 660px; line-height: 1.8; }
-.sync-tools { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px 14px; text-align: right; flex-shrink: 0; }
 #connection { font-size: 12px; color: var(--green); }
 #connection[data-error="true"] { color: var(--red); }
-#connection::before { display: inline-block; content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; margin-right: 7px; }
-#sync-button { border: 1px solid var(--line-dark); border-radius: 3px; padding: 9px 15px; background: var(--white); cursor: pointer; font-size: 12px; transition: background .15s, color .15s; }
-#sync-button:hover { background: var(--ink); color: var(--white); }
-#sync-button:disabled { opacity: .5; cursor: wait; }
-#countdown { grid-column: 1 / -1; font: 11px var(--mono); color: var(--muted); }
+#countdown { flex: 0 0 auto; font: 11px var(--mono); color: var(--muted); }
 #monitor-error { padding: 13px 17px; background: var(--red-soft); border-left: 3px solid var(--red); color: var(--red); font-size: 13px; margin-bottom: 20px; }
 .session-strip { display: grid; grid-template-columns: 1.2fr 1fr 1fr .7fr; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); padding: 18px 0; }
 .session-strip > div { border-left: 1px solid var(--line); padding: 0 24px; }
@@ -92,13 +85,10 @@
   .decision-section { padding-left: 0; }
 }
 @media (max-width: 600px) {
-  .monitor-header { display: grid; grid-template-columns: 1fr; gap: 10px; padding: 14px 18px; }
-  .feed-label { display: none; }
   .monitor-main { padding: 23px 18px; }
   .monitor-title { display: block; }
   .monitor-title h1 { font-size: 31px; }
-  .sync-tools { margin-top: 18px; text-align: left; }
-  #countdown { font-size: 10px; }
+  #countdown { display: block; margin-top: 12px; font-size: 10px; }
   .session-strip { grid-template-columns: 1fr 1fr; gap: 18px 10px; }
   .session-strip > div { padding: 0 0 0 12px; }
   .session-strip > div:nth-child(odd) { border: 0; padding-left: 0; }

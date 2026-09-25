@@ -436,11 +436,17 @@ def _consume_report_refresh(
     try:
         requested_date = date.fromisoformat(str(job["payload"]["trade_date"]))
         requested_at = datetime.now(SHANGHAI)
-        get_active = getattr(repository, "get_active_strategy", None)
-        strategy = get_active() if get_active else None
-        if get_active and strategy is None:
-            raise ValueError("当前没有激活策略，请先激活策略后再刷新")
-        strategy_id = strategy["strategy_id"] if isinstance(strategy, dict) else None
+        strategy_id = job["payload"].get("strategy_id")
+        if strategy_id:
+            strategy = repository.get_strategy(strategy_id)
+            if strategy is None:
+                raise ValueError("所选策略不存在或已删除")
+        else:
+            get_active = getattr(repository, "get_active_strategy", None)
+            strategy = get_active() if get_active else None
+            if get_active and strategy is None:
+                raise ValueError("当前没有激活策略，请先激活策略后再刷新")
+            strategy_id = strategy["strategy_id"] if isinstance(strategy, dict) else None
         result = _generate_scheduled_report(
             settings,
             logger,

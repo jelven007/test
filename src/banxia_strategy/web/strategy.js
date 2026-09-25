@@ -189,17 +189,15 @@ async function loadDays(append = false) {
     detail.addEventListener("click", () => openDay(day.trade_date).catch(showError));
     const refresh = node("button", "生成 / 刷新计划", "ui-button");
     refresh.type = "button";
-    const currentStrategy = strategies.find(item => item.strategy_id === selectedId);
     const localDay = new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date());
     const localHour = Number(new Intl.DateTimeFormat("en-GB", {timeZone: "Asia/Shanghai", hour: "2-digit", hourCycle: "h23"}).format(new Date()));
-    refresh.disabled = !currentStrategy?.enabled || day.trade_date > localDay || (day.trade_date === localDay && localHour < 15);
-    if (!currentStrategy?.enabled) refresh.title = "仅当前激活策略可刷新";
-    else if (refresh.disabled) refresh.title = "该交易日收盘后可生成计划";
+    refresh.disabled = day.trade_date > localDay || (day.trade_date === localDay && localHour < 15);
+    if (refresh.disabled) refresh.title = "该交易日收盘后可生成计划";
     refresh.addEventListener("click", async () => {
       refresh.disabled = true;
       try {
-        const job = await api(`/api/v1/reports/${day.trade_date}/refresh`, {method: "POST"});
-        setMessage(`已提交 ${day.trade_date} 计划任务，执行时使用当前激活策略。`);
+        const job = await api(`/api/v1/reports/${day.trade_date}/refresh?strategy_id=${encodeURIComponent(selectedId)}`, {method: "POST"});
+        setMessage(`已提交 ${day.trade_date} 计划任务，执行时使用当前所选策略。`);
         await watchJob(job.job_id, selectedId);
       } catch (error) { showError(error); }
       finally { refresh.disabled = false; }

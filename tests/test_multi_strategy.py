@@ -238,7 +238,8 @@ class MultiStrategyTest(unittest.TestCase):
             self.assertEqual(client.patch(f"/api/v1/strategies/{sid}", json={"enabled": False}).status_code, 200)
             self.assertFalse(self.repository.get_strategy(sid)["enabled"])
             job = client.post(f"/api/v1/reports/2026-09-23/refresh?strategy_id={sid}")
-            self.assertEqual(job.status_code, 409)
+            self.assertEqual(job.status_code, 202)
+            self.assertEqual(job.json()["payload"]["strategy_id"], sid)
             self.report["candidates"] = []
             self.persist(self.b)
             rows = client.get(f"/api/v1/strategies/{self.b['strategy_id']}/days").json()["items"]

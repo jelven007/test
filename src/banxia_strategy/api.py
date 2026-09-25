@@ -866,12 +866,11 @@ def create_api_app(services: ApiServices):
         now = datetime.now(SHANGHAI)
         if requested_date > now.date() or (requested_date == now.date() and now.hour < 15):
             raise HTTPException(status_code=400, detail="该交易日尚未收盘，暂不能生成收盘计划")
-        # A refresh always resolves the active strategy when the worker starts.
-        # This keeps queued work aligned if activation changes after enqueueing.
-        active_strategy()
+        selected = require_strategy(strategy_id) if strategy_id else active_strategy()
         return services.repository.enqueue_report_refresh(
             tradeDate,
             requested_by=request.state.request_id,
+            **({"strategy_id": selected["strategy_id"]} if selected else {}),
         )
 
     @app.get("/api/v1/report-jobs/{jobId}")

@@ -216,7 +216,6 @@ h1 {
 
 .page-header > *,
 .report-tools > *,
-.sync-tools > *,
 .research-picker > *,
 .catalog-toolbar > * {
   min-width: 0;
@@ -309,7 +308,6 @@ h1 {
 
 .page-main label,
 .report-tools label,
-.sync-tools label,
 .research-picker label,
 .catalog-toolbar label {
   color: var(--muted);
@@ -320,8 +318,7 @@ h1 {
 .report-tools #page-strategy.ui-control,
 .report-tools #report-date.ui-control,
 #page-strategy.ui-control,
-.report-tools .ui-button,
-#sync-button.ui-button {
+.report-tools .ui-button {
   min-height: var(--control-height);
   height: var(--control-height);
   border-radius: var(--control-radius);
@@ -817,33 +814,9 @@ details > summary {
     white-space: nowrap;
   }
 
-  .research-picker,
-  .sync-tools {
+  .research-picker {
     width: 100%;
     max-width: none;
-  }
-
-  .monitor-title .sync-tools {
-    grid-template-columns: minmax(0, 1fr) auto;
-    text-align: left;
-  }
-
-  .monitor-title .sync-tools label,
-  .monitor-title .sync-tools #page-strategy {
-    grid-column: 1 / -1;
-    width: 100%;
-  }
-
-  .monitor-title .sync-tools #page-strategy.ui-control {
-    max-width: none;
-  }
-
-  .monitor-title .sync-tools #connection {
-    grid-column: 1;
-  }
-
-  .monitor-title .sync-tools #sync-button {
-    grid-column: 2;
   }
 
   .section-title {

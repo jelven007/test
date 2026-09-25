@@ -37,7 +37,6 @@ window.strategyReady = (async () => {
     }
     target.onchange = () => {
       params.set("strategy_id", target.value);
-      params.delete("trade_date");
       location.href = `${location.pathname}?${params}`;
     };
   } catch (error) {

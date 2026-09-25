@@ -248,6 +248,12 @@ class WebAssetTest(unittest.TestCase):
         html = (ROOT / "src/banxia_strategy/web/index.html").read_text(
             encoding="utf-8"
         )
+        monitor_html = (ROOT / "src/banxia_strategy/web/monitor.html").read_text(
+            encoding="utf-8"
+        )
+        monitor_app = (ROOT / "src/banxia_strategy/web/monitor.js").read_text(
+            encoding="utf-8"
+        )
         css = (ROOT / "src/banxia_strategy/web/styles.css").read_text(
             encoding="utf-8"
         )
@@ -261,6 +267,15 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('timeZone: "Asia/Shanghai"', app)
         self.assertIn('id="report-date" type="date"', html)
         self.assertRegex(html, r'<button id="refresh-button" type="button"[^>]*>刷新</button>')
+        self.assertNotIn("复盘日期", html)
+        self.assertIn('class="topbar dashboard-topbar"', monitor_html)
+        self.assertIn('id="report-date" type="date"', monitor_html)
+        self.assertRegex(
+            monitor_html,
+            r'<button id="refresh-button" type="button"[^>]*>刷新</button>',
+        )
+        self.assertIn('sync({ userInitiated: true })', monitor_app)
+        self.assertIn('params.set("trade_date", reportDateInput.value)', monitor_app)
         self.assertNotIn("刷新数据", html)
         self.assertIn("width: 148px", css)
         self.assertIn("flex-basis: 122px", css)
@@ -331,7 +346,7 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn("if (!scopedNavPaths.has(link.pathname)) return;", script)
         for page in ("index.html", "monitor.html"):
             html = (web / page).read_text(encoding="utf-8")
-            self.assertIn("/strategy-selector.js?v=20260925.1", html)
+            self.assertIn("/strategy-selector.js?v=20260925.2", html)
 
 
 if __name__ == "__main__":

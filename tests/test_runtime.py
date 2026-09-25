@@ -234,6 +234,37 @@ class ReportSchedulerTest(unittest.TestCase):
         self.assertTrue(finish.kwargs["succeeded"])
         self.assertEqual(finish.kwargs["result"], execution)
 
+    def test_queued_refresh_uses_the_strategy_captured_by_the_request(self):
+        repository = Mock()
+        repository.claim_report_refresh.return_value = {
+            "job_id": "job-selected",
+            "payload": {
+                "trade_date": "2026-09-24",
+                "strategy_id": "selected-strategy",
+            },
+        }
+        repository.get_strategy.return_value = {"strategy_id": "selected-strategy"}
+        execution = {"trade_date": "2026-09-24", "strategy_id": "selected-strategy"}
+
+        with patch(
+            "banxia_strategy.service._generate_scheduled_report",
+            return_value=execution,
+        ) as generate:
+            self.assertTrue(_consume_report_refresh(
+                repository,
+                RuntimeSettings(report_output_dir=Path("reports")),
+                Mock(),
+                Mock(),
+            ))
+
+        repository.get_active_strategy.assert_not_called()
+        self.assertEqual(generate.call_args.kwargs["strategy_id"], "selected-strategy")
+        repository.finish_report_refresh.assert_called_once_with(
+            "job-selected",
+            succeeded=True,
+            result=execution,
+        )
+
     def test_queued_strategy_history_materializes_selected_strategy(self):
         repository = Mock()
         repository.claim_strategy_history.return_value = {

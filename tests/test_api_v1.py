@@ -47,7 +47,7 @@ class FakeRepository:
     def get_strategy_run(self, run_id):
         return {"run_id": run_id, "status": "succeeded"} if run_id == "run" else None
 
-    def enqueue_report_refresh(self, trade_date, *, requested_by="web"):
+    def enqueue_report_refresh(self, trade_date, *, requested_by="web", strategy_id=None):
         job_id = f"00000000-0000-0000-0000-{len(self.jobs) + 1:012d}"
         job = {
             "job_id": job_id,
@@ -64,6 +64,8 @@ class FakeRepository:
             "started_at": None,
             "finished_at": None,
         }
+        if strategy_id:
+            job["payload"]["strategy_id"] = strategy_id
         self.jobs[job_id] = job
         return job
 
@@ -317,6 +319,16 @@ class ApiV1Test(unittest.TestCase):
         )
         self.assertEqual(status.status_code, 200)
         self.assertEqual(status.json()["status"], "queued")
+
+        strategy_id = "00000000-0000-0000-0000-000000000099"
+        self.services.repository.get_strategy = lambda value: (
+            {"strategy_id": value} if value == strategy_id else None
+        )
+        selected = self.client.post(
+            f"/api/v1/reports/2026-09-23/refresh?strategy_id={strategy_id}"
+        )
+        self.assertEqual(selected.status_code, 202)
+        self.assertEqual(selected.json()["payload"]["strategy_id"], strategy_id)
 
     def test_report_refresh_rejects_invalid_date_and_unknown_job(self):
         invalid = self.client.post("/api/v1/reports/not-a-date/refresh")

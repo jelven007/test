@@ -1,4 +1,7 @@
 const byId = (id) => document.getElementById(id);
+const reportDateInput = byId("report-date");
+const refreshButton = byId("refresh-button");
+const sourceStatus = document.querySelector(".source-status");
 let latest = null;
 let selected = null;
 let connected = false;
@@ -238,22 +241,36 @@ function render(data) {
   write("monitor-error", data.error);
   write("connection", data.error ? "数据不可用 · 暂停判断" : "事件流已连接");
   byId("connection").dataset.error = String(Boolean(data.error));
+  sourceStatus.className = `source-status ${data.error ? "error" : "ready"}`;
+  reportDateInput.value = data.plan_date;
+  const params = new URLSearchParams(location.search);
+  if (!params.get("trade_date")) {
+    params.set("trade_date", data.plan_date);
+    history.replaceState(null, "", `${location.pathname}?${params}`);
+  }
   renderRows(data);
   renderDetail(data.stocks.find((stock) => stock.code === selected));
   renderEvents(data.events);
 }
 function markDisconnected(message) {
   connected = false;
+  sourceStatus.className = "source-status error";
   byId("monitor-error").hidden = false;
   write("monitor-error", `${message}；页面将自动重连，旧报价仅供核对。`);
   write("connection", "连接中断 · 暂停判断");
   byId("connection").dataset.error = "true";
 }
-async function sync() {
+async function sync({ userInitiated = false } = {}) {
   await window.strategyReady;
   if (inFlight) return;
   inFlight = true;
-  byId("sync-button").disabled = true;
+  refreshButton.disabled = true;
+  if (userInitiated) {
+    reportDateInput.disabled = true;
+    refreshButton.textContent = "生成中…";
+    write("connection", "正在按策略与日期生成");
+    sourceStatus.className = "source-status";
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
@@ -275,7 +292,9 @@ async function sync() {
   } finally {
     clearTimeout(timeout);
     inFlight = false;
-    byId("sync-button").disabled = false;
+    refreshButton.disabled = false;
+    reportDateInput.disabled = false;
+    refreshButton.textContent = "刷新";
   }
 }
 async function connectStream() {
@@ -286,6 +305,7 @@ async function connectStream() {
     connected = true;
     write("connection", "事件流已连接");
     byId("connection").dataset.error = "false";
+    sourceStatus.className = "source-status ready";
   };
   for (const name of ["snapshot", "decision.changed", "data.degraded"]) {
     eventSource.addEventListener(name, sync);
@@ -300,13 +320,48 @@ async function connectStream() {
 
 setInterval(() => {
   if (connected && Date.now() - lastPageSync > 15000) sync();
+  const today = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
   const age = latest?.collected_at
     ? Math.max(0, Math.floor((Date.now() + serverOffset - new Date(latest.collected_at).valueOf()) / 1000))
     : null;
-  write("countdown", age === null ? "等待首次行情" : `行情年龄 ${age}秒 · SSE 实时推送 · 5秒轮询兜底`);
+  write(
+    "countdown",
+    latest?.plan_date && latest.plan_date < today
+      ? "历史收盘快照 · mootdx 已验证"
+      : age === null
+        ? "等待首次行情"
+        : `行情年龄 ${age}秒 · SSE 实时推送 · 5秒轮询兜底`,
+  );
 }, 1000);
 setInterval(sync, 5000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) sync(); });
-byId("sync-button").addEventListener("click", sync);
-sync();
-connectStream();
+reportDateInput.addEventListener("change", () => {
+  if (!reportDateInput.value) return;
+  const params = new URLSearchParams(location.search);
+  params.set("trade_date", reportDateInput.value);
+  history.replaceState(null, "", `${location.pathname}?${params}`);
+  selected = null;
+  sync({ userInitiated: true });
+  connectStream();
+});
+refreshButton.addEventListener("click", () => sync({ userInitiated: true }));
+
+async function initialize() {
+  await window.strategyReady;
+  reportDateInput.max = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  reportDateInput.value = new URLSearchParams(location.search).get("trade_date") || "";
+  await sync();
+  connectStream();
+}
+
+initialize();
