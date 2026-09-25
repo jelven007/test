@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import argparse
-import json
 import signal
 import sys
 import threading
 from datetime import date, datetime, time
-from typing import Any, Optional, Sequence
+from typing import Any, Dict, Literal, Optional, Sequence, Union
 
 from .adapters.clickhouse import ClickHouseMarketHistoryStore
 from .adapters.kafka import KafkaEventConsumer, KafkaEventPublisher
 from .adapters.lease import PostgresAdvisoryLease
 from .adapters.minio import MinioObjectAssetStore
-from .adapters.postgres import PostgresStorage
+from .adapters.postgres import PostgresStorage, STRATEGY_CODE, _uuid
+from .adapters.strategy_catalog import CatalogConfigStore, SharedCollectionConfig
 from .adapters.redis import RedisSnapshotCache
 from .adapters.wal import SQLiteEventWAL
 from .api import ApiServices, create_api_app
@@ -42,6 +42,11 @@ from .contracts.topics import (
 )
 from .observability import configure_logging, start_metrics_server
 from .web_server import ReportStore
+from .ports.storage import ReportIdentity
+from .strategy_config import StrategyConfig, StrategyConfigStore, revision_for, version_for
+
+
+ReportRunResult = Union[Dict[str, Any], Literal[False]]
 
 
 def _postgres(settings: RuntimeSettings) -> PostgresStorage:
@@ -103,19 +108,48 @@ def _load_plan(settings: RuntimeSettings) -> ActivePlan:
 
 def _prepare_plan(repository: PostgresStorage, settings: RuntimeSettings) -> tuple[ActivePlan, Any]:
     plan = _load_plan(settings)
-    strategy_config = json.loads(
-        settings.strategy_config_path.read_text(encoding="utf-8")
-    )
+    if isinstance(repository, PostgresStorage):
+        day = repository.get_strategy_day(_uuid(f"strategy:{STRATEGY_CODE}"), plan.report["as_of"])
+        saved = day.get("next_plan") if day else None
+        if saved and saved.get("generated_at", "") >= plan.report.get("generated_at", ""):
+            plan = ActivePlan(report=saved, candidates=tuple(
+                {**item, "plan_date": saved["next_session"], "reference_date": saved["as_of"]}
+                for item in plan.candidates
+            ))
+    existing = repository.get_active_plan(plan.report.get("next_session"))
+    if (
+        existing and existing["reference_date"] == plan.report["as_of"]
+        and (not plan.report.get("strategy_version") or existing["strategy_version"] == plan.report["strategy_version"])
+    ):
+        return ActivePlan(
+            report={**plan.report, "strategy_version": existing["strategy_version"]},
+            candidates=plan.candidates,
+        ), ReportIdentity(
+            run_id=existing["run_id"], plan_id=existing["plan_id"],
+            strategy_version_id=existing["strategy_version_id"],
+        )
+    from dataclasses import asdict
+    strategy_config = plan.report.get("strategy_config") or asdict(StrategyConfig())
+    commit = plan.report.get("code_commit") or settings.storage.code_commit
+    version = plan.report.get("strategy_version") or version_for(strategy_config, settings.storage.strategy_version, commit)
     identity = repository.persist_report(
         plan.report,
-        strategy_version=settings.storage.strategy_version,
+        strategy_version=version,
         strategy_config=strategy_config,
-        code_commit=settings.storage.code_commit,
+        code_commit=commit,
     )
     if identity.plan_id is None:
         raise RuntimeError("active report did not produce a strategy plan")
     repository.persist_watchlist(identity.plan_id, plan.candidates)
-    return plan, identity
+    return ActivePlan(report={**plan.report, "strategy_version": version}, candidates=plan.candidates), identity
+
+
+def _config_store(settings: RuntimeSettings):
+    return StrategyConfigStore(settings.strategy_config_path, {
+        "report_schedule": ",".join(settings.report_schedule),
+        "quote_interval_seconds": settings.quote_interval_seconds,
+        "idle_interval_seconds": settings.idle_interval_seconds,
+    })
 
 
 def _run_polling_worker(worker: Any, logger: Any) -> None:
@@ -141,6 +175,10 @@ def _run_polling_worker(worker: Any, logger: Any) -> None:
 
 def run_collector(settings: RuntimeSettings, logger: Any) -> None:
     plan = _load_plan(settings)
+    repository = _postgres(settings)
+    def candidates():
+        return [{**item, "code": item["symbol"], "plan_date": current["trade_date"]}
+                for current in repository.list_monitor_plans() for item in current["candidates"]]
     reliable = ReliableEventPublisher(
         wal=SQLiteEventWAL(
             settings.wal_path,
@@ -157,6 +195,8 @@ def run_collector(settings: RuntimeSettings, logger: Any) -> None:
         ),
         quote_interval_seconds=settings.quote_interval_seconds,
         idle_interval_seconds=settings.idle_interval_seconds,
+        config_store=SharedCollectionConfig(repository, _config_store(settings)),
+        candidate_loader=candidates,
     )
 
     def request_stop(_signum, _frame):
@@ -169,6 +209,7 @@ def run_collector(settings: RuntimeSettings, logger: Any) -> None:
         collector.run_forever()
     finally:
         collector.close()
+        repository.close()
         logger.info("collector stopped")
 
 
@@ -198,13 +239,12 @@ def run_feature_worker(settings: RuntimeSettings, logger: Any) -> None:
 
 def run_strategy_engine(settings: RuntimeSettings, logger: Any) -> None:
     repository = _postgres(settings)
-    plan, identity = _prepare_plan(repository, settings)
     processor = StrategyEventProcessor(
         repository=repository,
-        plan_id=identity.plan_id,
-        strategy_version_id=identity.strategy_version_id,
-        strategy_version=settings.storage.strategy_version,
-        candidates=plan.candidates,
+        plan_id="",
+        strategy_version_id="",
+        strategy_version="",
+        candidates=(),
     )
     worker = StrategyWorker(
         consumer=_consumer(
@@ -218,6 +258,7 @@ def run_strategy_engine(settings: RuntimeSettings, logger: Any) -> None:
         ),
         processor=processor,
         plan_loader=repository.get_active_plan,
+        plans_loader=repository.list_monitor_plans,
     )
     _run_polling_worker(worker, logger)
 
@@ -262,11 +303,13 @@ def _generate_report(
     settings: RuntimeSettings,
     logger: Any,
     requested_date: date,
-) -> bool:
+    strategy_id: Optional[str] = None,
+) -> ReportRunResult:
     worker = ReportWorker(
         strategy_config_path=settings.strategy_config_path,
         output_dir=settings.report_output_dir,
         storage_settings=settings.storage,
+        **({"strategy_id": strategy_id} if strategy_id else {}),
     )
     try:
         report, paths, persistence = worker.run(requested_date)
@@ -286,10 +329,19 @@ def _generate_report(
             "plan_date": report.next_session,
             "candidate_count": len(report.candidates),
             "run_id": persistence.identity.run_id,
+            "strategy_version": report.strategy_version,
+            "strategy_revision": revision_for(report.strategy_config),
             "assets": [str(path) for path in paths.values()],
         },
     )
-    return True
+    return {
+        "trade_date": report.as_of,
+        "strategy_id": report.strategy_id,
+        "generated_at": report.generated_at,
+        "run_id": persistence.identity.run_id,
+        "strategy_version": report.strategy_version,
+        "strategy_revision": revision_for(report.strategy_config),
+    }
 
 
 def run_report_worker(settings: RuntimeSettings, logger: Any) -> None:
@@ -308,10 +360,12 @@ def _generate_scheduled_report(
     scheduled_at: datetime,
     stop: threading.Event,
     retry_delays: Sequence[float] = (5.0, 15.0, 45.0),
-) -> Optional[bool]:
+    strategy_id: Optional[str] = None,
+) -> Optional[ReportRunResult]:
     for attempt in range(len(retry_delays) + 1):
         try:
-            return _generate_report(settings, logger, requested_date)
+            return _generate_report(settings, logger, requested_date,
+                                    **({"strategy_id": strategy_id} if strategy_id else {}))
         except Exception:
             if attempt >= len(retry_delays):
                 logger.exception(
@@ -380,23 +434,24 @@ def _consume_report_refresh(
     try:
         requested_date = date.fromisoformat(str(job["payload"]["trade_date"]))
         requested_at = datetime.now(SHANGHAI)
+        get_active = getattr(repository, "get_active_strategy", None)
+        strategy = get_active() if get_active else None
+        if get_active and strategy is None:
+            raise ValueError("当前没有激活策略，请先激活策略后再刷新")
+        strategy_id = strategy["strategy_id"] if isinstance(strategy, dict) else None
         result = _generate_scheduled_report(
             settings,
             logger,
             requested_date,
             requested_at,
             stop,
+            **({"strategy_id": strategy_id} if strategy_id else {}),
         )
         if result:
             repository.finish_report_refresh(
                 job_id,
                 succeeded=True,
-                result={
-                    "trade_date": requested_date.isoformat(),
-                    "generated_at": datetime.now(SHANGHAI).isoformat(
-                        timespec="seconds"
-                    ),
-                },
+                result=result,
             )
             logger.info(
                 "report refresh completed",
@@ -438,57 +493,54 @@ def _consume_report_refresh(
 
 
 def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
-    schedule = parse_schedule(settings.report_schedule)
     stop = threading.Event()
     repository = _postgres(settings)
-
     def request_stop(_signum, _frame):
         stop.set()
-
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
-    logger.info(
-        "report scheduler started",
-        extra={
-            "timezone": str(SHANGHAI),
-            "schedule": [item.strftime("%H:%M") for item in schedule],
-        },
-    )
-    _catch_up_report(
-        settings,
-        logger,
-        schedule,
-        datetime.now(SHANGHAI),
-        stop,
-    )
-    scheduled_at = next_scheduled_at(datetime.now(SHANGHAI), schedule)
-    logger.info(
-        "next report scheduled",
-        extra={"scheduled_at": scheduled_at.isoformat()},
-    )
+    calendar_date = None
+    calendar_attempt = 0
+    checked = {}
+    logger.info("multi-strategy report scheduler started")
     try:
         while not stop.is_set():
             try:
                 _consume_report_refresh(repository, settings, logger, stop)
+                now = datetime.now(SHANGHAI)
+                if calendar_date != now.date() and now.timestamp() - calendar_attempt >= 300:
+                    from .mootdx_provider import MootdxProvider
+                    calendar_attempt = now.timestamp()
+                    try:
+                        repository.save_trading_sessions(MootdxProvider().trading_dates())
+                        calendar_date = now.date()
+                    except Exception:
+                        logger.exception("calendar refresh failed; retaining last verified calendar")
+                repository.ensure_strategy_days(now.date())
+                latest = repository.latest_closed_session(now)
+                strategy = repository.get_active_strategy()
+                for strategy in ([strategy] if strategy else []):
+                    if not latest or stop.is_set():
+                        continue
+                    sid = strategy["strategy_id"]
+                    store = CatalogConfigStore(repository, sid)
+                    schedule = parse_schedule(store.read().report_schedule.split(","))
+                    due = [datetime.combine(date.fromisoformat(latest), slot, tzinfo=SHANGHAI)
+                           for slot in schedule]
+                    due = [slot for slot in due if slot <= now]
+                    if not due:
+                        continue
+                    slot = max(due)
+                    # Retry failed slots after five minutes, without creating duplicate daily rows.
+                    if (now.timestamp() - checked.get((sid, slot), 0)) < 300:
+                        continue
+                    output = settings.report_output_dir / "strategies" / sid
+                    if report_is_fresh(output, slot):
+                        continue
+                    checked[(sid, slot)] = now.timestamp()
+                    _generate_scheduled_report(settings, logger, slot.date(), slot, stop, strategy_id=sid)
             except Exception:
-                logger.exception("report refresh queue check failed")
-            now = datetime.now(SHANGHAI)
-            if now >= scheduled_at:
-                _generate_scheduled_report(
-                    settings,
-                    logger,
-                    scheduled_at.date(),
-                    scheduled_at,
-                    stop,
-                )
-                scheduled_at = next_scheduled_at(
-                    datetime.now(SHANGHAI),
-                    schedule,
-                )
-                logger.info(
-                    "next report scheduled",
-                    extra={"scheduled_at": scheduled_at.isoformat()},
-                )
+                logger.exception("multi-strategy scheduler iteration failed")
             stop.wait(1.0)
     finally:
         repository.close()
@@ -503,7 +555,6 @@ def run_api(settings: RuntimeSettings, logger: Any) -> None:
             "API service requires `pip install -e '.[production]'`"
         ) from exc
     repository = _postgres(settings)
-    _prepare_plan(repository, settings)
     cache = _redis(settings)
     object_store = _minio(settings)
     kafka = _publisher(settings, "api-readiness")
@@ -517,6 +568,7 @@ def run_api(settings: RuntimeSettings, logger: Any) -> None:
         kafka_ready=kafka.ready,
         clickhouse_ready=clickhouse.ready,
         strategy_version=settings.storage.strategy_version,
+        config_store=_config_store(settings),
     )
     app = create_api_app(services)
     logger.info("api starting")

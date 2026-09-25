@@ -5,6 +5,7 @@ data
 logs
 reports
 scheduled_reports
+research
 **/__pycache__
 **/*.pyc
 deploy/compose/.env

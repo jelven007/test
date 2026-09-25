@@ -250,6 +250,7 @@ function markDisconnected(message) {
   byId("connection").dataset.error = "true";
 }
 async function sync() {
+  await window.strategyReady;
   if (inFlight) return;
   inFlight = true;
   byId("sync-button").disabled = true;
@@ -257,8 +258,8 @@ async function sync() {
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
     const [snapshotResponse, eventsResponse] = await Promise.all([
-      fetch("/api/v1/monitor", { cache: "no-store", signal: controller.signal }),
-      fetch("/api/v1/monitor/events?limit=40", { cache: "no-store", signal: controller.signal }),
+      fetch(window.strategyURL("/api/v1/monitor"), { cache: "no-store", signal: controller.signal }),
+      fetch(window.strategyURL("/api/v1/monitor/events?limit=40"), { cache: "no-store", signal: controller.signal }),
     ]);
     const snapshot = await snapshotResponse.json();
     const events = await eventsResponse.json();
@@ -277,9 +278,10 @@ async function sync() {
     byId("sync-button").disabled = false;
   }
 }
-function connectStream() {
+async function connectStream() {
+  await window.strategyReady;
   if (eventSource) eventSource.close();
-  eventSource = new EventSource("/api/v1/monitor/stream");
+  eventSource = new EventSource(window.strategyURL("/api/v1/monitor/stream"));
   eventSource.onopen = () => {
     connected = true;
     write("connection", "事件流已连接");

@@ -14,6 +14,7 @@ from ..ports.storage import (
     ReportAsset,
     ReportIdentity,
 )
+from .strategy_catalog import StrategyCatalogMixin
 
 
 IDENTITY_NAMESPACE = uuid.UUID("4b6067a1-05ca-4eaf-9c59-ed125f79cb45")
@@ -46,7 +47,7 @@ def _mapping(value: Any) -> Mapping[str, Any]:
     return value
 
 
-class PostgresStorage:
+class PostgresStorage(StrategyCatalogMixin):
     """Transactional report catalog and decision repository."""
 
     def __init__(
@@ -89,9 +90,10 @@ class PostgresStorage:
             raise ValueError("strategy_version is required")
         trade_date = str(report["as_of"])
         generated_at = _datetime(report["generated_at"])
-        strategy_id_seed = _uuid(f"strategy:{STRATEGY_CODE}")
+        strategy_code = report.get("strategy_code") or STRATEGY_CODE
+        strategy_id_seed = report.get("strategy_id") or _uuid(f"strategy:{strategy_code}")
         version_id_seed = _uuid(
-            f"strategy-version:{STRATEGY_CODE}:{strategy_version}"
+            f"strategy-version:{strategy_code}:{strategy_version}"
         )
         run_id_seed = _uuid(f"strategy-run:{version_id_seed}:{trade_date}")
         plan_id_seed = _uuid(f"strategy-plan:{version_id_seed}:{trade_date}")
@@ -104,15 +106,13 @@ class PostgresStorage:
                     INSERT INTO banxia.strategy_definition (
                         strategy_id, code, name, description
                     ) VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (code) DO UPDATE SET
-                        name = EXCLUDED.name,
-                        description = EXCLUDED.description
+                    ON CONFLICT (code) DO UPDATE SET code = EXCLUDED.code
                     RETURNING strategy_id
                     """,
                     (
                         strategy_id_seed,
-                        STRATEGY_CODE,
-                        "首板晋级二板策略",
+                        strategy_code,
+                        report.get("strategy_name") or "首板晋级二板策略",
                         "基于 mootdx 的沪深主板一进二条件筛选与盘中监控",
                     ),
                 )
@@ -217,8 +217,11 @@ class PostgresStorage:
                         WHERE trade_date = %s
                           AND plan_id <> %s
                           AND status = 'active'
+                          AND strategy_version_id IN (
+                            SELECT strategy_version_id FROM banxia.strategy_version WHERE strategy_id=%s
+                          )
                         """,
-                        (str(report["next_session"]), plan_id),
+                        (str(report["next_session"]), plan_id, strategy_id),
                     )
                     cursor.execute(
                         "DELETE FROM banxia.candidate WHERE plan_id = %s",
@@ -257,6 +260,7 @@ class PostgresStorage:
                                 candidate["position_limit_pct"],
                             ),
                         )
+                self._save_daily_report(cursor, strategy_id, {**report, "plan_id": plan_id})
                 for asset in assets:
                     cursor.execute(
                         """
@@ -276,6 +280,8 @@ class PostgresStorage:
                         ),
                     )
                 if enqueue_events:
+                    if plan_id is not None:
+                        self._persist_watchlist(cursor, plan_id, report.get("candidates", []))
                     self._enqueue_report_events(
                         cursor,
                         report=report,
@@ -431,77 +437,44 @@ class PostgresStorage:
         plan_id: str,
         candidates: Iterable[Mapping[str, Any]],
     ) -> str:
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                return self._persist_watchlist(cursor, plan_id, candidates)
+
+    @staticmethod
+    def _persist_watchlist(cursor, plan_id, candidates):
         from ..intraday import plan_for
 
         watchlist_id = _uuid(f"watchlist:{plan_id}")
-        candidates = tuple(candidates)
-        with self.connection_factory() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    INSERT INTO banxia.watchlist (
-                        watchlist_id, plan_id, source
-                    ) VALUES (%s, %s, 'daily_strategy_and_supplement')
-                    ON CONFLICT (plan_id) DO UPDATE SET
-                        source = EXCLUDED.source
-                    RETURNING watchlist_id
-                    """,
-                    (watchlist_id, plan_id),
-                )
-                watchlist_id = str(cursor.fetchone()[0])
-                cursor.execute(
-                    "DELETE FROM banxia.watchlist_item WHERE watchlist_id = %s",
-                    (watchlist_id,),
-                )
-                for index, candidate in enumerate(candidates):
-                    plan = plan_for(candidate)
-                    cursor.execute(
-                        """
-                        INSERT INTO banxia.watchlist_item (
-                            watchlist_id, symbol, name, industry, origin,
-                            display_order, eligible, eligibility_reason,
-                            reference_close, entry_rules, invalidation_rules
-                        ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            %s::jsonb, %s::jsonb
-                        )
-                        """,
-                        (
-                            watchlist_id,
-                            str(candidate["code"]),
-                            str(candidate["name"]),
-                            candidate.get("industry"),
-                            str(candidate.get("origin") or "report"),
-                            index,
-                            bool(plan["eligible"]),
-                            str(plan["eligibility_reason"]),
-                            plan["previous_close"],
-                            _json(
-                                {
-                                    key: plan[key]
-                                    for key in (
-                                        "limit_price",
-                                        "open_min_pct",
-                                        "open_max_pct",
-                                        "auction_low",
-                                        "auction_high",
-                                        "position_limit_pct",
-                                        "entry_trigger",
-                                    )
-                                }
-                            ),
-                            _json(
-                                {
-                                    key: plan[key]
-                                    for key in (
-                                        "reject_min_pct",
-                                        "reject_max_pct",
-                                        "invalidation",
-                                    )
-                                }
-                            ),
-                        ),
-                    )
+        cursor.execute(
+            """
+            INSERT INTO banxia.watchlist (watchlist_id, plan_id, source)
+            VALUES (%s, %s, 'daily_strategy_and_supplement')
+            ON CONFLICT (plan_id) DO UPDATE SET source = EXCLUDED.source
+            RETURNING watchlist_id
+            """,
+            (watchlist_id, plan_id),
+        )
+        watchlist_id = str(cursor.fetchone()[0])
+        cursor.execute("DELETE FROM banxia.watchlist_item WHERE watchlist_id = %s", (watchlist_id,))
+        for index, candidate in enumerate(candidates):
+            plan = plan_for(candidate)
+            cursor.execute(
+                """
+                INSERT INTO banxia.watchlist_item (
+                    watchlist_id, symbol, name, industry, origin,
+                    display_order, eligible, eligibility_reason,
+                    reference_close, entry_rules, invalidation_rules
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                """,
+                (
+                    watchlist_id, str(candidate["code"]), str(candidate["name"]),
+                    candidate.get("industry"), str(candidate.get("origin") or "report"),
+                    index, bool(plan["eligible"]), str(plan["eligibility_reason"]),
+                    plan["previous_close"], _json(plan),
+                    _json({key: plan[key] for key in ("reject_min_pct", "reject_max_pct", "invalidation")}),
+                ),
+            )
         return watchlist_id
 
     def apply(
@@ -522,7 +495,8 @@ class PostgresStorage:
         input_event_type = str(
             outbox_event.payload.get("source_event_type") or "unknown"
         )
-        input_topic = topic or f"direct:{input_event_type}"
+        input_topic = f"{topic or f'direct:{input_event_type}'}:plan:{decision.plan_id}"
+        scoped_event_id = _uuid(f"inbox:{decision.plan_id}:{input_event_id}")
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -534,7 +508,7 @@ class PostgresStorage:
                     RETURNING event_id
                     """,
                     (
-                        input_event_id,
+                        scoped_event_id,
                         input_event_type,
                         input_topic,
                         partition,
@@ -638,6 +612,18 @@ class PostgresStorage:
                         _json(outbox_event.to_dict()),
                         decision.occurred_at,
                     ),
+                )
+                cursor.execute(
+                    """UPDATE banxia.strategy_day d SET actuals =
+                       jsonb_set(jsonb_set(d.actuals,'{status}','"live"'::jsonb),
+                         ARRAY['stocks'], COALESCE(d.actuals->'stocks','{}'::jsonb) || %s::jsonb),
+                       updated_at=now()
+                       FROM banxia.strategy_plan p JOIN banxia.strategy_version v USING(strategy_version_id)
+                       WHERE p.plan_id=%s AND d.strategy_id=v.strategy_id AND d.trade_date=p.trade_date
+                       AND d.execution_plan->>'plan_id'=%s
+                       AND d.trade_date=%s AND COALESCE(d.actuals->>'status','') <> 'complete'""",
+                    (_json({decision.symbol: outbox_event.payload}), decision.plan_id,
+                     decision.plan_id, decision.occurred_at.date()),
                 )
         return True
 
@@ -751,12 +737,13 @@ class PostgresStorage:
     def get_active_plan(
         self,
         trade_date: Optional[str] = None,
+        strategy_id: Optional[str] = None,
     ) -> Optional[Mapping[str, Any]]:
-        params = ()
+        params = (strategy_id or _uuid(f"strategy:{STRATEGY_CODE}"),)
         date_filter = ""
         if trade_date is not None:
             date_filter = "AND plan.trade_date = %s"
-            params = (trade_date,)
+            params = (*params, trade_date)
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -766,11 +753,13 @@ class PostgresStorage:
                         plan.reference_date,
                         plan.trade_date,
                         version.version,
-                        plan.strategy_version_id
+                        plan.strategy_version_id,
+                        plan.run_id
                     FROM banxia.strategy_plan AS plan
                     JOIN banxia.strategy_version AS version
                       ON version.strategy_version_id = plan.strategy_version_id
                     WHERE plan.status = 'active'
+                      AND version.strategy_id = %s
                       {date_filter}
                     ORDER BY plan.trade_date DESC, plan.created_at DESC
                     LIMIT 1
@@ -845,6 +834,7 @@ class PostgresStorage:
             "trade_date": row[2].isoformat(),
             "strategy_version": str(row[3]),
             "strategy_version_id": str(row[4]),
+            "run_id": str(row[5]),
             "candidates": candidates,
         }
 
@@ -952,12 +942,15 @@ class PostgresStorage:
         trade_date: str,
         *,
         requested_by: str = "web",
+        strategy_id: Optional[str] = None,
     ) -> Mapping[str, Any]:
         job_id = str(uuid.uuid4())
         payload = {
             "trade_date": trade_date,
             "requested_by": requested_by,
         }
+        if strategy_id:
+            payload["strategy_id"] = strategy_id
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -1089,6 +1082,7 @@ class PostgresStorage:
         self,
         trade_date: str,
         asset_format: str,
+        strategy_id: Optional[str] = None,
     ) -> Optional[Mapping[str, Any]]:
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
@@ -1102,13 +1096,15 @@ class PostgresStorage:
                     FROM banxia.report_asset AS asset
                     JOIN banxia.strategy_run AS run
                       ON run.run_id = asset.run_id
+                    JOIN banxia.strategy_version AS v ON v.strategy_version_id=run.strategy_version_id
                     WHERE run.trade_date = %s
                       AND asset.format = %s
+                      AND v.strategy_id=%s
                       AND run.status = 'succeeded'
                     ORDER BY run.finished_at DESC, asset.created_at DESC
                     LIMIT 1
                     """,
-                    (trade_date, asset_format),
+                    (trade_date, asset_format, strategy_id or _uuid(f"strategy:{STRATEGY_CODE}")),
                 )
                 row = cursor.fetchone()
         if row is None:
@@ -1119,6 +1115,31 @@ class PostgresStorage:
             "content_type": str(row[2]),
             "size_bytes": int(row[3]),
         }
+
+    def list_research_runs(self):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT run_id, start_date, end_date, created_at,
+                              payload->'strategy'->>'status'
+                       FROM banxia.research_run ORDER BY created_at DESC LIMIT 50"""
+                )
+                rows = cursor.fetchall()
+        return [{"run_id": str(row[0]), "start_date": str(row[1]),
+                 "end_date": str(row[2]), "created_at": row[3].isoformat(),
+                 "strategy_status": row[4]} for row in rows]
+
+    def get_research_run(self, run_id):
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT payload, assets FROM banxia.research_run WHERE run_id = %s",
+                    (run_id,),
+                )
+                row = cursor.fetchone()
+        if row is None:
+            return None
+        return {**dict(_mapping(row[0])), "assets": row[1]}
 
     def close(self) -> None:
         if self._pool is not None:

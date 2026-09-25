@@ -21,6 +21,7 @@ from .domain.intraday import (
     phase_at,
 )
 from .mootdx_provider import MootdxProvider
+from .strategy_config import StrategyConfigStore
 
 
 WATCH_CODES = ("002635", "603328", "002849")
@@ -105,8 +106,13 @@ def plan_for(candidate):
     reject_low, reject_high = (
         (float(abandon[1]), float(abandon[2])) if abandon else (None, None)
     )
+    rules = candidate.get("plan") or {}
+    low, high = rules.get("open_min_pct", low), rules.get("open_max_pct", high)
+    reject_low = rules.get("reject_min_pct", reject_low)
+    reject_high = rules.get("reject_max_pct", reject_high)
     close = number(candidate.get("latest_price"), 0)
     return {
+        **rules,
         "previous_close": close,
         "limit_price": price_at(close, 10),
         "open_min_pct": low, "open_max_pct": high,
@@ -155,8 +161,9 @@ def normalize_quote(raw, bars, now, plan):
         (now - datetime.fromisoformat(candles[-1]["time"])).total_seconds()
         if candles else None
     )
-    clock_fresh = quote_age is not None and -5 <= quote_age <= 180
-    valid_day = bar_age is not None and 0 <= bar_age <= 180
+    max_age = plan.get("quote_max_age_seconds", 180)
+    clock_fresh = quote_age is not None and -5 <= quote_age <= max_age
+    valid_day = bar_age is not None and 0 <= bar_age <= max_age
     fresh = clock_fresh and (valid_day if phase in ("morning", "afternoon") else True)
     ratio = None
     if len(candles) >= 6:
@@ -260,7 +267,8 @@ class MootdxLiveSource:
 class IntradayMonitor:
     def __init__(self, report, codes=None, source=None, interval=None, log_dir=None, clock=None,
                  supplements=None, quote_interval=1, bar_interval=60, idle_interval=60,
-                 storage_sink=None):
+                 storage_sink=None, config_path=None):
+        self.config_store = StrategyConfigStore(config_path) if config_path else None
         self.report = copy.deepcopy(report or {})
         candidates = {
             item["code"]: {
@@ -316,6 +324,12 @@ class IntradayMonitor:
             close_storage()
 
     def _collection_interval(self, now):
+        if self.config_store:
+            cfg = self.config_store.read()
+            self.quote_interval = cfg.quote_interval_seconds
+            self.bar_interval = cfg.bar_interval_seconds
+            self.idle_interval = cfg.idle_interval_seconds
+            self.source.bar_interval = self.bar_interval
         return self.quote_interval if phase_at(now) in ACTIVE_PHASES else self.idle_interval
 
     def _next_delay(self, now):

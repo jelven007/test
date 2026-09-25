@@ -233,13 +233,18 @@ class MootdxProvider:
     @staticmethod
     def _is_holiday(value: date) -> bool:
         try:
-            from mootdx.utils.holiday import holiday
-
+            from mootdx.utils.holiday import _holiday
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", FutureWarning)
-                return bool(holiday(date=value.isoformat()))
-        except Exception:
-            return False
+                calendar = _holiday()
+                if calendar is None or calendar.empty or "中国" not in set(calendar["国家"]):
+                    raise ValueError("mootdx 未返回有效休市日历")
+                # mootdx's holiday() compares DatetimeIndex with datetime.date;
+                # pandas 3 no longer coerces that comparison and misses holidays.
+                closed = set(calendar[calendar["国家"] == "中国"].index.date)
+                return value.weekday() >= 5 or value in closed
+        except Exception as exc:
+            raise RuntimeError("无法验证 mootdx 休市日历，停止推测下一交易日") from exc
 
     def _load_universe(self) -> None:
         if self._names:

@@ -77,14 +77,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _run(args: argparse.Namespace) -> int:
+    from .strategy_config import stamp_report
+
     config = StrategyConfig.from_file(args.config)
     report = StrategyEngine(MootdxProvider(), config).run(args.date)
+    settings = StorageSettings.from_env()
+    stamp_report(report, settings)
     paths = write_report(report, args.output)
     persistence = persist_report_copy(
         report.to_dict(),
         paths,
         strategy_config=asdict(config),
-        settings=StorageSettings.from_env(),
+        settings=settings,
         enqueue_events=True,
     )
     if persistence.identity is not None:

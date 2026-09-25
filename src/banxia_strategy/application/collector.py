@@ -29,8 +29,10 @@ class MarketCollector:
         clock: Optional[Any] = None,
         quote_interval_seconds: float = 1.0,
         idle_interval_seconds: float = 60.0,
+        config_store=None,
+        candidate_loader=None,
     ):
-        if not candidates:
+        if not candidates and candidate_loader is None:
             raise ValueError("collector requires at least one watchlist candidate")
         if quote_interval_seconds <= 0 or idle_interval_seconds <= 0:
             raise ValueError("collector intervals must be positive")
@@ -42,6 +44,8 @@ class MarketCollector:
         self.clock = clock or now_shanghai
         self.quote_interval_seconds = quote_interval_seconds
         self.idle_interval_seconds = idle_interval_seconds
+        self.config_store = config_store
+        self.candidate_loader = candidate_loader
         self.stop_event = threading.Event()
         self._bar_event_ids = set()
         self._lock = threading.Lock()
@@ -60,9 +64,23 @@ class MarketCollector:
         if now.weekday() >= 5:
             return False
         minute = now.hour * 60 + now.minute
-        return 9 * 60 + 15 <= minute < 15 * 60
+        return 9 * 60 + 15 <= minute < 11 * 60 + 30 or 13 * 60 <= minute < 15 * 60
+
+    def reload_intervals(self):
+        if self.config_store is not None:
+            cfg = self.config_store.read()
+            self.quote_interval_seconds = cfg.quote_interval_seconds
+            self.idle_interval_seconds = cfg.idle_interval_seconds
+            self.source.bar_interval = cfg.bar_interval_seconds
 
     def collect_once(self) -> int:
+        if self.candidate_loader is not None:
+            candidates = self.candidate_loader()
+            unique = {str(item["code"]): dict(item) for item in candidates}
+            self.candidates = tuple(unique.values())
+            self.codes = tuple(unique)
+        if not self.codes:
+            return 0
         if self.lease is not None and not self.lease.try_acquire():
             with self._lock:
                 self._status["leader"] = False
@@ -137,6 +155,7 @@ class MarketCollector:
             while not self.stop_event.is_set():
                 started = time.monotonic()
                 try:
+                    self.reload_intervals()
                     self.collect_once()
                 except Exception:
                     pass

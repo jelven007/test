@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import shutil
 import sys
 from datetime import datetime
 from http import HTTPStatus
@@ -13,7 +14,9 @@ from urllib.parse import unquote, urlparse
 
 from .application.persistence import build_market_persistence
 from .intraday import IntradayMonitor, load_watchlist
+from .research_files import LocalResearchStore
 from .storage_config import StorageSettings
+from .strategy_config import ConfigConflict, ConfigError, StrategyConfigStore
 
 
 REPORT_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -66,6 +69,7 @@ class ReportStore:
                     "regime": market.get("regime"),
                     "market_score": market.get("score"),
                     "candidate_count": len(report["candidates"]),
+                    "strategy_version": report.get("strategy_version"),
                 }
             )
         return result
@@ -87,12 +91,45 @@ def _json_bytes(payload: Any) -> bytes:
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
 
-def make_handler(store: ReportStore, static_root: Path, monitor=None):
+def make_handler(store: ReportStore, static_root: Path, monitor=None, config_store=None, research_store=None):
+    config_store = config_store or StrategyConfigStore(Path("config/strategy.json"))
+    research_store = research_store or LocalResearchStore()
+
     class DashboardHandler(BaseHTTPRequestHandler):
         server_version = "BanxiaDashboard/0.1"
 
+        def do_PUT(self) -> None:
+            if urlparse(self.path).path != "/api/v1/strategy-config":
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 65536:
+                    raise ValueError("参数内容长度不正确")
+                payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload, dict) or set(payload) != {"config", "revision"}:
+                    raise ValueError("请求必须包含 config 和 revision")
+                self._send_json(config_store.save(payload["config"], payload["revision"]))
+            except (ValueError, OSError) as exc:
+                status = 409 if isinstance(exc, ConfigConflict) else 503 if isinstance(exc, OSError) else 422
+                self._send_json({"error": {"message": str(exc), "details": {
+                    "fields": exc.errors if isinstance(exc, ConfigError) else {},
+                }}}, status)
+
         def do_GET(self) -> None:
             path = unquote(urlparse(self.path).path)
+            if path == "/api/v1/research":
+                self._send_json({"items": research_store.list_research_runs()})
+                return
+            if path.startswith("/api/v1/research/"):
+                self._send_research(path)
+                return
+            if path == "/api/v1/strategy-config":
+                try:
+                    self._send_json(config_store.payload())
+                except (ValueError, OSError) as exc:
+                    self._send_json({"error": {"message": str(exc)}}, 503)
+                return
             if path == "/api/health":
                 self._send_json(
                     {
@@ -133,7 +170,41 @@ def make_handler(store: ReportStore, static_root: Path, monitor=None):
                 path = "/index.html"
             elif path in ("/monitor", "/monitor/"):
                 path = "/monitor.html"
+            elif path in ("/strategy", "/strategy/"):
+                path = "/strategy.html"
+            elif path in ("/research", "/research/"):
+                path = "/research.html"
             self._send_static(path)
+
+        def _send_research(self, path):
+            parts = path.removeprefix("/api/v1/research/").split("/")
+            try:
+                payload = research_store.get_research_run(parts[0])
+            except ValueError:
+                self._send_json({"error": {"message": "invalid research run id"}}, 400)
+                return
+            if payload is None:
+                self._send_json({"error": {"message": "research run not found"}}, 404)
+                return
+            if len(parts) == 1:
+                self._send_json(payload)
+                return
+            filename = (
+                "optimized-strategy.json" if parts[1:] == ["strategy"]
+                else parts[2] if len(parts) == 3 and parts[1] == "assets" else ""
+            )
+            asset = research_store.asset_path(parts[0], filename)
+            if asset is None:
+                self._send_json({"error": {"message": "research asset not found"}}, 404)
+                return
+            with asset.open("rb") as stream:
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", mimetypes.guess_type(asset.name)[0] or "application/octet-stream")
+                self.send_header("Content-Length", str(asset.stat().st_size))
+                self.send_header("Content-Disposition", f'attachment; filename="{asset.name}"')
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                shutil.copyfileobj(stream, self.wfile)
 
         def _send_json(self, payload: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
             body = _json_bytes(payload)
@@ -177,10 +248,14 @@ def make_server(
     host: str = "127.0.0.1",
     port: int = 8765,
     monitor=None,
+    config_path=Path("config/strategy.json"),
+    research_root=Path("research"),
 ) -> ThreadingHTTPServer:
     static_root = Path(__file__).with_name("web")
     store = ReportStore(report_roots)
-    return ThreadingHTTPServer((host, port), make_handler(store, static_root, monitor))
+    return ThreadingHTTPServer((host, port), make_handler(
+        store, static_root, monitor, StrategyConfigStore(config_path), LocalResearchStore(research_root),
+    ))
 
 
 def select_watch_report(store, watch_date=None):
@@ -220,7 +295,7 @@ def serve_dashboard(
             print(f"[storage] dual-write disabled after initialization failure: {exc}", file=sys.stderr)
     monitor = IntradayMonitor(
         report, log_dir=monitor_log_dir, supplements=load_watchlist(watchlist_path),
-        storage_sink=storage_sink,
+        storage_sink=storage_sink, config_path=Path("config/strategy.json"),
     )
     server = make_server(report_roots, host, port, monitor)
     monitor.start()

@@ -84,6 +84,9 @@ def persist_report_copy(
     if not settings.enabled:
         return PersistenceResult(enabled=False)
 
+    strategy_version = report.get("strategy_version") or settings.strategy_version
+    strategy_config = report.get("strategy_config") or strategy_config
+    code_commit = report.get("code_commit") or settings.code_commit
     errors: List[str] = []
     assets: List[ReportAsset] = []
     object_store = None
@@ -95,7 +98,7 @@ def persist_report_copy(
                 content = path.read_bytes()
                 digest = hashlib.sha256(content).hexdigest()
                 object_key = (
-                    f"strategy_version={_safe_segment(settings.strategy_version)}/"
+                    f"strategy_version={_safe_segment(strategy_version)}/"
                     f"trade_date={report['as_of']}/sha256={digest}/"
                     f"{path.name}"
                 )
@@ -106,10 +109,10 @@ def persist_report_copy(
                             content=content,
                             content_type=CONTENT_TYPES[format_name],
                             metadata={
-                                "report_id": f"{report['as_of']}:{settings.strategy_version}",
+                                "report_id": f"{report['as_of']}:{strategy_version}",
                                 "format": format_name,
                                 "trade_date": str(report["as_of"]),
-                                "strategy_version": settings.strategy_version,
+                                "strategy_version": strategy_version,
                             },
                         )
                     )
@@ -123,9 +126,9 @@ def persist_report_copy(
             repository = _create_postgres(settings)
             identity = repository.persist_report(
                 report,
-                strategy_version=settings.strategy_version,
+                strategy_version=strategy_version,
                 strategy_config=strategy_config,
-                code_commit=settings.code_commit,
+                code_commit=code_commit,
                 assets=assets,
                 enqueue_events=enqueue_events,
             )
@@ -574,9 +577,9 @@ def build_market_persistence(
         created.append(repository)
         identity = repository.persist_report(
             report,
-            strategy_version=settings.strategy_version,
-            strategy_config=strategy_config,
-            code_commit=settings.code_commit,
+            strategy_version=report.get("strategy_version") or settings.strategy_version,
+            strategy_config=report.get("strategy_config") or strategy_config,
+            code_commit=report.get("code_commit") or settings.code_commit,
         )
         market_store = _create_clickhouse(settings)
         created.append(market_store)

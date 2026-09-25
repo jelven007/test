@@ -2,13 +2,16 @@ import asyncio
 import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
 from .domain.intraday import PHASE_LABELS, SHANGHAI, phase_at
 from .web_server import ReportStore
+from .strategy_config import ConfigConflict, ConfigError, StrategyConfig, StrategyConfigStore, revision_for
+from .adapters.postgres import STRATEGY_CODE
+from .adapters.strategy_catalog import CatalogConfigStore
 
 
 @dataclass
@@ -21,6 +24,7 @@ class ApiServices:
     kafka_ready: Optional[Callable[[], bool]] = None
     clickhouse_ready: Optional[Callable[[], bool]] = None
     strategy_version: str = "v1"
+    config_store: Optional[StrategyConfigStore] = None
 
 
 def _now() -> str:
@@ -35,7 +39,7 @@ def _report_summary(item: Mapping[str, Any], strategy_version: str = "v1"):
         "candidate_count": item.get("candidate_count", 0),
         "market_regime": item.get("regime"),
         "market_score": item.get("market_score"),
-        "strategy_version": strategy_version,
+        "strategy_version": item.get("strategy_version") or strategy_version,
     }
 
 
@@ -52,7 +56,14 @@ def _report_payload(report: Mapping[str, Any], strategy_version: str = "v1"):
         "candidate_count": len(candidates),
         "market_regime": report["market"].get("regime"),
         "market_score": report["market"].get("score"),
-        "strategy_version": strategy_version,
+        "strategy_version": report.get("strategy_version") or strategy_version,
+        "strategy_revision": (
+            revision_for(report["strategy_config"])
+            if report.get("strategy_config")
+            else None
+        ),
+        "strategy_config": report.get("strategy_config", {}),
+        "constraints": report.get("constraints", {}),
         "market": report["market"],
         "candidates": candidates,
         "data_source": report.get("data_source"),
@@ -198,7 +209,8 @@ def create_api_app(services: ApiServices):
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         if (
-            request.url.path in {"/", "/monitor"}
+            request.url.path in {"/", "/monitor", "/strategy", "/research", "/api/v1/strategy-config"}
+            or request.url.path.startswith("/api/v1/research")
             or request.url.path.endswith((".css", ".js"))
         ):
             response.headers["Cache-Control"] = "no-store"
@@ -214,11 +226,159 @@ def create_api_app(services: ApiServices):
         )
         return response
 
-    def active_plan(trade_date: Optional[str] = None):
-        plan = services.repository.get_active_plan(trade_date)
+    def active_plan(trade_date: Optional[str] = None, strategy_id: Optional[str] = None):
+        active = active_strategy() if not strategy_id else None
+        strategy_id = strategy_id or (active["strategy_id"] if active else None)
+        if strategy_id:
+            require_strategy(strategy_id)
+        plan = services.repository.get_active_plan(
+            trade_date, **({"strategy_id": strategy_id} if strategy_id else {})
+        )
+        if plan is None and strategy_id and trade_date:
+            day = services.repository.get_strategy_day(strategy_id, trade_date)
+            execution = day.get("execution_plan") if day else None
+            if execution:
+                plan = {
+                    "plan_id": execution.get("plan_id") or "",
+                    "reference_date": execution["as_of"], "trade_date": trade_date,
+                    "strategy_version": execution.get("strategy_version", ""),
+                    "candidates": [{**c, "symbol": c["code"]} for c in execution["candidates"]],
+                }
+            elif day:
+                plan = {"plan_id": "", "reference_date": None, "trade_date": trade_date,
+                        "strategy_version": "", "candidates": []}
         if plan is None:
             raise HTTPException(status_code=503, detail="active plan is unavailable")
         return plan
+
+    config_store = services.config_store or StrategyConfigStore(Path("config/strategy.json"))
+
+    def require_strategy(strategy_id):
+        try:
+            uuid.UUID(strategy_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="策略 ID 无效")
+        item = services.repository.get_strategy(strategy_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="策略不存在")
+        return item
+
+    def active_strategy():
+        getter = getattr(services.repository, "get_active_strategy", None)
+        if getter is None:
+            return None
+        item = getter()
+        if item is None:
+            raise HTTPException(status_code=409, detail="当前没有激活策略，请先在策略管理中激活一条策略")
+        return item
+
+    def selected_store(strategy_id):
+        item = require_strategy(strategy_id) if strategy_id else active_strategy()
+        return CatalogConfigStore(services.repository, item["strategy_id"]) if item else config_store
+
+    @app.get("/api/v1/strategies")
+    def strategies():
+        items = services.repository.list_strategies()
+        for item in items:
+            item["revision"] = selected_store(item["strategy_id"]).payload()["revision"]
+            item.pop("config", None)
+        return {"items": items}
+
+    @app.post("/api/v1/strategies", status_code=201)
+    async def create_strategy(request: Request):
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict):
+                raise ValueError("请求必须为对象")
+            if set(payload) - {"name", "parent_strategy_id", "config", "revision", "activate"}:
+                raise ValueError("请求字段无效")
+            parent_id = payload.get("parent_strategy_id")
+            if not parent_id:
+                raise ValueError("必须指定来源策略")
+            parent_payload = selected_store(parent_id).payload()
+            if payload.get("revision") != parent_payload["revision"]:
+                raise ConfigConflict("来源策略已变化，请重新加载")
+            config = payload.get("config", parent_payload["config"])
+            validated = asdict(StrategyConfig.from_mapping(config))
+            changes = {
+                key: {"from": parent_payload["config"].get(key), "to": value}
+                for key, value in validated.items()
+                if parent_payload["config"].get(key) != value
+            }
+            item = services.repository.create_strategy(
+                payload.get("name"), validated, parent_strategy_id=parent_id,
+                config_changes=changes, enabled=payload.get("activate") is True,
+            )
+            return item
+        except ConfigConflict as exc:
+            return error_response(request, status_code=409, code="CONFIG_CONFLICT", message=str(exc))
+        except (ConfigError, ValueError, TypeError) as exc:
+            return error_response(request, status_code=422, code="VALIDATION_ERROR", message=str(exc))
+
+    @app.patch("/api/v1/strategies/{strategy_id}")
+    async def update_strategy(strategy_id: str, request: Request):
+        item = require_strategy(strategy_id)
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict) or set(payload) - {"enabled"} or "enabled" not in payload:
+                raise ValueError("仅允许修改激活状态")
+            return services.repository.update_strategy(
+                strategy_id, enabled=payload["enabled"], archived=False,
+            )
+        except (ValueError, TypeError) as exc:
+            return error_response(request, status_code=422, code="VALIDATION_ERROR", message=str(exc))
+
+    @app.delete("/api/v1/strategies/{strategy_id}", status_code=204)
+    def delete_strategy(strategy_id: str):
+        require_strategy(strategy_id)
+        services.repository.update_strategy(strategy_id, enabled=False, archived=True)
+        return Response(status_code=204)
+
+    @app.get("/api/v1/strategies/{strategy_id}/days")
+    def strategy_days(strategy_id: str, limit: int = 100, before: Optional[str] = None):
+        require_strategy(strategy_id)
+        if not 1 <= limit <= 200:
+            raise HTTPException(status_code=400, detail="limit must be 1..200")
+        if before:
+            try:
+                date.fromisoformat(before)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="日期无效")
+        return {"items": services.repository.list_strategy_days(strategy_id, limit, before)}
+
+    @app.get("/api/v1/strategies/{strategy_id}/days/{trade_date}")
+    def strategy_day(strategy_id: str, trade_date: str):
+        require_strategy(strategy_id)
+        try:
+            result = services.repository.get_strategy_day(strategy_id, trade_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="日期无效")
+        if result is None:
+            raise HTTPException(status_code=404, detail="此交易日暂无记录")
+        return result
+
+    @app.get("/api/v1/strategy-config")
+    def strategy_config(strategy_id: Optional[str] = None):
+        try:
+            return selected_store(strategy_id).payload()
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail=f"无法读取策略参数：{exc}") from exc
+
+    @app.put("/api/v1/strategy-config")
+    async def save_strategy_config(request: Request, strategy_id: Optional[str] = None):
+        if not hasattr(services.repository, "get_active_strategy"):
+            try:
+                payload = await request.json()
+                return config_store.save(payload["config"], payload["revision"])
+            except ConfigConflict as exc:
+                return error_response(request, status_code=409, code="CONFIG_CONFLICT", message=str(exc))
+            except ConfigError as exc:
+                return error_response(request, status_code=422, code="VALIDATION_ERROR",
+                                      message=str(exc), details={"fields": exc.errors})
+        return error_response(
+            request, status_code=409, code="IMMUTABLE_STRATEGY",
+            message="已保存策略不可覆盖，请保存为新策略",
+        )
 
     @app.get("/api/v1/health/live")
     def health_live():
@@ -264,8 +424,13 @@ def create_api_app(services: ApiServices):
         }
 
     @app.get("/api/v1/monitor")
-    def monitor(trade_date: Optional[str] = None, symbols: Optional[str] = None):
-        plan = active_plan(trade_date)
+    def monitor(trade_date: Optional[str] = None, symbols: Optional[str] = None, strategy_id: Optional[str] = None):
+        active = active_strategy() if not strategy_id else None
+        strategy_id = strategy_id or (active["strategy_id"] if active else None)
+        plan = active_plan(trade_date, strategy_id)
+        day = services.repository.get_strategy_day(strategy_id, plan["trade_date"]) if strategy_id else None
+        actuals = day.get("actuals", {}) if day else {}
+        outcomes = {item["symbol"]: item for item in actuals.get("outcomes", [])}
         selected = set(symbols.split(",")) if symbols else None
         stocks = []
         ages = []
@@ -284,7 +449,25 @@ def create_api_app(services: ApiServices):
             )
             quote = quote_event["payload"] if quote_event else {}
             feature = feature_event["payload"] if feature_event else {}
+            if (quote.get("trade_date") or str(quote.get("source_time", ""))[:10]) != plan["trade_date"]:
+                quote = {}
+                feature = {}
             decision = decision_event["payload"] if decision_event else {}
+            saved = actuals.get("stocks", {}).get(symbol)
+            if not decision and saved:
+                decision = saved
+            outcome = outcomes.get(symbol)
+            if outcome and outcome.get("status") == "observed":
+                quote = {
+                    "price": outcome["close"], "open": outcome["open"],
+                    "high": outcome["high"], "low": outcome["low"],
+                    "previous_close": outcome["reference_close"],
+                    "source_time": plan["trade_date"] + "T15:00:00+08:00",
+                    "collected_at": day["updated_at"],
+                }
+                feature = {}
+                decision = {"state": "expired", "label": "收盘封板" if outcome["closed_limit_up"] else "收盘未封板",
+                            "reason": outcome["reason"], "updated_at": day["updated_at"]}
             get_bars = getattr(services.cache, "get_minute_bars", None)
             cached_bars = get_bars(symbol, limit=240) if get_bars else ()
             bars = [
@@ -428,8 +611,12 @@ def create_api_app(services: ApiServices):
         end_time: Optional[str] = None,
         cursor: Optional[str] = None,
         limit: int = 50,
+        strategy_id: Optional[str] = None,
+        trade_date: Optional[str] = None,
     ):
-        plan = active_plan()
+        plan = active_plan(trade_date, strategy_id)
+        if not plan["plan_id"]:
+            return {"items": [], "next_cursor": None}
         if limit < 1 or limit > 200:
             raise HTTPException(status_code=400, detail="limit must be 1..200")
         items = list(
@@ -456,8 +643,8 @@ def create_api_app(services: ApiServices):
         }
 
     @app.get("/api/v1/monitor/stream")
-    async def monitor_stream(request: Request):
-        plan = active_plan()
+    async def monitor_stream(request: Request, strategy_id: Optional[str] = None, trade_date: Optional[str] = None):
+        plan = active_plan(trade_date, strategy_id)
         last_id = request.headers.get("Last-Event-ID", "$")
 
         async def events():
@@ -484,6 +671,9 @@ def create_api_app(services: ApiServices):
                     yield "event: heartbeat\ndata: {}\n\n"
                     continue
                 for cursor, envelope in rows:
+                    if (envelope.get("event_type") == "strategy.decision.v1"
+                            and envelope.get("payload", {}).get("plan_id") != plan["plan_id"]):
+                        continue
                     event_type = (
                         "decision.changed"
                         if envelope.get("event_type") == "strategy.decision.v1"
@@ -504,45 +694,49 @@ def create_api_app(services: ApiServices):
         )
 
     @app.get("/api/v1/reports")
-    def reports(limit: int = 50, cursor: Optional[str] = None):
+    def reports(limit: int = 50, cursor: Optional[str] = None, strategy_id: Optional[str] = None):
         if limit < 1 or limit > 200:
             raise HTTPException(status_code=400, detail="limit must be 1..200")
-        all_items = services.reports.list_reports()
-        if cursor is not None:
-            all_items = [
-                item for item in all_items if str(item["as_of"]) < cursor
-            ]
-        selected = all_items[: limit + 1]
-        has_more = len(selected) > limit
-        selected = selected[:limit]
-        return {
-            "items": [
-                _report_summary(item, services.strategy_version)
-                for item in selected
-            ],
-            "next_cursor": (
-                str(selected[-1]["as_of"])
-                if has_more and selected
-                else None
-            ),
-        }
+        active = active_strategy() if not strategy_id else None
+        strategy_id = strategy_id or (active["strategy_id"] if active else None)
+        if not strategy_id:
+            all_items = services.reports.list_reports()
+            if cursor is not None:
+                all_items = [item for item in all_items if str(item["as_of"]) < cursor]
+            selected = all_items[:limit + 1]
+            return {"items": [_report_summary(item, services.strategy_version) for item in selected[:limit]],
+                    "next_cursor": str(selected[limit - 1]["as_of"]) if len(selected) > limit else None}
+        require_strategy(strategy_id)
+        rows = services.repository.list_strategy_days(strategy_id, limit, cursor)
+        return {"items": [{"trade_date": row["trade_date"], "plan_date": row["plan_date"],
+                          "candidate_count": row["candidate_count"], "strategy_version": row["strategy_version"]}
+                         for row in rows if row["plan_status"] == "ready"],
+                "next_cursor": rows[-1]["trade_date"] if len(rows) == limit else None}
 
     @app.get("/api/v1/reports/{tradeDate}")
-    def report(tradeDate: str):
-        value = services.reports.get(tradeDate)
+    def report(tradeDate: str, strategy_id: Optional[str] = None):
+        active = active_strategy() if not strategy_id else None
+        strategy_id = strategy_id or (active["strategy_id"] if active else None)
+        value = strategy_day(strategy_id, tradeDate)["next_plan"] if strategy_id else services.reports.get(tradeDate)
         if value is None:
             raise HTTPException(status_code=404, detail="report not found")
         return _report_payload(value, services.strategy_version)
 
     @app.post("/api/v1/reports/{tradeDate}/refresh", status_code=202)
-    def refresh_report(tradeDate: str, request: Request):
+    def refresh_report(tradeDate: str, request: Request, strategy_id: Optional[str] = None):
         try:
-            date.fromisoformat(tradeDate)
+            requested_date = date.fromisoformat(tradeDate)
         except ValueError as exc:
             raise HTTPException(
                 status_code=400,
                 detail="tradeDate must be a valid ISO date",
             ) from exc
+        now = datetime.now(SHANGHAI)
+        if requested_date > now.date() or (requested_date == now.date() and now.hour < 15):
+            raise HTTPException(status_code=400, detail="该交易日尚未收盘，暂不能生成收盘计划")
+        # A refresh always resolves the active strategy when the worker starts.
+        # This keeps queued work aligned if activation changes after enqueueing.
+        active_strategy()
         return services.repository.enqueue_report_refresh(
             tradeDate,
             requested_by=request.state.request_id,
@@ -563,7 +757,11 @@ def create_api_app(services: ApiServices):
         return result
 
     @app.get("/api/v1/reports/{tradeDate}/assets/{format}")
-    def report_asset(tradeDate: str, format: str):
+    def report_asset(tradeDate: str, format: str, strategy_id: Optional[str] = None):
+        active = active_strategy() if not strategy_id else None
+        strategy_id = strategy_id or (active["strategy_id"] if active else None)
+        if strategy_id:
+            require_strategy(strategy_id)
         filenames = {
             "markdown": "report.md",
             "json": "candidates.json",
@@ -574,7 +772,7 @@ def create_api_app(services: ApiServices):
             raise HTTPException(status_code=404, detail="asset format not found")
         get_asset = getattr(services.repository, "get_report_asset", None)
         if services.object_store is not None and get_asset is not None:
-            asset = get_asset(tradeDate, format)
+            asset = get_asset(tradeDate, format, **({"strategy_id": strategy_id} if strategy_id else {}))
             if asset is not None:
                 return RedirectResponse(
                     services.object_store.presigned_get_url(
@@ -584,7 +782,8 @@ def create_api_app(services: ApiServices):
                     status_code=302,
                 )
         for root in services.reports.roots:
-            path = root / tradeDate / filename
+            scoped = root / "strategies" / strategy_id if strategy_id else root
+            path = scoped / tradeDate / filename
             if path.is_file():
                 return FileResponse(path)
         raise HTTPException(status_code=404, detail="asset not found")
@@ -628,6 +827,52 @@ def create_api_app(services: ApiServices):
 
     static_root = Path(__file__).with_name("web")
 
+    @app.get("/api/v1/research")
+    def research_runs():
+        reader = getattr(services.repository, "list_research_runs", None)
+        if reader is None:
+            return {"items": []}
+        return {"items": reader()}
+
+    @app.get("/api/v1/research/{run_id}")
+    def research_run(run_id: str):
+        try:
+            uuid.UUID(run_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid research run id") from exc
+        reader = getattr(services.repository, "get_research_run", None)
+        result = reader(run_id) if reader else None
+        if result is None:
+            raise HTTPException(status_code=404, detail="research run not found")
+        return result
+
+    @app.get("/api/v1/research/{run_id}/strategy")
+    def research_strategy(run_id: str):
+        result = research_run(run_id)
+        return Response(
+            json.dumps(result["strategy"]["config"], ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="strategy-{run_id}.json"'},
+        )
+
+    @app.get("/api/v1/research/{run_id}/assets/{filename}")
+    def research_asset(run_id: str, filename: str):
+        result = research_run(run_id)
+        asset = next((item for item in result["assets"] if item["filename"] == filename), None)
+        if asset is None or services.object_store is None:
+            raise HTTPException(status_code=404, detail="research asset not found")
+        response = services.object_store.client.get_object(
+            services.object_store.bucket, asset["object_key"],
+        )
+        def chunks():
+            try:
+                yield from response.stream(64 * 1024)
+            finally:
+                response.close()
+                response.release_conn()
+        return StreamingResponse(chunks(), media_type=asset["content_type"],
+                                 headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
     @app.get("/")
     def dashboard():
         return FileResponse(static_root / "index.html")
@@ -635,6 +880,14 @@ def create_api_app(services: ApiServices):
     @app.get("/monitor")
     def monitor_dashboard():
         return FileResponse(static_root / "monitor.html")
+
+    @app.get("/strategy")
+    def strategy_dashboard():
+        return FileResponse(static_root / "strategy.html")
+
+    @app.get("/research")
+    def research_dashboard():
+        return FileResponse(static_root / "research.html")
 
     app.mount("/", StaticFiles(directory=static_root), name="static")
     return app

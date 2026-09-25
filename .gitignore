@@ -8,3 +8,6 @@ reports/
 scheduled_reports
 logs/
 deploy/compose/.env
+config/strategy.lock
+config/.strategy-*
+research/

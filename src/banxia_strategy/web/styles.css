@@ -1183,3 +1183,5 @@ h1 {
     transition-duration: 0.01ms !important;
   }
 }
+
+#page-strategy { min-height: 36px; max-width: min(280px, 65vw); padding: 7px 10px; background: var(--white); color: var(--ink); border: 1px solid var(--line-dark); border-radius: 3px; font-size: 12px; }

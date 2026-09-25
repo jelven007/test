@@ -111,13 +111,16 @@ function renderCandidate(candidate, index) {
   setText(fragment, "score", Number(candidate.score).toFixed(1));
   setText(fragment, "latest-price", `¥ ${formatPrice(candidate.latest_price)}`);
   setText(fragment, "position-limit", candidate.position_limit_pct);
+  setText(fragment, "entry-window", `09:30—${candidate.plan?.entry_cutoff_time || "10:00"}`);
 
-  const entryRange = extractRange(
+  const entryRange = candidate.plan?.open_min_pct != null
+    ? [candidate.plan.open_min_pct, candidate.plan.open_max_pct] : extractRange(
     candidate.entry_trigger,
     /位于(-?\d+(?:\.\d+)?)%[～~-](-?\d+(?:\.\d+)?)%/,
     [0.5, 5],
   );
-  const abandonRange = extractRange(
+  const abandonRange = candidate.plan?.reject_min_pct != null
+    ? [candidate.plan.reject_min_pct, candidate.plan.reject_max_pct] : extractRange(
     candidate.invalidation,
     /低于(-?\d+(?:\.\d+)?)%或高于(-?\d+(?:\.\d+)?)%/,
     [-2, 7],
@@ -175,6 +178,7 @@ function renderReport(report) {
   setText(fragment, "next-session", formatDate(report.next_session));
   setText(fragment, "as-of", formatDate(report.as_of));
   setText(fragment, "generated-at", formatTimestamp(report.generated_at));
+  setText(fragment, "strategy-revision", report.strategy_revision?.slice(0, 12) || "历史报告未记录");
   setText(fragment, "regime", market.regime);
   setText(fragment, "regime-guidance", regime.guidance);
   setText(fragment, "market-score", market.score);
@@ -199,6 +203,7 @@ function renderReport(report) {
   setText(fragment, "data-source", report.data_source);
   setText(fragment, "data-sessions", (report.data_sessions || []).join("、"));
   setText(fragment, "disclaimer", report.disclaimer);
+  setText(fragment, "hard-stop", report.strategy_config?.hard_stop_pct ?? 4);
 
   const regimePanel = fragment.querySelector(".regime-panel");
   regimePanel.dataset.regime = regime.key;
@@ -257,7 +262,7 @@ function renderError(message) {
 }
 
 async function fetchJson(path, options = {}) {
-  const response = await fetch(path, { cache: "no-store", ...options });
+  const response = await fetch(window.strategyURL(path), { cache: "no-store", ...options });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error?.message || `请求失败（${response.status}）`);
   return payload;
@@ -285,9 +290,10 @@ async function loadReport(asOf) {
 
 async function refreshReport(asOf) {
   refreshButton.disabled = true;
+  reportDateInput.disabled = true;
   refreshButton.textContent = "生成中…";
   sourceStatus.className = "source-status";
-  sourceLabel.textContent = "正在重新生成日报";
+  sourceLabel.textContent = "正在按最新已保存策略生成";
   try {
     const job = await fetchJson(
       `/api/v1/reports/${encodeURIComponent(asOf)}/refresh`,
@@ -312,17 +318,19 @@ async function refreshReport(asOf) {
     sourceLabel.textContent = `刷新失败：${error.message}`;
   } finally {
     refreshButton.disabled = false;
+    reportDateInput.disabled = false;
     refreshButton.textContent = "刷新";
   }
 }
 
 async function initialize() {
+  await window.strategyReady;
   try {
     const payload = await fetchJson("/api/v1/reports");
     if (!payload.items.length) {
       throw new Error("未发现 candidates.json，请先执行 .venv/bin/banxia-strategy run");
     }
-    const latestDate = payload.items[0].trade_date;
+    const latestDate = new URLSearchParams(location.search).get("trade_date") || payload.items[0].trade_date;
     reportDateInput.value = latestDate;
     await loadReport(latestDate);
   } catch (error) {

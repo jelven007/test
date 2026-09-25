@@ -1,0 +1,69 @@
+# 多策略与交易日记录
+
+`/strategy` 管理多条不可变策略。修改参数后只能“保存为新策略”，系统记录
+`parent_strategy_id` 与逐项 `config_changes`，原策略及历史计划不会被覆盖。
+新策略默认处于“未激活”，也可在保存时立即激活。
+
+策略只有“激活”和“未激活”两种可见状态，全库最多一条激活策略。激活新策略会在
+同一事务内取消原激活策略；删除采用软删除，策略血缘与历史交易日数据仍然保留。
+
+## 每个交易日一条
+
+`strategy_day` 主键为 `(strategy_id, trade_date)`，一条记录含：
+
+- `next_plan`：该交易日收盘后生成、下个交易日执行的计划。
+- `execution_plan`：此前生成、该交易日执行的计划。
+- `actuals`：该日实盘行情与策略判断；收盘后附行情验证结果、覆盖率和收盘封板命中率。
+
+空候选、尚无前日计划、未开盘及行情缺失分别显示；无样本准确率为 `null`。
+实盘数据不是券商持仓或成交，不包含自动下单。
+重复刷新 UPSERT 同一日记录；底层 `strategy_version/run/plan` 继续保存不同参数版本审计记录。
+历史参数刷新完成后，也重新验证该计划的已结束执行日。
+
+## 隔离与调度
+
+仅当前激活策略按其保存的时间表运行，执行开始时才解析当前激活策略。页面刷新任务
+同样不固定排队时的策略，worker 开始执行时再次读取激活策略。每天从 mootdx 更新
+交易日历，交易日预建每日记录，遗漏的收盘任务自动补跑。
+采集端动态合并各策略观察股票、按代码去重，复用长连接，按最快配置采集。
+策略引擎为每份有效计划维护独立处理器，拒绝非计划执行日的行情。
+输入去重按 `plan_id + source_event_id` 与计划范围内的 Kafka offset 进行，保证
+同一行情可以驱动多份计划，每份只落一次。
+
+行情写入当天记录时同时校验策略、计划 ID 和交易日；旧计划的延迟消息不能覆盖新计划记录。
+历史页面优先读取持久化收盘结果，异日 Redis 报价不会混入历史日。
+
+## API
+
+- `GET/POST /api/v1/strategies`
+- `PATCH /api/v1/strategies/{strategy_id}`：切换激活状态
+- `DELETE /api/v1/strategies/{strategy_id}`：软删除并保留历史
+- `GET /api/v1/strategy-config?strategy_id=...`
+- `GET /api/v1/strategies/{strategy_id}/days?limit=30&before=YYYY-MM-DD`
+- `GET /api/v1/strategies/{strategy_id}/days/{trade_date}`
+- reports、refresh、assets、monitor、monitor/events、monitor/stream 均支持 `strategy_id`。
+- monitor 相关接口另支持 `trade_date`，报告日期表示生成日。
+
+无 `strategy_id` 的报告、监控和刷新接口默认指向当前激活策略。文件模式旧 Web 服务保留原参数编辑，
+完整多策略功能通过 FastAPI 服务提供。
+
+## 迁移与验证
+
+依次应用 `migrations/postgres/005_multi_strategy.sql` 和
+`migrations/postgres/006_immutable_active_strategy.sql`，再使用已配置数据库环境执行：
+
+```sh
+PYTHONPATH=src python -m banxia_strategy.catalog_bootstrap
+```
+
+导入默认策略已有报告及最近一次研究实验的两组历史记录，优化策略默认暂停。
+迁移重复执行不会覆盖较新的日报；旧报告错误的下一交易日按已有 mootdx 日历纠正。
+实验原始数据保持不变，日表仅作为管理和展示记录。
+随后更新 api、report-scheduler、report-worker、market-collector、strategy-engine 镜像。
+
+```sh
+PYTHONPATH=src:tests python -m unittest discover -s tests
+```
+
+设置 `BANXIA_TEST_POSTGRES_DSN` 后会额外运行真实 PostgreSQL 多策略隔离检查；
+测试数据在事务中回滚，不保留测试策略。

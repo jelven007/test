@@ -4,6 +4,8 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from fastapi.testclient import TestClient
 
@@ -73,8 +75,8 @@ class FakeCache:
         return {
             "payload": {
                 "symbol": symbol,
-                "source_time": "2099-01-02T09:45:00+08:00",
-                "collected_at": "2099-01-02T09:45:00+08:00",
+                "source_time": "2026-09-24T09:45:00+08:00",
+                "collected_at": "2026-09-24T09:45:00+08:00",
                 "price": 10.5,
                 "open": 10.2,
                 "previous_close": 10.0,
@@ -197,6 +199,14 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(report["candidates"][0]["symbol"], "002635")
         self.assertEqual(report["strategy_version"], "v2")
 
+    def test_monitor_does_not_mix_quotes_from_another_day(self):
+        self.services.cache.get_latest_quote = Mock(return_value={
+            "payload": {"source_time": "2026-09-25T09:45:00+08:00", "price": 99}
+        })
+        payload = self.client.get("/api/v1/monitor").json()
+        self.assertIsNone(payload["stocks"][0]["price"])
+        self.assertEqual(payload["data_status"]["state"], "unavailable")
+
     def test_report_refresh_creates_a_new_job_for_every_request(self):
         first = self.client.post(
             "/api/v1/reports/2026-09-23/refresh",
@@ -272,6 +282,43 @@ class ApiV1Test(unittest.TestCase):
         ]["get"]
         parameters = operation.get("parameters", [])
         self.assertNotIn("request", {item["name"] for item in parameters})
+
+    def test_research_history_strategy_download_and_asset_stream(self):
+        run_id = "00000000-0000-0000-0000-000000000001"
+        payload = {
+            "run_id": run_id, "strategy": {"config": {"minimum_score": 72}, "active": False},
+            "assets": [{"filename": "report.md", "object_key": "research/hash/report.md",
+                        "content_type": "text/markdown"}],
+        }
+        self.services.repository.list_research_runs = lambda: [{"run_id": run_id}]
+        self.services.repository.get_research_run = lambda value: payload if value == run_id else None
+        stream = Mock()
+        stream.stream.return_value = iter([b"# saved ", b"experiment\n"])
+        minio = Mock()
+        minio.get_object.return_value = stream
+        self.services.object_store = SimpleNamespace(client=minio, bucket="strategy-reports")
+        root = f"/api/v1/research/{run_id}"
+        self.assertEqual(self.client.get("/api/v1/research").json()["items"][0]["run_id"], run_id)
+        self.assertFalse(self.client.get(root).json()["strategy"]["active"])
+        download = self.client.get(root + "/strategy")
+        self.assertEqual(download.json(), {"minimum_score": 72})
+        self.assertIn("attachment;", download.headers["Content-Disposition"])
+        self.assertEqual(download.headers["Cache-Control"], "no-store")
+        asset = self.client.get(root + "/assets/report.md")
+        self.assertEqual(asset.content, b"# saved experiment\n")
+        minio.get_object.assert_called_once_with("strategy-reports", "research/hash/report.md")
+        stream.close.assert_called_once()
+        stream.release_conn.assert_called_once()
+        self.assertEqual(self.client.get(root + "/assets/strategy.json").status_code, 404)
+        self.assertEqual(self.client.get("/api/v1/research/bad-id").status_code, 400)
+        self.assertEqual(self.client.get(root[:-1] + "2").status_code, 404)
+        page = self.client.get("/research")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("回测优化", page.text)
+        self.services.api_token = "test-research"
+        secured = TestClient(create_api_app(self.services))
+        for suffix in ("", "/strategy", "/assets/report.md"):
+            self.assertEqual(secured.get(root + suffix).status_code, 401)
 
 
 if __name__ == "__main__":

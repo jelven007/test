@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 from datetime import date
+from unittest.mock import patch
 
 from banxia_strategy.mootdx_provider import (
+    MootdxProvider,
     _extract_pools,
     _limit_price,
     _seal_statistics,
@@ -23,6 +25,20 @@ def bar(day: int, close: float, high: float, amount: float = 500_000_000):
 
 
 class MootdxCalculationTest(unittest.TestCase):
+    def test_missing_holiday_data_never_guesses_a_trading_day(self):
+        for result in (None, RuntimeError("unavailable")):
+            options = {"side_effect": result} if isinstance(result, Exception) else {"return_value": result}
+            with patch("mootdx.utils.holiday._holiday", **options):
+                with self.assertRaisesRegex(RuntimeError, "停止推测"):
+                    MootdxProvider._is_holiday(date(2026, 9, 25))
+
+    def test_holiday_comparison_normalizes_timestamp_index_to_dates(self):
+        import pandas as pd
+        calendar = pd.DataFrame({"国家": ["中国"]}, index=pd.to_datetime(["2026-09-25"]))
+        with patch("mootdx.utils.holiday._holiday", return_value=calendar):
+            self.assertTrue(MootdxProvider._is_holiday(date(2026, 9, 25)))
+            self.assertFalse(MootdxProvider._is_holiday(date(2026, 9, 28)))
+
     def test_limit_price_uses_exchange_rounding(self):
         self.assertEqual(_limit_price(10.01, "普通股份"), 11.01)
         self.assertEqual(_limit_price(10.01, "ST样本"), 10.51)

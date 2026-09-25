@@ -219,17 +219,61 @@ rm "$HOME/Library/LaunchAgents/com.jelven.banxia-strategy.plist"
 
 ## 配置
 
-编辑 `config/strategy.json` 可调整：
+打开 <http://127.0.0.1:8765/strategy>，主导航中的“策略管理”位于“次日计划”之前。
+页面分为候选筛选、个股评分、市场环境、竞价与入场、仓位与退出、运行设置六组。
+成交额和市值以亿元输入，比例以百分数输入；文件仍保留元和小数比例的计算单位。
 
-- 候选最低评分与数量。
-- 成交额、换手率和流通市值区间。
-- 单一行业候选上限。
-- 单票仓位和组合风险敞口上限。
-- 次日竞价触发区间及硬止损阈值。
+- “保存参数”会校验类型、上下限、理想评分区间和组合仓位关系，并持久化到
+  `BANXIA_STRATEGY_CONFIG` 指定的文件（默认 `config/strategy.json`）。
+- “恢复默认值”只填入草稿，保存后生效；“撤销修改”恢复本页最近加载/保存的值。
+  多页面同时编辑时，通过配置版本检测冲突，避免覆盖其他页面的修改。
+- 评分权重、理想区间、历史炸板扣分、题材门槛、入场时间、跌破昨收开关、
+  板块确认比例、仓位及回撤预警均可调整。沪深主板、排除 ST、mootdx、
+  北京时间、T+1 和不自动下单为当前系统固定约束。
+- 保存后，手动刷新或定时报表使用新参数；新报告的 JSON 包含 `strategy_config`、
+  `strategy_version`、`code_commit`，每只候选的 `plan` 保存结构化入场规则。
+  已生成的报告和已激活的计划不因保存参数而变更。历史报告继续兼容原文字规则。
+- 定时任务与页面“刷新”均在每次执行开始时读取最新已保存的配置，包括排队后、
+  执行前保存的修改。复盘日期只选择行情日期；刷新历史日期也使用当前策略重算。
+  执行中的任务使用该次读取的完整配置，未保存的表单草稿不参与计算。
+  最新配置无效时任务失败，不回退使用旧报告的规则。
+  次日计划显示本次参数版本；刷新任务结果包含实际 `strategy_version`、
+  `strategy_revision`、`run_id` 和报告生成时间，可与策略管理中的配置版本核对。
+- 版本由基础版本、配置和代码标识计算，防止同一数据库版本混入不同规则。
+  报告发布时，观察清单和计划事件在同一 PostgreSQL 事务中写入。
+- `banxia-service report-scheduler` 自动读取报告时间设置；行情采集服务在下一轮
+  读取间隔设置，无需重启。JSON 尚未包含相应运行字段时，沿用环境变量
+  `BANXIA_REPORT_SCHEDULE`、`BANXIA_QUOTE_INTERVAL_SECONDS` 和
+  `BANXIA_IDLE_INTERVAL_SECONDS`，保存后的文件设置优先。
+  独立 macOS launchd 的日历不受此页面控制，需重新安装相应定时任务。
+- 竞价重排、放量、持续封稳、盘中炸板次数及持仓成本风控仍需人工核验；
+  页面调整不会增加自动成交或自动下单能力。
+
+读取接口为 `GET /api/v1/strategy-config`，返回当前配置、默认值、字段说明和 revision；
+保存使用 `PUT /api/v1/strategy-config`，请求为 `{"config": {...}, "revision": "..."}`。
+参数校验失败返回 422，版本冲突返回 409；配置了 API Bearer token 时沿用相同鉴权。
+Compose 中仅 API 服务需要共享配置目录写权限，采集和报表服务继续只读。
+也可直接编辑 JSON，字段定义和默认值见 `src/banxia_strategy/strategy_config.py`。
+
+## 历史回测与策略优化
+
+主导航新增 [回测优化](http://127.0.0.1:8765/research)：查看近一个月历史次日计划、
+逐股实际行情、每天/每周/每月收盘封板准确率，以及独立保存的策略候选和全部实验。
+研究数据不会激活历史计划或替换当前执行策略。
+
+```bash
+PYTHONPATH=src .venv/bin/python -m banxia_strategy.research \
+  --start 2026-08-25 --end 2026-09-24 --config config/strategy.json
+```
+
+配置存储连接后添加 `--persist`，将输入快照、报告、CSV、独立参数和全过程归档到
+MinIO，并写入 PostgreSQL 研究表。已有数据库需先应用
+`migrations/postgres/004_strategy_research.sql`。运行方法、实验结果、指标和限制见
+[历史策略研究说明](docs/08-strategy-research.md)。
 
 ## 统计口径
 
-评分满分约 100：
+默认评分满分约 100（调整权重后按新权重计算）：
 
 - 封板质量：30 分。
 - 流动性：20 分。

@@ -10,39 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
 from zoneinfo import ZoneInfo
 
-
-@dataclass(frozen=True)
-class StrategyConfig:
-    lookback_sessions: int = 5
-    max_candidates: int = 8
-    max_per_industry: int = 1
-    minimum_score: float = 58.0
-    minimum_industry_limit_up_count: int = 2
-    minimum_amount_cny: float = 200_000_000
-    maximum_amount_cny: float = 3_000_000_000
-    minimum_turnover_pct: float = 2.0
-    maximum_turnover_pct: float = 28.0
-    minimum_float_market_cap_cny: float = 1_500_000_000
-    maximum_float_market_cap_cny: float = 30_000_000_000
-    maximum_break_count: int = 1
-    missing_seal_amount_penalty: float = 6.0
-    exclude_st: bool = True
-    main_board_only: bool = True
-    position_limit_pct: int = 20
-    portfolio_risk_limit_pct: int = 60
-    hard_stop_pct: float = 4.0
-    entry_open_min_pct: float = 0.5
-    entry_open_max_pct: float = 5.0
-    report_timezone: str = "Asia/Shanghai"
-
-    @classmethod
-    def from_file(cls, path: Path) -> "StrategyConfig":
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        allowed = {item.name for item in fields(cls)}
-        unknown = sorted(set(raw) - allowed)
-        if unknown:
-            raise ValueError("Unknown config keys: " + ", ".join(unknown))
-        return cls(**raw)
+from .strategy_config import StrategyConfig
 
 
 class MarketDataProvider(Protocol):
@@ -81,6 +49,7 @@ class Candidate:
     invalidation: str
     exit_plan: str
     position_limit_pct: int
+    plan: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -94,6 +63,12 @@ class DailyReport:
     candidates: List[Candidate]
     rejected_count: int
     disclaimer: str
+    strategy_config: Dict[str, Any] = field(default_factory=dict)
+    strategy_version: str = ""
+    code_commit: str = ""
+    strategy_id: str = ""
+    strategy_code: str = ""
+    strategy_name: str = ""
     constraints: Dict[str, Any] = field(
         default_factory=lambda: {
             "max_candidates": 8,
@@ -280,6 +255,7 @@ class StrategyEngine:
             data_source=str(getattr(self.provider, "source_name", "custom")),
             data_sessions=[session.isoformat() for session, _ in pools],
             market=market,
+            strategy_config=asdict(self.config),
             constraints={
                 "max_candidates": self.config.max_candidates,
                 "max_per_industry": self.config.max_per_industry,
@@ -309,14 +285,16 @@ class StrategyEngine:
         break_rate = broken_count / denominator if denominator and broken_data_available else None
         max_board = max((row["board_count"] for row in limit_rows), default=0)
 
-        breadth_score = _clamp((limit_count - 15) / 45)
-        break_score = 1.0 - _clamp(break_rate / 0.55) if break_rate is not None else 0.5
-        height_score = _clamp((max_board - 1) / 5)
-        score = 0.45 * breadth_score + 0.35 * break_score + 0.20 * height_score
+        cfg = self.config
+        breadth_score = _clamp((limit_count - cfg.market_breadth_floor) / cfg.market_breadth_span)
+        break_score = 1.0 - _clamp(break_rate / cfg.market_break_ceiling) if break_rate is not None else cfg.missing_break_score
+        height_score = _clamp((max_board - 1) / cfg.market_height_span)
+        weights = cfg.market_breadth_weight + cfg.market_break_weight + cfg.market_height_weight
+        score = (cfg.market_breadth_weight * breadth_score + cfg.market_break_weight * break_score + cfg.market_height_weight * height_score) / weights
 
-        if score >= 0.72:
+        if score * 100 >= cfg.market_strong_score:
             regime = "强势接力"
-        elif score >= 0.48:
+        elif score * 100 >= cfg.market_neutral_score:
             regime = "中性试错"
         else:
             regime = "退潮防守"
@@ -338,6 +316,8 @@ class StrategyEngine:
         for _, rows in pools:
             daily: Dict[str, Dict[str, int]] = {}
             for row in rows:
+                if "ST" in row["name"].upper() or "退" in row["name"]:
+                    continue
                 item = daily.setdefault(row["industry"], {"count": 0, "max_board": 0})
                 item["count"] += 1
                 item["max_board"] = max(item["max_board"], row["board_count"])
@@ -389,6 +369,7 @@ class StrategyEngine:
         industry_stats: Dict[str, Dict[str, Any]],
         market: Dict[str, Any],
     ) -> List[Candidate]:
+        cfg = self.config
         eligible = [
             row
             for row in rows
@@ -415,62 +396,62 @@ class StrategyEngine:
             first_minutes = row["first_seal_minutes"] or 15 * 60
             last_minutes = row["last_seal_minutes"] or first_minutes
             first_after_open = max(0, first_minutes - (9 * 60 + 30))
-            early_score = _clamp(1.0 - first_after_open / 300)
+            early_score = _clamp(1.0 - first_after_open / cfg.early_decay_minutes)
             reseal_delay = max(0, last_minutes - first_minutes)
-            persistence_score = _clamp(1.0 - reseal_delay / 240)
-            persistence_score *= _clamp(1.0 - row["break_count"] / 5)
+            persistence_score = _clamp(1.0 - reseal_delay / cfg.persistence_decay_minutes)
+            persistence_score *= _clamp(1.0 - row["break_count"] / cfg.break_decay_count)
             seal_ratio = row["seal_amount"] / max(row["amount"], 1)
             seal_score = (
-                _clamp(seal_ratio / 0.18)
+                _clamp(seal_ratio / cfg.seal_ratio_full_score)
                 if row["seal_amount_data_available"]
                 else 0.0
             )
-            board_quality = 12 * early_score + 8 * persistence_score + 10 * seal_score
+            board_quality = cfg.early_weight * early_score + cfg.persistence_weight * persistence_score + cfg.seal_weight * seal_score
 
             turnover_score = _range_score(
                 row["turnover"],
                 self.config.minimum_turnover_pct,
-                5.0,
-                18.0,
+                cfg.ideal_turnover_min_pct,
+                cfg.ideal_turnover_max_pct,
                 self.config.maximum_turnover_pct,
             )
             amount_score = _range_score(
                 row["amount"],
                 self.config.minimum_amount_cny,
-                350_000_000,
-                1_800_000_000,
+                cfg.ideal_amount_min_cny,
+                cfg.ideal_amount_max_cny,
                 self.config.maximum_amount_cny,
             )
             cap_score = _range_score(
                 row["float_market_cap"],
                 self.config.minimum_float_market_cap_cny,
-                2_500_000_000,
-                15_000_000_000,
+                cfg.ideal_cap_min_cny,
+                cfg.ideal_cap_max_cny,
                 self.config.maximum_float_market_cap_cny,
             )
-            liquidity = 10 * turnover_score + 5 * amount_score + 5 * cap_score
+            liquidity = cfg.turnover_weight * turnover_score + cfg.amount_weight * amount_score + cfg.cap_weight * cap_score
 
             today_count = int(stats.get("today_count", 1))
             active_days = int(stats.get("active_days", 1))
             momentum = float(stats.get("momentum", 0.0))
             theme = (
-                12 * _clamp(today_count / 5)
-                + 6 * _clamp(active_days / max(self.config.lookback_sessions, 1))
-                + 7 * _clamp((momentum + 1) / 4)
+                cfg.theme_count_weight * _clamp(today_count / cfg.theme_count_full_score)
+                + cfg.theme_active_weight * _clamp(active_days / max(self.config.lookback_sessions, 1))
+                + cfg.theme_momentum_weight * _clamp((momentum + cfg.momentum_offset) / cfg.momentum_span)
             )
 
             order = industry_order.get(row["industry"], [row["code"]])
             local_rank = order.index(row["code"]) + 1
-            rank_score = 1.0 if local_rank == 1 else 0.7 if local_rank == 2 else 0.35
+            rank_score = 1.0 if local_rank == 1 else cfg.second_rank_ratio if local_rank == 2 else cfg.other_rank_ratio
             max_board = int(stats.get("max_board", 1))
-            leadership = 10 * rank_score + 5 * _clamp((max_board - 1) / 3)
-            market_component = float(market["score"]) / 10
+            leadership = cfg.leadership_weight * rank_score + cfg.height_weight * _clamp((max_board - 1) / cfg.theme_height_span)
+            market_component = float(market["score"]) / 100 * cfg.market_weight
 
             penalty = 0.0
-            if first_minutes >= 14 * 60 + 30:
-                penalty += 8
+            if first_minutes >= _time_minutes(cfg.late_seal_time):
+                penalty += cfg.late_seal_penalty
             if row["break_count"] == 1:
-                penalty += 3
+                penalty += cfg.single_break_penalty
             if not row["seal_amount_data_available"]:
                 penalty += self.config.missing_seal_amount_penalty
             score = round(
@@ -478,7 +459,7 @@ class StrategyEngine:
                 1,
             )
 
-            if max_board >= 3:
+            if max_board >= cfg.catchup_board_count:
                 strategy = "龙头补涨"
             elif today_count >= 2 and int(stats.get("previous_count", 0)) == 0:
                 strategy = "新题材切换"
@@ -499,21 +480,23 @@ class StrategyEngine:
                     f"{self.config.missing_seal_amount_penalty:g}分数据质量分；"
                     f"换手{row['turnover']:.1f}%"
                 )
-            if max_board >= 3:
+            if max_board >= cfg.catchup_board_count:
                 reasons.append(f"板块已有{max_board}板高度，具备补涨参照")
-            if momentum > 0.8:
+            if momentum > cfg.expansion_momentum:
                 reasons.append("板块涨停家数较近期均值扩张")
 
             entry_trigger = (
                 f"次日竞价涨幅位于{self.config.entry_open_min_pct:.1f}%～"
-                f"{self.config.entry_open_max_pct:.1f}%；9:25按竞价强弱重排，"
-                "同题材有效样本上涨比例不低于50%；"
-                "仅在10:00前放量封二板或首次炸板后快速回封并封稳时观察"
+                f"{self.config.entry_open_max_pct:g}%；9:25人工按竞价强弱重排，"
+                f"同题材至少{cfg.minimum_sector_sample_size}个有效样本，上涨比例不低于{cfg.minimum_sector_rise_ratio:.0%}；"
+                f"仅在{cfg.entry_cutoff_time}前放量封二板或炸板不超过{cfg.manual_max_intraday_breaks}次后快速回封并封稳时观察（量能及回封过程需人工核验）"
             )
             invalidation = (
-                f"竞价低于-2%或高于{self.config.entry_open_max_pct + 2:.1f}%、"
-                "板块上涨比例低于50%、开盘快速跌破昨日收盘价、"
-                "二次炸板或10:00前未封稳则放弃"
+                f"竞价低于{cfg.reject_open_min_pct:g}%或高于{cfg.reject_open_max_pct:g}%、"
+                f"竞价不在{cfg.entry_open_min_pct:g}%～{cfg.entry_open_max_pct:g}%合格区间、"
+                f"板块上涨比例低于{cfg.minimum_sector_rise_ratio:.0%}、"
+                + ("当日跌破昨日收盘价、" if cfg.reject_below_previous_close else "")
+                + f"盘中炸板超过{cfg.manual_max_intraday_breaks}次或{cfg.entry_cutoff_time}前未封稳则放弃"
             )
             exit_plan = (
                 f"单票不超过{self.config.position_limit_pct}%；成本回撤"
@@ -546,6 +529,7 @@ class StrategyEngine:
                     invalidation=invalidation,
                     exit_plan=exit_plan,
                     position_limit_pct=self.config.position_limit_pct,
+                    plan=cfg.entry_rules(),
                 )
             )
         return result

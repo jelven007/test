@@ -375,6 +375,10 @@ services:
   api:
     <<: *app-common
     command: ["api"]
+    volumes:
+      - ../../config:/app/config
+      - ../../reports:/app/reports:ro
+      - ../../scheduled_reports:/app/scheduled_reports:ro
     environment:
       <<: *app-environment
       BANXIA_API_HOST: 0.0.0.0

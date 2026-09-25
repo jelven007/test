@@ -184,7 +184,7 @@ def evaluate(
             f"开盘涨幅{opening_pct:+.2f}%越过原策略放弃阈值。",
             "risk",
         )
-    if quote["low"] and quote["low"] < plan["previous_close"] - 0.001:
+    if plan.get("reject_below_previous_close", True) and quote["low"] and quote["low"] < plan["previous_close"] - 0.001:
         return advice(
             DecisionState.REJECT_LOW,
             "放弃 · 跌破昨收",
@@ -198,18 +198,20 @@ def evaluate(
             f"开盘涨幅{opening_pct:+.2f}%不在原策略合格区间内。",
             "muted",
         )
+    cutoff = str(plan.get("entry_cutoff_time", "10:00"))
+    cutoff_hour, cutoff_minute = map(int, cutoff.split(":"))
     if phase in ("lunch", "closed"):
         return advice(
             DecisionState.WINDOW_CLOSED,
             "不追 · 入场窗口结束",
-            "原策略10:00前入场窗口已结束，不新增接力仓位。",
+            f"原策略{cutoff}前入场窗口已结束，不新增接力仓位。",
             "muted",
         )
-    if now.hour >= 10:
+    if now.hour * 60 + now.minute >= cutoff_hour * 60 + cutoff_minute:
         return advice(
             DecisionState.WINDOW_CLOSED,
             "不追 · 入场窗口结束",
-            "已到10:00或之后，按原计划不新增一进二仓位。",
+            f"已到{cutoff}或之后，按原计划不新增一进二仓位。",
             "muted",
         )
     limit = plan["limit_price"]
@@ -233,15 +235,16 @@ def evaluate(
             "已触及参考涨停价，盘口尚未确认封住；不提前认定二板成功。",
             "focus",
         )
-    if quote["price"] >= limit * 0.99:
+    near_limit_pct = plan.get("near_limit_pct", 1.0)
+    if quote["price"] >= limit * (1 - near_limit_pct / 100):
         return advice(
             DecisionState.NEAR_LIMIT,
             "临近二板 · 等待确认",
-            "距离参考涨停价不足1%；观察封板与板块配合，不把接近涨停当作买点。",
+            f"距离参考涨停价不足{near_limit_pct:g}%；观察封板与板块配合，不把接近涨停当作买点。",
             "focus",
         )
     return advice(
         DecisionState.WATCH,
         "观察 · 不提前买",
-        "竞价条件通过，但尚未形成二板确认；继续等10:00前的封板或首次快速回封。",
+        f"竞价条件通过，但尚未形成二板确认；继续等{cutoff}前的封板或快速回封。",
     )

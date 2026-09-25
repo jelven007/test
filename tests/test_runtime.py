@@ -200,13 +200,21 @@ class ReportSchedulerTest(unittest.TestCase):
             "job_id": "job-1",
             "payload": {"trade_date": "2026-09-24"},
         }
+        repository.get_active_strategy.return_value = {"strategy_id": "active-strategy"}
         settings = RuntimeSettings(report_output_dir=Path("reports"))
         logger = Mock()
         stop = Mock()
+        execution = {
+            "trade_date": "2026-09-24",
+            "generated_at": "2026-09-24T16:31:00+08:00",
+            "strategy_version": "v2-current",
+            "strategy_revision": "current-config-revision",
+            "run_id": "run-1",
+        }
 
         with patch(
             "banxia_strategy.service._generate_scheduled_report",
-            return_value=True,
+            return_value=execution,
         ) as generate:
             consumed = _consume_report_refresh(
                 repository,
@@ -218,14 +226,12 @@ class ReportSchedulerTest(unittest.TestCase):
         self.assertTrue(consumed)
         generate.assert_called_once()
         self.assertEqual(generate.call_args.args[2], date(2026, 9, 24))
+        self.assertEqual(generate.call_args.kwargs["strategy_id"], "active-strategy")
         repository.finish_report_refresh.assert_called_once()
         finish = repository.finish_report_refresh.call_args
         self.assertEqual(finish.args, ("job-1",))
         self.assertTrue(finish.kwargs["succeeded"])
-        self.assertEqual(
-            finish.kwargs["result"]["trade_date"],
-            "2026-09-24",
-        )
+        self.assertEqual(finish.kwargs["result"], execution)
 
 
 class ReportWorkerTest(unittest.TestCase):
@@ -259,7 +265,9 @@ class ReportWorkerTest(unittest.TestCase):
                 return_value={"json": Path(directory) / "candidates.json"},
             ), patch(
                 "banxia_strategy.application.report_worker.persist_report_copy"
-            ) as persist:
+            ) as persist, patch(
+                "banxia_strategy.application.report_worker.PostgresStorage"
+            ):
                 persist.return_value.identity = identity
                 result, _paths, persistence = worker.run(
                     date.fromisoformat("2026-09-23")

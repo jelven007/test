@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from banxia_strategy.adapters.clickhouse import (
@@ -447,7 +448,7 @@ class PostgresAdapterTest(unittest.TestCase):
         )
         result = storage.apply(
             input_event_id="event-1",
-            decision=object(),
+            decision=SimpleNamespace(plan_id="plan"),
             outbox_event=decision_event,
         )
         self.assertFalse(result)
@@ -461,6 +462,7 @@ class PostgresAdapterTest(unittest.TestCase):
                 ("22222222-2222-2222-2222-222222222222",),
                 ("33333333-3333-3333-3333-333333333333",),
                 ("44444444-4444-4444-4444-444444444444",),
+                ("55555555-5555-5555-5555-555555555555",),
             ]
         )
         storage = PostgresStorage(
@@ -491,6 +493,9 @@ class PostgresAdapterTest(unittest.TestCase):
         self.assertTrue(
             all("ON CONFLICT (event_id)" in call[0] for call in outbox_calls)
         )
+        watchlist_index = next(index for index, call in enumerate(cursor.calls) if "INSERT INTO banxia.watchlist" in call[0])
+        event_index = next(index for index, call in enumerate(cursor.calls) if "INSERT INTO banxia.outbox_event" in call[0])
+        self.assertLess(watchlist_index, event_index)
 
     def test_report_update_at_a_later_time_gets_new_event_ids(self):
         cursor = FakeCursor([])
@@ -563,7 +568,7 @@ class PostgresAdapterTest(unittest.TestCase):
             )
         )
         statements = [call[0] for call in cursor.calls]
-        self.assertEqual(len(statements), 5)
+        self.assertEqual(len(statements), 6)
         self.assertIn("INSERT INTO banxia.decision_state", statements[2])
         self.assertIn("INSERT INTO banxia.decision_event", statements[3])
         self.assertIn("INSERT INTO banxia.outbox_event", statements[4])
@@ -581,13 +586,13 @@ class PostgresAdapterTest(unittest.TestCase):
         )
         storage.apply(
             input_event_id="event-1",
-            decision=object(),
+            decision=SimpleNamespace(plan_id="plan"),
             outbox_event=decision_event,
             topic="market.quote.snapshot.v1",
             partition=7,
             offset=42,
         )
-        self.assertEqual(cursor.calls[0][1][2], "market.quote.snapshot.v1")
+        self.assertEqual(cursor.calls[0][1][2], "market.quote.snapshot.v1:plan:plan")
         self.assertEqual(cursor.calls[0][1][3:], (7, 42))
 
 

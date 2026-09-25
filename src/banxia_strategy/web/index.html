@@ -7,7 +7,8 @@
     <meta name="theme-color" content="#f4f1e8">
     <title>一进二 · 次日执行台</title>
     <link rel="stylesheet" href="/styles.css?v=20260925.1">
-    <script src="/app.js?v=20260925.1" defer></script>
+    <script src="/strategy-selector.js" defer></script>
+    <script src="/app.js?v=20260925.2" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -19,9 +20,11 @@
         </span>
       </a>
       <div class="report-tools">
+        <label for="page-strategy">策略</label>
+        <select id="page-strategy" aria-label="选择策略"></select>
         <label for="report-date">复盘日期</label>
         <input id="report-date" type="date" aria-label="选择策略报告日期">
-        <button id="refresh-button" type="button">刷新</button>
+        <button id="refresh-button" type="button" title="按最新已保存策略重新生成所选日期的计划">刷新</button>
       </div>
       <div class="source-status">
         <span class="status-dot" aria-hidden="true"></span>
@@ -29,8 +32,10 @@
       </div>
     </header>
     <nav class="primary-nav" aria-label="主导航">
+      <a href="/strategy">策略管理</a>
       <a href="/" aria-current="page">次日计划</a>
       <a href="/monitor">盘中监控</a>
+      <a href="/research">回测优化</a>
     </nav>
 
     <main id="dashboard" aria-live="polite">
@@ -50,6 +55,8 @@
             <span aria-hidden="true">·</span>
             <span data-field="generated-at"></span> 生成
           </p>
+          <p class="report-meta">本次参数版本：<strong data-field="strategy-revision"></strong></p>
+          <p class="report-meta">定时任务与刷新均按最新已保存策略执行。</p>
         </div>
         <div class="regime-panel">
           <span>接力环境</span>
@@ -127,7 +134,7 @@
           </p>
         </div>
         <p data-field="disclaimer"></p>
-        <p>T+1 提醒：当天新买仓位不能当天卖出。成本回撤4%是风险预警，无法保证以此价格止损；遇到跳空或跌停，实际损失可能更大。</p>
+        <p>T+1 提醒：当天新买仓位不能当天卖出。成本回撤<span data-field="hard-stop">4</span>%是风险预警，无法保证以此价格止损；遇到跳空或跌停，实际损失可能更大。</p>
       </footer>
     </template>
 
@@ -186,7 +193,7 @@
                 </div>
               </li>
               <li class="step-entry">
-                <div class="step-time">09:30—10:00</div>
+                <div class="step-time" data-field="entry-window">09:30—10:00</div>
                 <div>
                   <strong>确认入场</strong>
                   <p data-field="entry-action"></p>
