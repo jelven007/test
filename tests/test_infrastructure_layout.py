@@ -172,7 +172,7 @@ class WebAssetTest(unittest.TestCase):
         ]
         for page in pages:
             html = page.read_text(encoding="utf-8")
-            self.assertIn("/ui-standard.css?v=20260925.1", html, page.name)
+            self.assertIn("/ui-standard.css?v=20260925.2", html, page.name)
             self.assertIn('class="primary-nav"', html, page.name)
             self.assertRegex(html, r'<main[^>]*class="[^"]*page-main')
 
@@ -194,6 +194,16 @@ class WebAssetTest(unittest.TestCase):
             ".notice",
         ):
             self.assertIn(selector, standard)
+        self.assertIn("@media (max-width: 560px)", standard)
+        self.assertIn("overflow-x: clip", standard)
+        self.assertIn(
+            ".settings-fields {\n    grid-template-columns: minmax(0, 1fr);",
+            standard,
+        )
+        self.assertIn(
+            ".dashboard-topbar #page-strategy.ui-control {\n    grid-column: 1 / -1;",
+            standard,
+        )
         self.assertNotRegex(standard, r"letter-spacing:\s*-")
 
     def test_report_date_control_queries_trade_date_with_fixed_size(self):
