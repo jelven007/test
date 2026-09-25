@@ -241,33 +241,56 @@ def create_api_app(services: ApiServices):
         )
         return response
 
+    def resolve_trade_date(trade_date: str):
+        try:
+            requested_date = date.fromisoformat(trade_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="日期无效") from exc
+        is_trading_session = getattr(
+            services.repository,
+            "is_trading_session",
+            None,
+        )
+        if is_trading_session is None or is_trading_session(requested_date):
+            return trade_date, False
+        previous_session = getattr(
+            services.repository,
+            "previous_trading_session",
+            None,
+        )
+        resolved = (
+            previous_session(requested_date)
+            if previous_session is not None
+            else None
+        )
+        if resolved is None:
+            raise HTTPException(
+                status_code=404,
+                detail="所选日期之前没有可用交易日",
+            )
+        return resolved, True
+
     def active_plan(trade_date: Optional[str] = None, strategy_id: Optional[str] = None):
         active = active_strategy() if not strategy_id else None
         strategy_id = strategy_id or (active["strategy_id"] if active else None)
         if strategy_id:
             require_strategy(strategy_id)
+        requested_trade_date = trade_date
+        resolved_from_non_trading_day = False
         if trade_date:
-            try:
-                requested_date = date.fromisoformat(trade_date)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail="日期无效") from exc
-            is_trading_session = getattr(
-                services.repository,
-                "is_trading_session",
-                None,
+            trade_date, resolved_from_non_trading_day = resolve_trade_date(
+                trade_date
             )
-            if (
-                is_trading_session is not None
-                and not is_trading_session(requested_date)
-            ):
-                return {
-                    "plan_id": "",
-                    "reference_date": None,
-                    "trade_date": trade_date,
-                    "strategy_version": "",
-                    "candidates": [],
-                    "non_trading_day": True,
-                }
+
+        def with_requested_date(plan):
+            if not resolved_from_non_trading_day:
+                return plan
+            return {
+                **plan,
+                "requested_date": requested_trade_date,
+                "resolved_from_non_trading_day": True,
+            }
+
         day = (
             services.repository.get_strategy_day(strategy_id, trade_date)
             if strategy_id and trade_date
@@ -276,7 +299,7 @@ def create_api_app(services: ApiServices):
         execution = day.get("execution_plan") if day else None
         actuals = day.get("actuals", {}) if day else {}
         if execution and "outcomes" in actuals:
-            return {
+            return with_requested_date({
                 "plan_id": execution.get("plan_id") or "",
                 "reference_date": execution["as_of"],
                 "trade_date": trade_date,
@@ -285,7 +308,7 @@ def create_api_app(services: ApiServices):
                     {**candidate, "symbol": candidate["code"]}
                     for candidate in execution["candidates"]
                 ],
-            }
+            })
         plan = services.repository.get_active_plan(
             trade_date, **({"strategy_id": strategy_id} if strategy_id else {})
         )
@@ -302,7 +325,7 @@ def create_api_app(services: ApiServices):
                         "strategy_version": "", "candidates": []}
         if plan is None:
             raise HTTPException(status_code=503, detail="active plan is unavailable")
-        return plan
+        return with_requested_date(plan)
 
     config_store = services.config_store or StrategyConfigStore(Path("config/strategy.json"))
 
@@ -598,13 +621,15 @@ def create_api_app(services: ApiServices):
         active = active_strategy() if not strategy_id else None
         strategy_id = strategy_id or (active["strategy_id"] if active else None)
         plan = active_plan(trade_date, strategy_id)
-        non_trading_day = bool(plan.get("non_trading_day"))
+        resolved_from_non_trading_day = bool(
+            plan.get("resolved_from_non_trading_day")
+        )
         day = (
             services.repository.get_strategy_day(
                 strategy_id,
                 plan["trade_date"],
             )
-            if strategy_id and not non_trading_day
+            if strategy_id
             else None
         )
         actuals = day.get("actuals", {}) if day else {}
@@ -767,6 +792,10 @@ def create_api_app(services: ApiServices):
         current_phase = phase_at(datetime.now(SHANGHAI))
         return {
             "trade_date": plan["trade_date"],
+            "requested_date": plan.get(
+                "requested_date",
+                plan["trade_date"],
+            ),
             "reference_date": plan["reference_date"],
             "plan_id": plan["plan_id"],
             "strategy_version": plan["strategy_version"],
@@ -776,8 +805,8 @@ def create_api_app(services: ApiServices):
                 "max_quote_age_seconds": max_age,
                 "consumer_lag": None,
                 "reason": (
-                    "non_trading_day"
-                    if non_trading_day
+                    "non_trading_day_fallback"
+                    if resolved_from_non_trading_day
                     else None
                 ),
             },
@@ -927,12 +956,19 @@ def create_api_app(services: ApiServices):
 
     @app.get("/api/v1/reports/{tradeDate}")
     def report(tradeDate: str, strategy_id: Optional[str] = None):
+        resolved_date, resolved_from_non_trading_day = resolve_trade_date(
+            tradeDate
+        )
         active = active_strategy() if not strategy_id else None
         strategy_id = strategy_id or (active["strategy_id"] if active else None)
-        value = strategy_day(strategy_id, tradeDate)["next_plan"] if strategy_id else services.reports.get(tradeDate)
+        value = strategy_day(strategy_id, resolved_date)["next_plan"] if strategy_id else services.reports.get(resolved_date)
         if value is None:
             raise HTTPException(status_code=404, detail="report not found")
-        return _report_payload(value, services.strategy_version)
+        payload = _report_payload(value, services.strategy_version)
+        if resolved_from_non_trading_day:
+            payload["requested_date"] = tradeDate
+            payload["resolved_from_non_trading_day"] = True
+        return payload
 
     @app.post("/api/v1/reports/{tradeDate}/refresh", status_code=202)
     def refresh_report(tradeDate: str, request: Request, strategy_id: Optional[str] = None):
@@ -943,6 +979,8 @@ def create_api_app(services: ApiServices):
                 status_code=400,
                 detail="tradeDate must be a valid ISO date",
             ) from exc
+        if not services.repository.is_trading_session(requested_date):
+            raise HTTPException(status_code=400, detail="所选日期不是交易日")
         now = datetime.now(SHANGHAI)
         if requested_date > now.date() or (requested_date == now.date() and now.hour < 15):
             raise HTTPException(status_code=400, detail="该交易日尚未收盘，暂不能生成收盘计划")

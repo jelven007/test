@@ -614,8 +614,19 @@ class StrategyCatalogMixin:
                     (sessions[0], sessions[-1], sessions))
                 cursor.execute("""DELETE FROM banxia.strategy_day d
                     WHERE d.trade_date BETWEEN %s AND %s
-                    AND d.next_plan IS NULL AND d.execution_plan IS NULL AND d.actuals='{}'::jsonb
                     AND NOT EXISTS(SELECT 1 FROM banxia.trading_session t WHERE t.trade_date=d.trade_date)""",
+                    (sessions[0], sessions[-1]))
+                cursor.execute("""DELETE FROM banxia.watchlist w
+                    USING banxia.strategy_plan p
+                    WHERE w.plan_id=p.plan_id
+                    AND p.trade_date BETWEEN %s AND %s
+                    AND NOT EXISTS(SELECT 1 FROM banxia.trading_session t
+                                   WHERE t.trade_date=p.trade_date)""",
+                    (sessions[0], sessions[-1]))
+                cursor.execute("""DELETE FROM banxia.strategy_plan p
+                    WHERE p.trade_date BETWEEN %s AND %s
+                    AND NOT EXISTS(SELECT 1 FROM banxia.trading_session t
+                                   WHERE t.trade_date=p.trade_date)""",
                     (sessions[0], sessions[-1]))
 
     def is_trading_session(self, target):

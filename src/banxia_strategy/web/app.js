@@ -7,6 +7,7 @@ const sourceStatus = document.querySelector(".source-status");
 const sourceLabel = document.querySelector("#source-label");
 
 let activeDate = null;
+let resolvedFromNonTradingDay = false;
 
 function field(root, name) {
   return root.querySelector(`[data-field="${name}"]`);
@@ -161,6 +162,9 @@ function renderCandidate(candidate, index) {
 }
 
 function renderReport(report) {
+  resolvedFromNonTradingDay = Boolean(
+    report.resolved_from_non_trading_day
+  );
   report = {
     ...report,
     as_of: report.trade_date,
@@ -240,13 +244,16 @@ function renderReport(report) {
   });
 
   dashboard.replaceChildren(fragment);
-  activeDate = report.as_of;
+  activeDate = report.requested_date || report.as_of;
   document.title = `${report.as_of} 次日执行计划 · 一进二`;
   sourceStatus.className = "source-status ready";
-  sourceLabel.textContent = `${report.data_source || "数据源"} · ${candidates.length} 只候选`;
+  sourceLabel.textContent = resolvedFromNonTradingDay
+    ? `休市日 · 展示 ${report.as_of} 次日计划 · ${candidates.length} 只候选`
+    : `${report.data_source || "数据源"} · ${candidates.length} 只候选`;
 }
 
 function renderError(message) {
+  resolvedFromNonTradingDay = false;
   const section = document.createElement("section");
   section.className = "error-state";
   const content = document.createElement("div");
@@ -284,14 +291,16 @@ async function loadReport(asOf) {
   try {
     const path = `/api/v1/reports/${encodeURIComponent(asOf)}`;
     const report = await fetchJson(path);
-    const selectedDate = report.trade_date || report.as_of;
+    const selectedDate = (
+      report.requested_date || report.trade_date || report.as_of
+    );
     renderReport(report);
     reportDateInput.value = selectedDate;
     rememberDate(selectedDate);
   } catch (error) {
     renderError(error.message);
   } finally {
-    refreshButton.disabled = false;
+    refreshButton.disabled = resolvedFromNonTradingDay;
   }
 }
 
@@ -324,7 +333,7 @@ async function refreshReport(asOf) {
     sourceStatus.className = "source-status error";
     sourceLabel.textContent = `刷新失败：${error.message}`;
   } finally {
-    refreshButton.disabled = false;
+    refreshButton.disabled = resolvedFromNonTradingDay;
     reportDateInput.disabled = false;
     refreshButton.textContent = "刷新";
   }
@@ -350,7 +359,9 @@ reportDateInput.addEventListener("change", () => {
 });
 refreshButton.addEventListener("click", () => {
   const requestedDate = reportDateInput.value || activeDate;
-  if (requestedDate) refreshReport(requestedDate);
+  if (requestedDate && !resolvedFromNonTradingDay) {
+    refreshReport(requestedDate);
+  }
 });
 
 initialize();

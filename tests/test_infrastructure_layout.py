@@ -263,7 +263,12 @@ class WebAssetTest(unittest.TestCase):
             app,
         )
         self.assertIn("/api/v1/report-jobs/${encodeURIComponent(job.job_id)}", app)
-        self.assertIn("report.trade_date || report.as_of", app)
+        self.assertIn(
+            "report.requested_date || report.trade_date || report.as_of",
+            app,
+        )
+        self.assertIn("resolvedFromNonTradingDay", app)
+        self.assertIn("/app.js?v=20260926.1", html)
         self.assertIn('timeZone: "Asia/Shanghai"', app)
         self.assertIn('id="report-date" type="date"', html)
         self.assertRegex(html, r'<button id="refresh-button" type="button"[^>]*>刷新</button>')
@@ -285,8 +290,15 @@ class WebAssetTest(unittest.TestCase):
             "/api/v1/report-jobs/${encodeURIComponent(job.job_id)}",
             monitor_app,
         )
-        self.assertIn("snapshot.data_status.reason === \"non_trading_day\"", monitor_app)
-        self.assertIn("/monitor.js?v=20260926.3", monitor_html)
+        self.assertIn(
+            'snapshot.data_status.reason === "non_trading_day_fallback"',
+            monitor_app,
+        )
+        self.assertIn(
+            "data.requested_date || data.plan_date",
+            monitor_app,
+        )
+        self.assertIn("/monitor.js?v=20260926.4", monitor_html)
         self.assertNotIn("刷新数据", html)
         self.assertIn("width: 148px", css)
         self.assertIn("flex-basis: 122px", css)

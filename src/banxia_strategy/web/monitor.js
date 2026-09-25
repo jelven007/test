@@ -91,8 +91,8 @@ function normalize(snapshot, eventPayload) {
     ...snapshot,
     collected_at: stocks.map((stock) => stock.quote.quote_time).filter(Boolean).sort().at(-1),
     delayed: snapshot.data_status.state !== "fresh",
-    error: snapshot.data_status.reason === "non_trading_day"
-      ? "所选日期为非交易日，无当日实盘数据。"
+    error: snapshot.data_status.reason === "non_trading_day_fallback"
+      ? `所选日期为休市日，展示最近交易日 ${snapshot.trade_date} 的当日实盘数据。`
       : snapshot.data_status.state === "unavailable"
         ? "实时投影尚未就绪，暂停入场判断。"
         : null,
@@ -247,7 +247,7 @@ function render(data) {
   write("connection", data.error ? "数据不可用 · 暂停判断" : "事件流已连接");
   byId("connection").dataset.error = String(Boolean(data.error));
   sourceStatus.className = `source-status ${data.error ? "error" : "ready"}`;
-  reportDateInput.value = data.plan_date;
+  reportDateInput.value = data.requested_date || data.plan_date;
   const params = new URLSearchParams(location.search);
   if (!params.get("trade_date")) {
     params.set("trade_date", data.plan_date);
@@ -297,7 +297,9 @@ async function sync({ userInitiated = false } = {}) {
   } finally {
     clearTimeout(timeout);
     inFlight = false;
-    refreshButton.disabled = false;
+    refreshButton.disabled = (
+      latest?.data_status?.reason === "non_trading_day_fallback"
+    );
     reportDateInput.disabled = false;
     refreshButton.textContent = "刷新";
   }
@@ -319,6 +321,7 @@ async function refreshSelectedDay() {
     markDisconnected("请先选择交易日");
     return;
   }
+  if (latest?.data_status?.reason === "non_trading_day_fallback") return;
   refreshing = true;
   refreshButton.disabled = true;
   reportDateInput.disabled = true;

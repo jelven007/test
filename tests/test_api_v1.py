@@ -318,7 +318,25 @@ class ApiV1Test(unittest.TestCase):
         self.assertIsNone(payload["stocks"][0]["price"])
         self.assertEqual(payload["data_status"]["state"], "unavailable")
 
-    def test_nontrading_monitor_date_returns_empty_snapshot_and_events(self):
+    def test_nontrading_date_reads_previous_trading_day_without_writing_it(self):
+        root = Path(self.directory.name)
+        previous_report = json.loads(
+            (root / "2026-09-23" / "candidates.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        previous_report["as_of"] = "2026-09-24"
+        previous_report["next_session"] = "2026-09-28"
+        report_directory = root / "2026-09-24"
+        report_directory.mkdir()
+        (report_directory / "candidates.json").write_text(
+            json.dumps(previous_report, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        report = self.client.get(
+            "/api/v1/reports/2026-09-25"
+        )
         snapshot = self.client.get(
             "/api/v1/monitor?trade_date=2026-09-25"
         )
@@ -326,17 +344,27 @@ class ApiV1Test(unittest.TestCase):
             "/api/v1/monitor/events?trade_date=2026-09-25"
         )
 
+        self.assertEqual(report.status_code, 200)
+        self.assertEqual(report.json()["requested_date"], "2026-09-25")
+        self.assertEqual(report.json()["trade_date"], "2026-09-24")
+        self.assertEqual(report.json()["plan_date"], "2026-09-28")
+        self.assertEqual(len(report.json()["candidates"]), 1)
+
         self.assertEqual(snapshot.status_code, 200)
-        self.assertEqual(snapshot.json()["trade_date"], "2026-09-25")
-        self.assertIsNone(snapshot.json()["reference_date"])
-        self.assertEqual(snapshot.json()["plan_id"], "")
-        self.assertEqual(snapshot.json()["stocks"], [])
+        self.assertEqual(snapshot.json()["requested_date"], "2026-09-25")
+        self.assertEqual(snapshot.json()["trade_date"], "2026-09-24")
+        self.assertEqual(snapshot.json()["reference_date"], "2026-09-23")
+        self.assertEqual(snapshot.json()["plan_id"], "plan")
+        self.assertEqual(
+            [item["symbol"] for item in snapshot.json()["stocks"]],
+            ["002635"],
+        )
         self.assertEqual(
             snapshot.json()["data_status"]["reason"],
-            "non_trading_day",
+            "non_trading_day_fallback",
         )
         self.assertEqual(events.status_code, 200)
-        self.assertEqual(events.json(), {"items": [], "next_cursor": None})
+        self.assertEqual(events.json()["items"][0]["event_id"], "decision-1")
 
     def test_historical_monitor_prefers_materialized_execution_over_stale_active_plan(self):
         strategy_id = "00000000-0000-0000-0000-000000000010"
@@ -468,12 +496,20 @@ class ApiV1Test(unittest.TestCase):
 
     def test_report_refresh_rejects_invalid_date_and_unknown_job(self):
         invalid = self.client.post("/api/v1/reports/not-a-date/refresh")
+        nontrading = self.client.post(
+            "/api/v1/reports/2026-09-25/refresh"
+        )
         malformed_job = self.client.get("/api/v1/report-jobs/missing")
         missing = self.client.get(
             "/api/v1/report-jobs/00000000-0000-0000-0000-999999999999"
         )
 
         self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(nontrading.status_code, 400)
+        self.assertEqual(
+            nontrading.json()["error"]["message"],
+            "所选日期不是交易日",
+        )
         self.assertEqual(malformed_job.status_code, 400)
         self.assertEqual(missing.status_code, 404)
 

@@ -246,12 +246,41 @@ class MultiStrategyTest(unittest.TestCase):
             self.assertEqual(next(r for r in rows if r["trade_date"] == self.report["next_session"])["actual_status"], "no_candidates")
             self.assertEqual(client.get("/api/v1/strategies/bad/days").status_code, 400)
 
-    def test_corrected_calendar_removes_empty_nontrading_record(self):
+    def test_corrected_calendar_removes_materialized_nontrading_record(self):
         self.repository.save_trading_sessions(["2026-09-24", "2026-09-25", "2026-09-28"])
+        identity = self.persist(self.a)
         self.repository.ensure_strategy_days("2026-09-25")
-        self.assertIsNotNone(self.repository.get_strategy_day(self.a["strategy_id"], "2026-09-25"))
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """UPDATE banxia.strategy_day
+                SET execution_plan='{"candidates":[]}'::jsonb
+                WHERE strategy_id=%s AND trade_date='2026-09-25'""",
+                (self.a["strategy_id"],),
+            )
+            cursor.execute(
+                """UPDATE banxia.strategy_plan SET trade_date='2026-09-25'
+                WHERE plan_id=%s""",
+                (identity.plan_id,),
+            )
+        stale = self.repository.get_strategy_day(
+            self.a["strategy_id"],
+            "2026-09-25",
+        )
+        self.assertIsNotNone(stale["execution_plan"])
+        self.assertIsNotNone(
+            self.repository.get_active_plan(
+                "2026-09-25",
+                self.a["strategy_id"],
+            )
+        )
         self.repository.save_trading_sessions(["2026-09-24", "2026-09-28"])
         self.assertIsNone(self.repository.get_strategy_day(self.a["strategy_id"], "2026-09-25"))
+        self.assertIsNone(
+            self.repository.get_active_plan(
+                "2026-09-25",
+                self.a["strategy_id"],
+            )
+        )
 
     def test_custom_report_worker_uses_each_immutable_strategy_config(self):
         store = CatalogConfigStore(self.repository, self.a["strategy_id"])
