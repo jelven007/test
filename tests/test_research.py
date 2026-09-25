@@ -11,6 +11,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+from banxia_strategy.catalog_backfill import backfill_catalog
 from banxia_strategy.research import (
     aggregate_days, enough_samples, experiment_specs, group_periods,
     label_candidate, optimize, summarize,
@@ -204,6 +205,78 @@ class ResearchPersistenceTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 store.get_research_run("../config")
             self.assertIsNone(store.asset_path("00000000-0000-0000-0000-000000000001", "../../strategy.json"))
+
+
+class CatalogBackfillTest(unittest.TestCase):
+    def test_backfill_seeds_first_actual_and_preserves_existing_values(self):
+        class Repository:
+            def __init__(self):
+                self.days = {
+                    ("strategy-1", "2026-09-25"): {
+                        "next_plan": {"as_of": "preserved"},
+                        "execution_plan": None,
+                        "actuals": {},
+                    },
+                }
+
+            def save_trading_sessions(self, sessions):
+                self.sessions = sessions
+
+            def list_strategies(self):
+                return [{"strategy_id": "strategy-1", "code": "one", "name": "策略一", "config": {}}]
+
+            def get_strategy_day(self, strategy_id, trade_date):
+                return self.days.get((strategy_id, trade_date))
+
+            def fill_daily_report_gaps(self, strategy_id, report):
+                reference = self.days.setdefault(
+                    (strategy_id, report["as_of"]),
+                    {"next_plan": None, "execution_plan": None, "actuals": {}},
+                )
+                reference["next_plan"] = reference["next_plan"] or report
+                target = self.days.setdefault(
+                    (strategy_id, report["next_session"]),
+                    {"next_plan": None, "execution_plan": None, "actuals": {}},
+                )
+                target["execution_plan"] = target["execution_plan"] or report
+
+            def save_day_actuals(self, strategy_id, trade_date, actuals, plan_id=None):
+                self.days[(strategy_id, trade_date)]["actuals"] = actuals
+
+        days = []
+        for reference, plan_date in [
+            ("2026-09-24", "2026-09-25"),
+            ("2026-09-25", "2026-09-28"),
+            ("2026-09-28", "2026-09-29"),
+        ]:
+            rows = [outcome()]
+            days.append({
+                "reference_date": reference,
+                "plan_date": plan_date,
+                "report": {"as_of": reference, "next_session": plan_date},
+                "outcomes": rows,
+                "summary": summarize(rows),
+            })
+        repository = Repository()
+        snapshot = {
+            "calendar": ["2026-09-24", "2026-09-25", "2026-09-28", "2026-09-29"],
+        }
+        with patch("banxia_strategy.catalog_backfill.evaluate_config",
+                   return_value={"days": days, "summary": {"accuracy_pct": 100}}):
+            first = backfill_catalog(
+                repository, snapshot, date(2026, 9, 25), date(2026, 9, 28),
+            )
+            second = backfill_catalog(
+                repository, snapshot, date(2026, 9, 25), date(2026, 9, 28),
+            )
+        first_day = repository.days[("strategy-1", "2026-09-25")]
+        self.assertEqual(first_day["next_plan"], {"as_of": "preserved"})
+        self.assertEqual(first_day["execution_plan"]["as_of"], "2026-09-24")
+        self.assertEqual(first_day["actuals"]["status"], "complete")
+        self.assertEqual(first["strategies"]["strategy-1"]["plans"], 1)
+        self.assertEqual(first["strategies"]["strategy-1"]["actuals"], 2)
+        self.assertEqual(second["strategies"]["strategy-1"]["plans"], 0)
+        self.assertEqual(second["strategies"]["strategy-1"]["actuals"], 0)
 
 
 if __name__ == "__main__":

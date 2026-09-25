@@ -64,6 +64,22 @@ class MultiStrategyTest(unittest.TestCase):
             self.assertIsNotNone(day["execution_plan"])
             self.assertEqual(day["actual_status"], "pending")
 
+    def test_gap_fill_does_not_replace_existing_plan_or_execution(self):
+        report = {
+            **self.report,
+            "strategy_id": self.a["strategy_id"],
+            "strategy_code": self.a["code"],
+            "strategy_name": self.a["name"],
+            "strategy_version": "historical-v1",
+        }
+        self.repository.fill_daily_report_gaps(self.a["strategy_id"], report)
+        changed = {**report, "strategy_version": "must-not-replace"}
+        self.repository.fill_daily_report_gaps(self.a["strategy_id"], changed)
+        reference = self.repository.get_strategy_day(self.a["strategy_id"], report["as_of"])
+        execution = self.repository.get_strategy_day(self.a["strategy_id"], report["next_session"])
+        self.assertEqual(reference["next_plan"]["strategy_version"], "historical-v1")
+        self.assertEqual(execution["execution_plan"]["strategy_version"], "historical-v1")
+
     def test_shared_quote_produces_two_independent_idempotent_decisions(self):
         ids = [self.persist(s) for s in (self.a, self.b)]
         candidate = {**self.report["candidates"][0], "plan_date": self.report["next_session"]}

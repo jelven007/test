@@ -175,6 +175,23 @@ class StrategyCatalogMixin:
             with connection.cursor() as cursor:
                 self._save_daily_report(cursor, strategy_id, report)
 
+    def fill_daily_report_gaps(self, strategy_id, report):
+        """Fill missing catalog projections without replacing existing history."""
+        payload = json.dumps(report, ensure_ascii=False)
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""INSERT INTO banxia.strategy_day(strategy_id,trade_date,next_plan)
+                    VALUES (%s,%s,%s::jsonb) ON CONFLICT(strategy_id,trade_date)
+                    DO UPDATE SET next_plan=EXCLUDED.next_plan,updated_at=now()
+                    WHERE banxia.strategy_day.next_plan IS NULL""",
+                    (strategy_id, report["as_of"], payload))
+                if report.get("next_session"):
+                    cursor.execute("""INSERT INTO banxia.strategy_day(strategy_id,trade_date,execution_plan)
+                        VALUES (%s,%s,%s::jsonb) ON CONFLICT(strategy_id,trade_date)
+                        DO UPDATE SET execution_plan=EXCLUDED.execution_plan,updated_at=now()
+                        WHERE banxia.strategy_day.execution_plan IS NULL""",
+                        (strategy_id, report["next_session"], payload))
+
     def save_day_actuals(self, strategy_id, trade_date, actuals, plan_id=None):
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:

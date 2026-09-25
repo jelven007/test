@@ -59,6 +59,18 @@ PYTHONPATH=src python -m banxia_strategy.catalog_bootstrap
 导入默认策略已有报告及最近一次研究实验的两组历史记录，优化策略默认暂停。
 迁移重复执行不会覆盖较新的日报；旧报告错误的下一交易日按已有 mootdx 日历纠正。
 实验原始数据保持不变，日表仅作为管理和展示记录。
+
+按当前目录中每条未归档策略的配置补齐历史日记录：
+
+```sh
+PYTHONPATH=src python -m banxia_strategy.catalog_backfill \
+  --start 2025-09-25 --end 2026-09-24
+```
+
+命令只使用 mootdx，额外采集开始日前两周以衔接首日的执行计划；已存在的
+`next_plan`、`execution_plan` 和 `actuals` 不会被覆盖。再次执行只校验并跳过已有数据。
+可用 `--snapshot` 复用已保存的快照，避免重复下载。
+
 随后更新 api、report-scheduler、report-worker、market-collector、strategy-engine 镜像。
 
 ```sh
