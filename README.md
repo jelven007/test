@@ -202,8 +202,11 @@ export BANXIA_CODE_COMMIT="$(git rev-parse --short HEAD)"
 
 ```bash
 make infra-check
+export BANXIA_TEST_POSTGRES_DSN="postgresql://banxia:banxia-local@127.0.0.1:5432/banxia_test"
 make integration-test
 ```
+
+`BANXIA_TEST_POSTGRES_DSN` 必须指向隔离测试库；集成测试不会回退使用业务数据库。
 
 成本回撤4%是预警阈值，并非保证成交的止损价。A股T+1，当天新买的股票不能当天卖出；
 本页没有持仓成本信息，不能计算个人盈亏或代替账户风控。电脑休眠、关机或 Web 服务停止
@@ -323,6 +326,7 @@ PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 
 ```bash
 make infra-check
+export BANXIA_TEST_POSTGRES_DSN="postgresql://banxia:banxia-local@127.0.0.1:5432/banxia_test"
 make integration-test
 ```
 

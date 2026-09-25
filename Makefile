@@ -8,6 +8,8 @@ test:
 	PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 
 integration-test:
+	@test -n "$(BANXIA_TEST_POSTGRES_DSN)" || \
+		(echo "BANXIA_TEST_POSTGRES_DSN must point to an isolated test database" >&2; exit 2)
 	BANXIA_RUN_INTEGRATION=1 .venv/bin/python -m unittest tests.test_storage_integration -v
 
 infra-config:

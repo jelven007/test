@@ -5,8 +5,10 @@ import json
 import os
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
+from banxia_strategy.adapters.postgres import IDENTITY_NAMESPACE
 from banxia_strategy.application.persistence import (
     build_market_persistence,
     persist_report_copy,
@@ -14,27 +16,62 @@ from banxia_strategy.application.persistence import (
 from banxia_strategy.storage_config import StorageSettings
 
 
-RUN_INTEGRATION = os.environ.get("BANXIA_RUN_INTEGRATION") == "1"
+TEST_POSTGRES_DSN = os.environ.get("BANXIA_TEST_POSTGRES_DSN")
+RUN_INTEGRATION = (
+    os.environ.get("BANXIA_RUN_INTEGRATION") == "1"
+    and bool(TEST_POSTGRES_DSN)
+)
 
 
-@unittest.skipUnless(RUN_INTEGRATION, "set BANXIA_RUN_INTEGRATION=1")
+@unittest.skipUnless(
+    RUN_INTEGRATION,
+    "set BANXIA_RUN_INTEGRATION=1 and BANXIA_TEST_POSTGRES_DSN",
+)
 class StorageIntegrationTest(unittest.TestCase):
+    strategy_code = "storage-integration-test"
+    strategy_version = "integration-v1"
+    as_of = "2099-01-02"
+    plan_date = "2099-01-03"
+    strategy_version_id = str(
+        uuid.uuid5(
+            IDENTITY_NAMESPACE,
+            f"strategy-version:{strategy_code}:{strategy_version}",
+        )
+    )
+    plan_id = str(
+        uuid.uuid5(
+            IDENTITY_NAMESPACE,
+            f"strategy-plan:{strategy_version_id}:{as_of}",
+        )
+    )
+
     @classmethod
     def setUpClass(cls):
+        from psycopg.conninfo import conninfo_to_dict
+
+        database = conninfo_to_dict(TEST_POSTGRES_DSN).get("dbname", "")
+        if "test" not in database.lower():
+            raise RuntimeError(
+                "BANXIA_TEST_POSTGRES_DSN must name an isolated test database"
+            )
         cls.settings = StorageSettings.from_env(
             {
                 **os.environ,
                 "BANXIA_STORAGE_MODE": "required",
-                "BANXIA_STRATEGY_VERSION": "integration-v1",
+                "BANXIA_POSTGRES_DSN": TEST_POSTGRES_DSN,
+                "BANXIA_STRATEGY_VERSION": cls.strategy_version,
                 "BANXIA_CODE_COMMIT": "integration-test",
             }
         )
         cls.report = {
-            "as_of": "2099-01-02",
-            "next_session": "2099-01-03",
+            "strategy_id": "00000000-0000-0000-0000-000000000099",
+            "strategy_code": cls.strategy_code,
+            "strategy_name": "存储集成测试策略",
+            "as_of": cls.as_of,
+            "next_session": cls.plan_date,
             "generated_at": "2099-01-02T16:20:00+08:00",
             "data_source": "mootdx",
-            "data_sessions": ["2099-01-02"],
+            "data_sessions": [cls.as_of],
             "market": {"regime": "integration", "score": 80},
             "rejected_count": 0,
             "candidates": [
@@ -59,10 +96,25 @@ class StorageIntegrationTest(unittest.TestCase):
         }
 
     def setUp(self):
-        self._cleanup_database()
+        self._cleanup_storage()
 
     def tearDown(self):
-        self._cleanup_database()
+        self._cleanup_storage()
+
+    def _cleanup_storage(self):
+        errors = []
+        for cleanup in (
+            self._cleanup_database,
+            self._cleanup_clickhouse,
+            self._cleanup_redis,
+            self._cleanup_minio,
+        ):
+            try:
+                cleanup()
+            except Exception as exc:
+                errors.append(f"{cleanup.__name__}: {exc}")
+        if errors:
+            self.fail("; ".join(errors))
 
     def _cleanup_database(self):
         import psycopg
@@ -71,33 +123,28 @@ class StorageIntegrationTest(unittest.TestCase):
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    DELETE FROM banxia.inbox_event
-                    WHERE event_id IN (
-                        SELECT state.source_event_id
-                        FROM banxia.decision_state AS state
-                        JOIN banxia.strategy_plan AS plan
-                          ON plan.plan_id = state.plan_id
-                        JOIN banxia.strategy_version AS version
-                          ON version.strategy_version_id =
-                             plan.strategy_version_id
-                        WHERE version.version = 'integration-v1'
+                    DELETE FROM banxia.strategy_day
+                    WHERE strategy_id IN (
+                        SELECT strategy_id
+                        FROM banxia.strategy_definition
+                        WHERE code = %s
                     )
+                    """,
+                    (self.strategy_code,),
+                )
+                cursor.execute(
                     """
+                    DELETE FROM banxia.inbox_event
+                    WHERE topic LIKE %s
+                    """,
+                    (f"%:plan:{self.plan_id}",),
                 )
                 cursor.execute(
                     """
                     DELETE FROM banxia.outbox_event AS event
-                    WHERE event.event_id IN (
-                        SELECT decision.decision_event_id
-                        FROM banxia.decision_event AS decision
-                        JOIN banxia.strategy_plan AS plan
-                          ON plan.plan_id = decision.plan_id
-                        JOIN banxia.strategy_version AS version
-                          ON version.strategy_version_id =
-                             plan.strategy_version_id
-                        WHERE version.version = 'integration-v1'
-                    )
-                    """
+                    WHERE event.aggregate_id LIKE %s
+                    """,
+                    (f"{self.plan_id}:%",),
                 )
                 cursor.execute(
                     """
@@ -108,36 +155,115 @@ class StorageIntegrationTest(unittest.TestCase):
                         JOIN banxia.strategy_version AS version
                           ON version.strategy_version_id =
                              plan.strategy_version_id
-                        WHERE version.version = 'integration-v1'
+                        JOIN banxia.strategy_definition AS strategy
+                          ON strategy.strategy_id = version.strategy_id
+                        WHERE strategy.code = %s
                     )
-                    """
+                    """,
+                    (self.strategy_code,),
                 )
                 cursor.execute(
                     """
                     DELETE FROM banxia.strategy_plan
                     WHERE strategy_version_id IN (
-                        SELECT strategy_version_id
-                        FROM banxia.strategy_version
-                        WHERE version = 'integration-v1'
+                        SELECT version.strategy_version_id
+                        FROM banxia.strategy_version AS version
+                        JOIN banxia.strategy_definition AS strategy
+                          ON strategy.strategy_id = version.strategy_id
+                        WHERE strategy.code = %s
                     )
-                    """
+                    """,
+                    (self.strategy_code,),
                 )
                 cursor.execute(
                     """
                     DELETE FROM banxia.strategy_run
                     WHERE strategy_version_id IN (
-                        SELECT strategy_version_id
-                        FROM banxia.strategy_version
-                        WHERE version = 'integration-v1'
+                        SELECT version.strategy_version_id
+                        FROM banxia.strategy_version AS version
+                        JOIN banxia.strategy_definition AS strategy
+                          ON strategy.strategy_id = version.strategy_id
+                        WHERE strategy.code = %s
                     )
-                    """
+                    """,
+                    (self.strategy_code,),
                 )
                 cursor.execute(
                     """
-                    DELETE FROM banxia.strategy_version
-                    WHERE version = 'integration-v1'
+                    DELETE FROM banxia.strategy_version AS version
+                    USING banxia.strategy_definition AS strategy
+                    WHERE strategy.strategy_id = version.strategy_id
+                      AND strategy.code = %s
+                    """,
+                    (self.strategy_code,),
+                )
+                cursor.execute(
+                    """
+                    DELETE FROM banxia.strategy_definition
+                    WHERE code = %s
+                    """,
+                    (self.strategy_code,),
+                )
+
+    def _cleanup_clickhouse(self):
+        import clickhouse_connect
+
+        client = clickhouse_connect.get_client(
+            host=self.settings.clickhouse_host,
+            port=self.settings.clickhouse_port,
+            database=self.settings.clickhouse_database,
+            username=self.settings.clickhouse_user,
+            password=self.settings.clickhouse_password,
+        )
+        try:
+            for table in ("market_quote_snapshot", "market_bar_1m"):
+                client.command(
+                    f"""
+                    ALTER TABLE banxia.{table}
+                    DELETE WHERE trade_date = '{self.plan_date}'
+                      AND symbol = '600001'
+                    SETTINGS mutations_sync = 2
                     """
                 )
+        finally:
+            client.close()
+
+    def _cleanup_redis(self):
+        import redis
+
+        client = redis.Redis.from_url(self.settings.redis_url)
+        try:
+            client.delete(
+                f"banxia:monitor:snapshot:{self.plan_date}",
+                f"banxia:stream:monitor:{self.plan_date}",
+            )
+        finally:
+            client.close()
+
+    def _cleanup_minio(self):
+        from minio import Minio
+
+        client = Minio(
+            self.settings.minio_endpoint,
+            access_key=self.settings.minio_access_key,
+            secret_key=self.settings.minio_secret_key,
+            secure=self.settings.minio_secure,
+        )
+        prefix = (
+            f"strategy_version={self.strategy_version}/"
+            f"trade_date={self.as_of}/"
+        )
+        for item in client.list_objects(
+            self.settings.minio_report_bucket,
+            prefix=prefix,
+            recursive=True,
+            include_version=True,
+        ):
+            client.remove_object(
+                self.settings.minio_report_bucket,
+                item.object_name,
+                version_id=item.version_id,
+            )
 
     def test_report_and_intraday_dual_write(self):
         import clickhouse_connect
@@ -296,11 +422,7 @@ class StorageIntegrationTest(unittest.TestCase):
                         (SELECT count(*) FROM banxia.decision_event
                          WHERE plan_id = %s AND symbol = '600001'),
                         (SELECT count(*) FROM banxia.inbox_event
-                         WHERE event_id = (
-                             SELECT source_event_id
-                             FROM banxia.decision_state
-                             WHERE plan_id = %s AND symbol = '600001'
-                         )),
+                         WHERE topic LIKE %s),
                         (SELECT count(*) FROM banxia.outbox_event
                          WHERE aggregate_id = %s)
                     """,
@@ -310,7 +432,7 @@ class StorageIntegrationTest(unittest.TestCase):
                         report_result.identity.run_id,
                         report_result.identity.plan_id,
                         report_result.identity.plan_id,
-                        report_result.identity.plan_id,
+                        f"%:plan:{report_result.identity.plan_id}",
                         f"{report_result.identity.plan_id}:600001",
                     ),
                 )

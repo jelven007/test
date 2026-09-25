@@ -45,8 +45,12 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 ```bash
 make infra-check
+export BANXIA_TEST_POSTGRES_DSN="postgresql://banxia:banxia-local@127.0.0.1:5432/banxia_test"
 make integration-test
 ```
+
+存储集成测试必须使用隔离 PostgreSQL 测试库，不允许回退写入业务数据库。测试前后会清理
+PostgreSQL、ClickHouse、Redis 和 MinIO 中的专用测试数据。
 
 ## 3. 测试分层
 
