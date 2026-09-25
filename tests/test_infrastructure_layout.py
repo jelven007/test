@@ -248,6 +248,7 @@ class WebAssetTest(unittest.TestCase):
         monitor_html = (web / "monitor.html").read_text(encoding="utf-8")
         plan_html = (web / "index.html").read_text(encoding="utf-8")
         app = (web / "app.js").read_text(encoding="utf-8")
+        monitor_app = (web / "monitor.js").read_text(encoding="utf-8")
         standard = (web / "ui-standard.css").read_text(encoding="utf-8")
         styles = (web / "styles.css").read_text(encoding="utf-8")
 
@@ -270,6 +271,15 @@ class WebAssetTest(unittest.TestCase):
         self.assertEqual(plan_header.count("<h1"), 1)
         self.assertEqual(plan_header.count('class="report-meta"'), 2)
         self.assertNotIn("本次参数版本", plan_html)
+        self.assertNotIn("定时任务与刷新均按最新已保存策略执行", plan_html)
+        self.assertIn('data-field="candidate-scope"', plan_header)
+        self.assertIn('candidates.map((candidate) => candidate.name)', app)
+        self.assertIn('<span id="monitor-date">—</span> 当日实盘', monitor_html)
+        self.assertIn(
+            'write("monitor-date", dateLabel(data.requested_date || data.plan_date))',
+            monitor_app,
+        )
+        self.assertIn('replaceAll("-", ".")', monitor_app)
         self.assertNotIn('"strategy-revision"', app)
         self.assertIn("height: 116px;", standard)
         self.assertIn("flex-flow: row nowrap;", standard)
@@ -308,7 +318,7 @@ class WebAssetTest(unittest.TestCase):
         )
         self.assertIn("resolvedFromNonTradingDay", app)
         self.assertIn("/trading-calendar.js?v=20260926.2", html)
-        self.assertIn("/app.js?v=20260926.3", html)
+        self.assertIn("/app.js?v=20260926.4", html)
         self.assertIn('timeZone: "Asia/Shanghai"', app)
         self.assertIn('select id="report-date"', html)
         self.assertIn('{ defaultKey: "next_plan" }', app)
@@ -341,7 +351,7 @@ class WebAssetTest(unittest.TestCase):
             "data.requested_date || data.plan_date",
             monitor_app,
         )
-        self.assertIn("/monitor.js?v=20260926.5", monitor_html)
+        self.assertIn("/monitor.js?v=20260926.7", monitor_html)
         self.assertIn("/api/v1/trading-calendar", calendar_app)
         self.assertIn('"banxia.trade-date."', calendar_app)
         self.assertIn("window.localStorage.getItem", calendar_app)

@@ -203,6 +203,12 @@ function renderReport(report) {
   setText(fragment, "candidate-count", candidates.length);
   setText(fragment, "rejected-count", report.rejected_count);
   setText(fragment, "candidate-total", `${candidates.length} 只`);
+  setText(
+    fragment,
+    "candidate-scope",
+    candidates.map((candidate) => candidate.name).filter(Boolean).join(" / ")
+      || "暂无候选股票",
+  );
   setText(fragment, "data-source", report.data_source);
   setText(fragment, "data-sessions", (report.data_sessions || []).join("、"));
   setText(fragment, "disclaimer", report.disclaimer);

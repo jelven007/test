@@ -16,6 +16,7 @@ function write(id, value) { byId(id).textContent = value ?? "—"; }
 function numeric(value) { return value !== null && value !== undefined && Number.isFinite(Number(value)); }
 function price(value) { return numeric(value) ? Number(value).toFixed(2) : "—"; }
 function percent(value) { return numeric(value) ? `${Number(value) > 0 ? "+" : ""}${Number(value).toFixed(2)}%` : "—"; }
+function dateLabel(value) { return value ? String(value).replaceAll("-", ".") : "—"; }
 function clock(value) {
   return value ? new Intl.DateTimeFormat("zh-CN", {
     timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
@@ -235,6 +236,7 @@ function renderEvents(events) {
 function render(data) {
   latest = data;
   selected = data.stocks.some((stock) => stock.code === selected) ? selected : data.stocks[0]?.code;
+  write("monitor-date", dateLabel(data.requested_date || data.plan_date));
   write("phase", data.phase_label);
   write("collected", clock(data.collected_at));
   write("plan-date", data.plan_date);
