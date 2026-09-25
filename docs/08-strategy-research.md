@@ -1,9 +1,9 @@
-# 历史次日计划、准确率与独立策略研究
+# 历史计划、执行分析与策略优化
 
 入口：`/research`（主导航“回测优化”）。支持切换实验、日/周/月统计、逐日候选与实际
 开高低收、入场/放弃/退出条件、参数变化、实验日志和下载。研究候选保持独立，不自动启用。
 
-## 本次结果（2026-08-25 至 2026-09-24）
+## 一个月准确率研究（2026-08-25 至 2026-09-24）
 
 - 用 mootdx 重建 23 个参考交易日的计划；其中 22 个执行日有完整次日日线。
   按 mootdx 交易日历，最后一期执行日为 09-28，3 个候选待验证，不计入准确率。
@@ -31,6 +31,96 @@
 竞价合格采用日线开盘价近似，单列过滤后的封板命中率。历史分钟线不足以确认秒级封稳、
 完整板块助攻、排队成交和滑点，因此 `execution_accuracy_pct` 始终为 `null`；
 本研究不是实际交易收益回测。
+
+## 一年历史回填（2025-09-25 至 2026-09-24）
+
+`catalog_backfill` 使用 mootdx 快照为每条未归档策略补齐 242 个交易日：
+
+- 参考日的 `next_plan`。
+- 执行日的 `execution_plan`。
+- 当日 OHLC、策略判断和收盘封板验证 `actuals`。
+
+命令只补空字段，不覆盖已有计划、执行计划或实际行情；重复运行结果幂等。为衔接区间首日，
+采集范围会向前扩展历史交易日。
+
+```bash
+PYTHONPATH=src .venv/bin/python -m banxia_strategy.catalog_backfill \
+  --start 2025-09-25 --end 2026-09-24
+```
+
+## 严格可买执行分析
+
+`execution_analysis` 对策略目录中的历史计划加载 mootdx 分钟线。严格可买必须同时满足：
+
+1. 次日竞价涨幅位于计划区间。
+2. 当日最低价未跌破昨日收盘价。
+3. 入场截止前触及涨停。
+4. 触板后出现有成交量的开板分钟，作为可能成交窗口。
+5. 截止前再次回封，且炸板次数不超过计划上限。
+
+这只是分钟级保守成交代理，不含逐笔委托、排队位置、板块分钟成分和真实滑点。
+
+一年对比结果：
+
+| 策略 | 候选 | 严格可买 | 收盘封板 | 可买后封板率 |
+| --- | ---: | ---: | ---: | ---: |
+| 首板晋级二板策略 | 706 | 12 | 11 | 91.67% |
+| 题材分散优化策略 | 723 | 13 | 11 | 84.62% |
+
+宽松策略多产生 17 个候选，但成功数没有增加，因此不替换原策略。
+
+```bash
+PYTHONPATH=src .venv/bin/python -m banxia_strategy.execution_analysis \
+  --start 2025-09-25 --end 2026-09-24 \
+  --snapshot research/catalog-backfill/20250925-20260924/snapshot.json \
+  --output research/execution-analysis/20250925-20260924
+```
+
+主要产物为 `report.md`、`report.json`、`stocks.csv` 和 `minute-cache.json`。
+
+## T+1 与后续表现
+
+严格可买样本另生成三组辅助统计：
+
+- `success-followup.*`：成功封板股票后 5 个交易日表现；两策略去重 14 个成功事件，
+  D5 平均累计 `+8.50%`，区间从 `-25.38%` 到 `+43.13%`。
+- `t1-sell-report.*`：两策略去重 16 个严格可买样本，T+1 开盘平均 `+1.69%`、
+  胜率 `62.50%`；T+1 收盘平均 `+2.27%`、胜率 `56.25%`。
+- `equal-weight-t1-pnl.*`：每只投入 1 万元的理论等权边界，T+1 开盘合计 `+2,698` 元，
+  收盘合计 `+3,633` 元；未计手续费、滑点和排队影响。
+
+这些统计遵守 T+1 日期推进，但不是券商成交回测。最高/最低价只是事后边界，不能作为
+可提前知道的卖点。
+
+## 盈利约束优化
+
+`profit_optimization` 使用 60%/20%/20% 的时间顺序训练、验证、留出划分，以严格可买
+分钟价买入、下一交易日开盘卖出，并为每笔往返固定扣除 25bp 成本。选参仅使用训练和验证，
+留出集只用于最终判断。
+
+本次唯一变化为 `entry_cutoff_time: 10:00 -> 09:45`：
+
+| 方案 | 笔数 | 平均成本后收益 | 逐笔复合收益 | 胜率 | 最差单笔 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 原策略 10:00 | 12 | +2.69% | +35.62% | 66.67% | -5.51% |
+| 研究候选 09:45 | 9 | +4.25% | +44.10% | 77.78% | -2.74% |
+
+训练 6 笔、验证 2 笔、留出仅 1 笔。结果满足当前历史约束，但样本太少，不能证明未来盈利。
+候选策略 ID 为 `9500ff4b-529c-4b08-ac24-0f0734fd7d60`，状态保持未激活。
+
+```bash
+PYTHONPATH=src .venv/bin/python -m banxia_strategy.profit_optimization \
+  --execution-report research/execution-analysis/20250925-20260924/report.json \
+  --snapshot research/catalog-backfill/20250925-20260924/snapshot.json \
+  --minutes research/execution-analysis/20250925-20260924/minute-cache.json \
+  --output research/profit-optimization/20250925-20260924 \
+  --strategy-id 1be9446b-0dd9-5b9f-89b4-76890112e751 \
+  --cost-bps 25 --persist
+```
+
+产物为 `report.md`、`result.json`、`trades.csv`、`optimized-strategy.json` 和
+`strategy-metadata.json`。只有状态为 `historically_profitable_research_candidate`
+时 `--persist` 才允许创建未激活子策略。
 
 ## 实验协议与数据边界
 
@@ -87,7 +177,7 @@ research/20260825-20260924/
 范围以各自 `protocol.json` 为准。后续运行在实验开始前保存代码快照。
 原始输入、全部参数与每日结果均保留，不再对失败实验反复覆盖。
 
-添加 `--persist` 会先校验输入哈希和磁盘结果一致，再上传 MinIO，最后在一个 PostgreSQL
+月度研究添加 `--persist` 会先校验输入哈希和磁盘结果一致，再上传 MinIO，最后在一个 PostgreSQL
 事务中保存 `research_run`、`research_daily`、`research_strategy`。这三张表独立于
 当前计划、候选、观察清单和交易事件；数据库约束要求研究策略 `active=false`。
 数据库和 MinIO 凭据使用 `BANXIA_POSTGRES_DSN`、`BANXIA_MINIO_ENDPOINT`、

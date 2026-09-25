@@ -7,16 +7,16 @@
 
 ## 项目状态
 
-当前仓库是可运行的本地原型，使用 Python 单进程、mootdx、文件报告和 JSONL 盘中日志。
-生产化目标架构已经完成文档基线设计，将逐步演进到：
+当前仓库已实现可运行的多服务研究系统：
 
 ```text
-mootdx -> 采集服务 -> Kafka -> Flink / 策略状态机
+mootdx -> SQLite WAL -> Kafka -> Flink / 策略状态机
        -> PostgreSQL + ClickHouse + Redis + S3/MinIO
        -> /api/v1 -> Web 看板
 ```
 
-目标能力尚未全部实现。当前行为以本 README 的运行说明为准，生产化需求和迭代边界以
+本地 Compose 已包含完整链路，Kubernetes 清单提供生产部署基线；目标集群的容量、故障和
+备份恢复演练仍未完成。当前行为以本 README 的运行说明为准，完整文档以
 [docs/README.md](docs/README.md) 为统一入口：
 
 - [需求规格](docs/01-requirements.md)
@@ -26,6 +26,9 @@ mootdx -> 采集服务 -> Kafka -> Flink / 策略状态机
 - [测试策略](docs/05-testing.md)
 - [部署与运维](docs/06-deployment-operations.md)
 - [迭代计划](docs/07-iteration-plan.md)
+- [策略研究](docs/08-strategy-research.md)
+- [多策略管理](docs/09-multi-strategy.md)
+- [Web UI 标准](docs/10-web-ui-standard.md)
 - [OpenAPI](docs/openapi.yaml) / [AsyncAPI](docs/asyncapi.yaml)
 
 ## 本地基础设施
@@ -42,8 +45,8 @@ make infra-status
 初始化 Schema 位于 `migrations/postgres/` 和 `migrations/clickhouse/`。详细说明见
 [deploy/compose/README.md](deploy/compose/README.md)。
 
-当前 P1 已建立领域规则、事件模型和存储端口，并完成 PostgreSQL、ClickHouse、Redis、
-MinIO 的迁移期双写。Kafka 仍在后续阶段接入；本地报告和 JSONL 在迁移期继续保留。
+当前 Compose 已接入 Kafka、SQLite WAL、Flink、PostgreSQL、ClickHouse、Redis 和 MinIO，
+同时保留本地报告和 JSONL 作为兼容链路。
 
 ## 策略范围
 
@@ -108,8 +111,16 @@ python3 -m venv .venv
 .venv/bin/banxia-strategy serve
 ```
 
-浏览器打开 <http://127.0.0.1:8765>。看板默认同时读取 `scheduled_reports` 和
-`reports`，展示最新日报并支持切换历史日期。每只候选会依次列出：
+浏览器打开 <http://127.0.0.1:8765>。FastAPI 提供四个统一页面：
+
+- `/strategy`：不可变策略管理、激活切换、血缘和逐日记录。
+- `/`：次日计划、策略选择、历史日期和完整报告刷新。
+- `/monitor`：盘中行情、策略状态、分时和决策事件。
+- `/research`：历史准确率、参数实验和研究资产。
+
+共享样式由 `src/banxia_strategy/web/ui-standard.css` 管理，桌面端和 `390x844` 移动端
+均要求无页面级横向溢出。次日计划页默认读取持久化策略记录，也兼容
+`scheduled_reports` 和 `reports` 本地文件。每只候选会依次列出：
 
 - 集合竞价参考价格区间。
 - 09:30～10:00 的确认入场条件。
@@ -217,20 +228,23 @@ launchctl bootout "gui/$UID/com.jelven.banxia-strategy"
 rm "$HOME/Library/LaunchAgents/com.jelven.banxia-strategy.plist"
 ```
 
-## 配置
+## 策略管理
 
 打开 <http://127.0.0.1:8765/strategy>，主导航中的“策略管理”位于“次日计划”之前。
 页面分为候选筛选、个股评分、市场环境、竞价与入场、仓位与退出、运行设置六组。
 成交额和市值以亿元输入，比例以百分数输入；文件仍保留元和小数比例的计算单位。
 
-- “保存参数”会校验类型、上下限、理想评分区间和组合仓位关系，并持久化到
-  `BANXIA_STRATEGY_CONFIG` 指定的文件（默认 `config/strategy.json`）。
+- 完整策略目录模式下，“保存为新策略”会校验类型、上下限、理想评分区间和组合仓位关系，
+  创建不可变子策略，并保存父策略与逐项差异；原策略不被覆盖。
+- 全库最多一条策略激活。创建时可立即激活，也可稍后切换；删除为软删除。
+- 文件兼容模式仍可保存到 `BANXIA_STRATEGY_CONFIG` 指定的文件
+  （默认 `config/strategy.json`），但不具备完整多策略能力。
 - “恢复默认值”只填入草稿，保存后生效；“撤销修改”恢复本页最近加载/保存的值。
   多页面同时编辑时，通过配置版本检测冲突，避免覆盖其他页面的修改。
 - 评分权重、理想区间、历史炸板扣分、题材门槛、入场时间、跌破昨收开关、
   板块确认比例、仓位及回撤预警均可调整。沪深主板、排除 ST、mootdx、
   北京时间、T+1 和不自动下单为当前系统固定约束。
-- 保存后，手动刷新或定时报表使用新参数；新报告的 JSON 包含 `strategy_config`、
+- 激活后，手动刷新或定时报表使用该策略；新报告的 JSON 包含 `strategy_config`、
   `strategy_version`、`code_commit`，每只候选的 `plan` 保存结构化入场规则。
   已生成的报告和已激活的计划不因保存参数而变更。历史报告继续兼容原文字规则。
 - 定时任务与页面“刷新”均在每次执行开始时读取最新已保存的配置，包括排队后、
@@ -249,11 +263,11 @@ rm "$HOME/Library/LaunchAgents/com.jelven.banxia-strategy.plist"
 - 竞价重排、放量、持续封稳、盘中炸板次数及持仓成本风控仍需人工核验；
   页面调整不会增加自动成交或自动下单能力。
 
-读取接口为 `GET /api/v1/strategy-config`，返回当前配置、默认值、字段说明和 revision；
-保存使用 `PUT /api/v1/strategy-config`，请求为 `{"config": {...}, "revision": "..."}`。
-参数校验失败返回 422，版本冲突返回 409；配置了 API Bearer token 时沿用相同鉴权。
-Compose 中仅 API 服务需要共享配置目录写权限，采集和报表服务继续只读。
-也可直接编辑 JSON，字段定义和默认值见 `src/banxia_strategy/strategy_config.py`。
+读取接口为 `GET /api/v1/strategy-config?strategy_id=...`。目录模式通过
+`POST /api/v1/strategies` 创建新策略，`PATCH /api/v1/strategies/{strategy_id}` 切换状态；
+此时 `PUT /api/v1/strategy-config` 固定返回 409，防止覆盖。参数校验失败返回 422，
+revision 冲突返回 409；配置了 API Bearer token 时沿用相同鉴权。
+字段定义和默认值见 `src/banxia_strategy/strategy_config.py`。
 
 ## 历史回测与策略优化
 
@@ -270,6 +284,15 @@ PYTHONPATH=src .venv/bin/python -m banxia_strategy.research \
 MinIO，并写入 PostgreSQL 研究表。已有数据库需先应用
 `migrations/postgres/004_strategy_research.sql`。运行方法、实验结果、指标和限制见
 [历史策略研究说明](docs/08-strategy-research.md)。
+
+系统还支持：
+
+- `catalog_backfill`：幂等补齐一年期多策略计划、执行计划和实际行情。
+- `execution_analysis`：按分钟线验证“严格可买”，输出日/周/月/年对比。
+- `profit_optimization`：按 60/20/20 时间切分、T+1 开盘卖出和每笔 25bp 成本筛选参数。
+
+当前 09:45 截止候选只基于 9 笔严格可买样本，已独立保存但未激活，不代表未来盈利保证。
+完整命令和结果见 [策略研究](docs/08-strategy-research.md)。
 
 ## 统计口径
 
@@ -289,7 +312,14 @@ MinIO，并写入 PostgreSQL 研究表。已有数据库需先应用
 ## 验证
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
+```
+
+当前快速测试基线为 158 项通过、8 项按环境跳过。真实存储集成测试需先启动 Compose：
+
+```bash
+make infra-check
+make integration-test
 ```
 
 当前版本没有集合竞价和 Level-2 数据；封单金额取通达信收盘五档盘口，无法代表真实排队

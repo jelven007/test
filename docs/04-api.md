@@ -2,10 +2,8 @@
 
 ## 1. 范围与状态
 
-当前仓库暴露无版本的本地接口 `/api/*`。生产化目标接口统一使用 `/api/v1/*`，契约见
-[OpenAPI](openapi.yaml)。Kafka 事件契约见 [AsyncAPI](asyncapi.yaml)。
-
-版本化接口已经由 FastAPI 实现；`docs/openapi.yaml` 是对外契约基线。
+当前 FastAPI 服务以 `/api/v1/*` 为正式接口，契约见 [OpenAPI](openapi.yaml)。
+Kafka 事件契约见 [AsyncAPI](asyncapi.yaml)。旧 `/api/*` 只保留只读兼容代理。
 
 ## 2. 通用约定
 
@@ -86,7 +84,7 @@ X-Request-ID: 5b60f996-3be1-4d53-9988-7a9825d187af
 - 健康检查可在集群内部匿名访问。
 - 系统不提供下单类权限和接口。
 
-## 3. CURRENT 接口
+## 3. CURRENT 兼容接口
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -94,16 +92,9 @@ X-Request-ID: 5b60f996-3be1-4d53-9988-7a9825d187af
 | GET | `/api/reports` | 报告摘要列表 |
 | GET | `/api/reports/latest` | 最新报告 |
 | GET | `/api/reports/{date}` | 指定参考日报告 |
-| GET | `/api/monitor` | 当前内存监控快照 |
+| GET | `/api/monitor` | 已弃用；正式监控使用 `/api/v1/monitor` |
 
-当前接口特点：
-
-- 无认证、无 API 版本。
-- 返回本地文件和进程内状态。
-- 无分页、标准错误码、请求 ID 和依赖就绪检查。
-- 仅适用于本机原型。
-
-迁移期保留这些路径，但只作为 `/api/v1` 的兼容代理。Web 前端迁移完成后再删除。
+兼容接口不再扩展新功能。策略目录、任务刷新、研究和 SSE 只在 `/api/v1` 提供。
 
 ## 4. HTTP 接口
 
@@ -124,6 +115,9 @@ X-Request-ID: 5b60f996-3be1-4d53-9988-7a9825d187af
 | GET | `/api/v1/monitor` | 当前计划、股票快照和最新建议 |
 | GET | `/api/v1/monitor/events` | 决策事件历史，支持股票、时间和状态过滤 |
 | GET | `/api/v1/monitor/stream` | SSE 实时推送快照和状态变化 |
+
+三个接口均支持可选 `strategy_id` 和 `trade_date`。省略 `strategy_id` 时解析当前唯一激活策略；
+系统没有激活策略时返回 `409`。`monitor` 还支持逗号分隔的 `symbols`。
 
 `GET /api/v1/monitor` 示例：
 
@@ -174,11 +168,44 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 | --- | --- | --- |
 | GET | `/api/v1/reports` | 报告分页列表 |
 | GET | `/api/v1/reports/{tradeDate}` | 指定参考日的完整报告 |
+| POST | `/api/v1/reports/{tradeDate}/refresh` | 创建完整报告刷新任务 |
+| GET | `/api/v1/report-jobs/{jobId}` | 查询刷新任务状态和实际执行版本 |
 | GET | `/api/v1/reports/{tradeDate}/assets/{format}` | 获取报告文件或签名下载地址 |
 
 `format` 支持 `markdown`、`json` 和 `csv`。
+报告查询与下载支持可选 `strategy_id`；省略时使用激活策略。刷新请求即使携带
+`strategy_id`，当前实现也只校验存在激活策略，Worker 开始时重新解析当时的激活策略。
+每次刷新请求生成独立任务，前端应在任务成功后重新读取报告。
 
-### 4.4 策略运行
+### 4.4 策略目录与配置
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/strategies` | 列出未归档策略、状态、血缘、差异和 revision |
+| POST | `/api/v1/strategies` | 从来源策略创建不可变子策略，可选立即激活 |
+| PATCH | `/api/v1/strategies/{strategy_id}` | 仅修改 `enabled` 激活状态 |
+| DELETE | `/api/v1/strategies/{strategy_id}` | 软删除策略并停用 |
+| GET | `/api/v1/strategy-config?strategy_id=...` | 读取配置、默认值、字段 Schema 和 revision |
+| PUT | `/api/v1/strategy-config` | 仅文件兼容模式可覆盖；目录模式固定返回 `409` |
+| GET | `/api/v1/strategies/{strategy_id}/days` | 按交易日倒序查询每日摘要 |
+| GET | `/api/v1/strategies/{strategy_id}/days/{trade_date}` | 查询每日计划、执行计划和实际行情 |
+
+创建策略请求：
+
+```json
+{
+  "name": "一进二 09:45 研究候选",
+  "parent_strategy_id": "来源策略 UUID",
+  "revision": "来源配置 SHA-256",
+  "config": {"entry_cutoff_time": "09:45"},
+  "activate": false
+}
+```
+
+服务使用完整 `StrategyConfig` 校验配置，并记录相对父策略的逐项差异。名称、参数和血缘保存后
+不可修改；激活新策略会在同一事务停用旧策略。
+
+### 4.5 策略运行
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -187,6 +214,29 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 生产环境的 16:30 初版和 23:30 更新由调度系统发起。人工补跑属于受保护的运维接口，
 不在公共 Web API 中开放。`GET /api/v1/reports/{tradeDate}` 按复盘交易日返回最后一次
 成功生成的版本。
+
+### 4.6 研究
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/research` | 最近 50 个已持久化实验 |
+| GET | `/api/v1/research/{run_id}` | 实验完整结果、策略和资产索引 |
+| GET | `/api/v1/research/{run_id}/strategy` | 下载独立策略 JSON |
+| GET | `/api/v1/research/{run_id}/assets/{filename}` | 流式下载白名单内的实验资产 |
+
+研究接口只读取 `research_*` 表和 MinIO 归档，不会激活策略，也不会生成实时交易事件。
+
+### 4.7 页面和机器文档
+
+| 路径 | 说明 |
+| --- | --- |
+| `/strategy` | 策略管理 |
+| `/` | 次日计划 |
+| `/monitor` | 盘中监控 |
+| `/research` | 回测优化 |
+| `/api/docs` | FastAPI Swagger UI |
+| `/api/openapi.json` | 运行时生成的 OpenAPI |
+| `/metrics` | Prometheus 指标，不进入公开 OpenAPI |
 
 ## 5. 数据状态约定
 
@@ -253,6 +303,7 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 3. Web 看板切换到 `/api/v1`。
 4. 至少保留一个发布周期的弃用提示。
 5. 删除旧接口前检查访问日志，确认没有活跃客户端。
+6. `docs/openapi.yaml` 与运行时 `/api/openapi.json` 的路径和参数必须同步。
 
 ## 8. 接口验收
 
@@ -262,4 +313,7 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 - 时间、金额、股票代码和状态枚举没有歧义。
 - API 返回的每个策略状态都可关联到 PostgreSQL 决策事件。
 - SSE 断开不会造成权威状态丢失。
+- 策略目录模式禁止 `PUT /strategy-config` 原地覆盖配置。
+- 刷新任务结果记录实际使用的 `strategy_version`、`strategy_revision`、`run_id` 和生成时间。
+- 研究资产下载只允许数据库索引中的文件名，拒绝路径穿越。
 - 无任何自动下单接口。

@@ -15,9 +15,12 @@
 
 ### 2.1 应用服务
 
-- `market-collector`：至少 2 副本，按分片租约选举 Leader。
+- `market-collector`：Compose 单实例；Kubernetes 基线为 2 副本，按 PostgreSQL advisory lease 选举 Leader。
+- `market-sink`：消费行情 Topic 并写 ClickHouse。
+- `flink-feature-job`：默认实时特征生产者；`feature-worker` 仅作排障后备。
 - `strategy-engine`：至少 2 副本，Kafka Consumer Group 扩展。
 - `report-worker`：按任务弹性运行。
+- `report-scheduler`：常驻检查 16:30/23:30 时点、遗漏补跑和页面刷新任务。
 - `api-service`：至少 2 副本，通过负载均衡提供服务。
 - `outbox-relay`：至少 2 副本，使用数据库锁避免重复发布。
 - `projection-worker`：消费决策和行情事件，更新 Redis。
@@ -51,7 +54,8 @@
 
 ### 3.2 策略配置
 
-策略配置存入 PostgreSQL `strategy_version`，发布后不可原地修改。修改任何阈值都创建新版本，
+策略目录存入 PostgreSQL `strategy_definition.current_config`，发布后不可原地修改。
+修改任何阈值都创建新策略，并记录父子关系；每次报告仍生成对应 `strategy_version`，
 并保存：
 
 - 配置 JSON。
@@ -59,6 +63,9 @@
 - 创建人和创建时间。
 - 生效交易日。
 - 变更说明。
+
+全库最多一条策略激活。定时任务、页面刷新和默认监控在开始执行时读取当前激活策略。
+研究生成的候选策略默认未激活，必须经人工切换后才进入运行链路。
 
 ### 3.3 密钥
 
@@ -112,6 +119,10 @@ ClickHouse/PostgreSQL/Redis 写入在有界后台队列执行，`BANXIA_WRITER_Q
 7 天的已到期时点，并以本地报告和持久化完成标记共同判断是否需要补跑。报告任务使用
 host 网络，避免 Colima 桥接网络导致通达信行情协议请求超时。
 
+页面刷新写入 `job_execution` 队列。每次点击创建独立任务；Worker 使用
+`FOR UPDATE SKIP LOCKED` 领取，运行超过 15 分钟的任务可重新领取。刷新不绑定排队时的
+策略，执行开始时重新读取激活策略，结果记录实际版本和生成时间。
+
 幂等要求：
 
 - 调度器只负责发起，不依赖其 exactly-once。
@@ -119,6 +130,28 @@ host 网络，避免 Colima 桥接网络导致通达信行情协议请求超时�
 - 节假日通过 mootdx 交易日历确认，不仅依赖星期判断。
 - 失败任务按指数退避重试。
 - 超过允许时间仍失败时告警，不生成不完整报告冒充成功。
+
+## 5.1 本地启动与停止
+
+当前开发机使用名为 `banxia` 的 Colima profile。启动前先确认 profile 和端口未被其他
+实例占用，再运行 Compose：
+
+```bash
+colima start --profile banxia
+make infra-up
+make infra-status
+make infra-check
+```
+
+停止应用和基础设施：
+
+```bash
+make infra-down
+colima stop --profile banxia
+```
+
+`infra-down` 不删除数据卷。仅在明确需要清空本地数据时使用带 `--volumes` 的 Compose
+命令，并先确认 PostgreSQL、ClickHouse、Redis、MinIO 和 Kafka 数据无需保留。
 
 ## 6. 健康检查
 
@@ -291,3 +324,7 @@ mootdx 在 Kafka 确认前产生但尚未被系统接收的行情无法保证零
 - 备份处于成功状态。
 - 看板显示正确交易日、计划版本和数据时效。
 - 当前生产计划不包含自动下单能力。
+- 数据库已应用 `004_strategy_research.sql`、`005_multi_strategy.sql` 和
+  `006_immutable_active_strategy.sql`。
+- 至少一条未归档策略处于激活状态，且唯一激活索引有效。
+- 四个 Web 页面加载同版本共享 UI 样式并通过桌面/移动端检查。

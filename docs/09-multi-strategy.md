@@ -6,6 +6,12 @@
 
 策略只有“激活”和“未激活”两种可见状态，全库最多一条激活策略。激活新策略会在
 同一事务内取消原激活策略；删除采用软删除，策略血缘与历史交易日数据仍然保留。
+数据库触发器禁止修改已保存策略的名称、完整配置、父策略和差异；部分唯一索引
+`strategy_definition_single_active` 保证未归档策略最多一条 `enabled=true`。
+
+当前配置文件 `config/strategy.json` 仍用于兼容文件模式。完整策略目录模式以 PostgreSQL
+为权威，`PUT /api/v1/strategy-config` 返回 `409 IMMUTABLE_STRATEGY`，页面通过
+`POST /api/v1/strategies` 创建新版本。
 
 ## 每个交易日一条
 
@@ -19,11 +25,14 @@
 实盘数据不是券商持仓或成交，不包含自动下单。
 重复刷新 UPSERT 同一日记录；底层 `strategy_version/run/plan` 继续保存不同参数版本审计记录。
 历史参数刷新完成后，也重新验证该计划的已结束执行日。
+历史回填使用只补空字段的写法，因此不会覆盖已存在的 `next_plan`、`execution_plan`
+或 `actuals`。
 
 ## 隔离与调度
 
 仅当前激活策略按其保存的时间表运行，执行开始时才解析当前激活策略。页面刷新任务
-同样不固定排队时的策略，worker 开始执行时再次读取激活策略。每天从 mootdx 更新
+不接受固定策略执行语义，即使请求带有历史 `strategy_id`，Worker 开始执行时仍读取
+当时激活策略。每天从 mootdx 更新
 交易日历，交易日预建每日记录，遗漏的收盘任务自动补跑。
 采集端动态合并各策略观察股票、按代码去重，复用长连接，按最快配置采集。
 策略引擎为每份有效计划维护独立处理器，拒绝非计划执行日的行情。
@@ -44,8 +53,13 @@
 - reports、refresh、assets、monitor、monitor/events、monitor/stream 均支持 `strategy_id`。
 - monitor 相关接口另支持 `trade_date`，报告日期表示生成日。
 
-无 `strategy_id` 的报告、监控和刷新接口默认指向当前激活策略。文件模式旧 Web 服务保留原参数编辑，
+无 `strategy_id` 的报告和监控接口默认指向当前激活策略。刷新接口始终在执行时使用激活策略。
+文件模式旧 Web 服务保留原参数编辑，
 完整多策略功能通过 FastAPI 服务提供。
+
+创建子策略请求必须提供来源 `parent_strategy_id` 和来源 revision。revision 不匹配返回
+`409 CONFIG_CONFLICT`，字段或参数无效返回 `422 VALIDATION_ERROR`。策略名称限制为
+1 至 80 个字符。
 
 ## 迁移与验证
 
@@ -70,6 +84,10 @@ PYTHONPATH=src python -m banxia_strategy.catalog_backfill \
 命令只使用 mootdx，额外采集开始日前两周以衔接首日的执行计划；已存在的
 `next_plan`、`execution_plan` 和 `actuals` 不会被覆盖。再次执行只校验并跳过已有数据。
 可用 `--snapshot` 复用已保存的快照，避免重复下载。
+
+2025-09-25 至 2026-09-24 已完成 242 个交易日的两策略历史回填。盈利约束优化另创建
+未激活子策略 `9500ff4b-529c-4b08-ac24-0f0734fd7d60`，只把入场截止时间改为 `09:45`；
+它不会自动替换激活策略。
 
 随后更新 api、report-scheduler、report-worker、market-collector、strategy-engine 镜像。
 

@@ -12,31 +12,49 @@
 
 ## 2. CURRENT 架构
 
-当前版本为单进程 Python 本地应用：
+当前版本已经拆分为可独立运行的 Python 服务，并在本地 Compose 中接入完整数据链路：
 
 ```mermaid
 flowchart LR
-    M[mootdx] --> P[IntradayMonitor]
-    P --> MEM[进程内快照和事件]
-    P --> JSONL[JSONL 日志]
-    MEM --> HTTP[ThreadingHTTPServer]
-    REPORT[本地报告文件] --> HTTP
-    HTTP --> WEB[Web 看板]
+    M[mootdx 节点池] --> C[market-collector]
+    C --> WAL[(SQLite WAL)]
+    C --> K[Kafka]
+    K --> MS[market-sink]
+    MS --> CH[(ClickHouse)]
+    K --> F[Flink feature job]
+    F --> K
+    K --> SE[strategy-engine]
+    SE --> PG[(PostgreSQL)]
+    PG --> O[outbox-relay]
+    O --> K
+    K --> P[projection-worker]
+    P --> RD[(Redis)]
+    S[report-scheduler] --> RW[report-worker]
+    RW --> M
+    RW --> PG
+    RW --> OBJ[(MinIO)]
+    PG --> API[FastAPI]
+    RD --> API
+    OBJ --> API
+    API --> WEB[四页 Web 看板]
 ```
 
-当前能力：
+已实现能力：
 
-- mootdx 长连接、批量盘口、60 秒分钟线和节点切换。
-- 交易时段 1 秒轮询、非交易时段 60 秒轮询。
-- 日报、盘中判断、历史报告和本地 Web 看板。
-- 单元测试覆盖主要策略分支。
+- mootdx 长连接、批量盘口、1 秒交易时段轮询、60 秒分钟线和节点切换。
+- SQLite 持久 WAL、Kafka Topic/DLQ、ClickHouse Sink、Flink 特征和 Redis 投影。
+- PostgreSQL Inbox/Outbox、策略状态、报告任务和多策略目录。
+- 不可变策略参数、父子血缘、软删除和全局唯一激活策略。
+- 16:30/23:30 调度、启动补跑、独立刷新任务及持久化完成标记。
+- 月度研究、一年历史回填、严格可买执行分析、T+1 收益和盈利约束优化。
+- FastAPI `/api/v1`、SSE、Prometheus 和策略管理/次日计划/盘中监控/回测优化页面。
 
 当前限制：
 
-- 最新快照、最近事件和不可逆策略状态主要存在内存中。
-- JSONL 每轮追加且缺少分区、压缩、索引和生命周期管理。
-- HTTP、采集、策略计算和报告读取处于同一故障域。
-- 无消息重放、分布式幂等、服务级监控和生产容灾。
+- Compose 为单机开发拓扑，Kafka、PostgreSQL、ClickHouse、Redis 和 MinIO 未形成生产高可用。
+- Kubernetes 清单是部署基线，尚未在目标集群完成容量、跨可用区和恢复演练。
+- 历史分钟线无法证明真实委托队列成交，严格可买只是保守代理。
+- 09:45 盈利优化候选样本仅 9 笔且留出集 1 笔，保持未激活。
 
 ## 3. TARGET 总体架构
 
@@ -145,8 +163,8 @@ Flink 输出进入新的 Kafka Topic，再由策略引擎和存储 Sink 消费�
 
 ### 4.4 策略状态机
 
-- 同时消费原始行情、Flink 衍生指标和当日策略计划。
-- 按 `plan_id + symbol` 维护状态。
+- 同时消费原始行情、Flink 衍生指标和所有有效策略计划。
+- 每个计划使用独立处理器，按 `plan_id + symbol` 维护状态；同一行情可驱动多份计划。
 - 将输入事件登记到 `inbox_event`，防止重复消费。
 - 在一个 PostgreSQL 事务内更新当前状态、追加决策事件并写入 Outbox。
 - Outbox Relay 将决策可靠发布到 Kafka。
@@ -154,16 +172,35 @@ Flink 输出进入新的 Kafka Topic，再由策略引擎和存储 Sink 消费�
 
 状态机必须保存不可逆规则，例如跌破昨收、开盘超限和 10:00 窗口关闭。
 
-### 4.5 日报与报告 Worker
+### 4.5 策略目录与逐日投影
+
+- `strategy_definition.current_config` 保存不可变完整参数。
+- 新策略记录 `parent_strategy_id` 与逐项 `config_changes`；修改通过创建子策略完成。
+- PostgreSQL 部分唯一索引保证全库最多一条未归档激活策略。
+- `strategy_day` 按 `(strategy_id, trade_date)` 保存 `next_plan`、`execution_plan` 和 `actuals`。
+- 调度、刷新和默认监控在执行开始时解析当前激活策略，避免队列固化旧配置。
+- 软删除只改变可见性与执行资格，不删除策略血缘和历史记录。
+
+### 4.6 日报与报告 Worker
 
 - Kubernetes CronJob 在交易日 16:30 生成初版，并于 23:30 发起覆盖更新。
 - Worker 使用 mootdx 交易日历校验日期，非交易日正常跳过。
-- PostgreSQL 唯一键 `(trade_date, strategy_version)` 防止重复运行。
+- PostgreSQL 唯一键 `(trade_date, strategy_version_id)` 防止同版本重复运行。
+- 调度器启动时回看最近 7 天已到期时点，以本地文件和完成标记识别遗漏任务。
+- 页面“刷新”创建独立任务；Worker 开始时重新读取当前激活策略并执行完整报告事务。
 - 从 ClickHouse 读取历史行情和统计结果。
 - 将运行状态、候选和报告元数据写入 PostgreSQL。
 - 将 Markdown、JSON 和 CSV 文件写入 S3/MinIO。
 
-### 4.6 API 与 Web
+### 4.7 研究服务
+
+- 月度研究按时间顺序划分训练、验证和留出集，保存协议、输入哈希、逐日结果和源码快照。
+- `catalog_backfill` 为所有未归档策略补齐历史计划、执行计划和实际行情，重复运行只补缺口。
+- `execution_analysis` 用分钟线执行严格可买判定，并输出日/周/月/年统计。
+- `profit_optimization` 以 T+1 开盘卖出和每笔 25bp 成本评估参数，只保存满足约束的未激活子策略。
+- 研究记录与实时计划、观察清单和决策事件隔离。
+
+### 4.8 API 与 Web
 
 - 对外统一使用 `/api/v1`。
 - 最新快照优先读取 Redis；缓存缺失时回源 PostgreSQL 或 ClickHouse。
@@ -171,6 +208,8 @@ Flink 输出进入新的 Kafka Topic，再由策略引擎和存储 Sink 消费�
 - 策略计划、状态和审计读取 PostgreSQL。
 - 报告内容通过对象存储签名地址或 API 代理访问。
 - SSE 仅用于降低页面轮询开销，断线后必须能通过普通查询恢复。
+- `/strategy`、`/`、`/monitor`、`/research` 共用 `ui-standard.css`，统一导航、
+  控件、表格、状态和移动端布局。
 
 ## 5. 数据流
 
@@ -192,12 +231,28 @@ Flink 输出进入新的 Kafka Topic，再由策略引擎和存储 Sink 消费�
 
 ### 5.3 每日策略
 
-1. 16:30 调度任务创建或更新 `strategy_run`，23:30 以最新行情更新同一交易日报告。
+1. 16:30 和 23:30 到期后，调度器为当前激活策略启动完整报告事务。
 2. Worker 获取交易日历、涨停池、炸板池、板块数据和历史行情。
 3. 执行静态过滤、评分、行业限额和组合约束。
 4. 保存候选和计划，发布 `strategy.plan.created.v1`。
 5. 生成报告并写对象存储。
 6. 次交易日采集器根据计划更新动态监控清单。
+
+### 5.4 策略变更与刷新
+
+1. 用户读取来源策略及 revision。
+2. 参数修改以新名称创建子策略，数据库保存父策略和差异。
+3. 可选在同一流程激活子策略，事务内停用旧策略。
+4. 定时任务或刷新 Worker 开始执行时读取当前激活策略。
+5. 报告写入策略专属目录，并更新参考日和执行日的 `strategy_day`。
+
+### 5.5 历史研究
+
+1. mootdx 快照按日期冻结并计算哈希。
+2. 研究按时间顺序执行训练、验证、留出，留出结果不参与选参。
+3. 严格可买使用竞价、昨收、触板、有量开板和回封的分钟级代理。
+4. T+1 收益扣除配置的往返成本；不可卖代理样本不计净收益。
+5. 通过约束的参数保存为未激活子策略，必须人工激活后才影响后续任务。
 
 ## 6. 一致性与可靠性
 
@@ -208,6 +263,9 @@ Flink 输出进入新的 Kafka Topic，再由策略引擎和存储 Sink 消费�
 - 策略状态：`plan_id + symbol`。
 - 状态迁移：`decision_id`，由输入事件和目标状态确定。
 - 日报运行：`trade_date + strategy_version`。
+- 策略日记录：`strategy_id + trade_date`。
+- 策略激活：数据库部分唯一索引 + 事务级 advisory lock。
+- 历史回填：只填充空字段，不覆盖已有计划和实际行情。
 
 ### 6.2 Inbox/Outbox
 
@@ -237,7 +295,7 @@ Flink 输出进入新的 Kafka Topic，再由策略引擎和存储 Sink 消费�
 
 ## 7. 部署拓扑
 
-生产环境建议：
+生产目标（当前 Kubernetes 清单已提供基线，仍需目标集群验证）：
 
 - Kubernetes 跨三个可用区。
 - Kafka 3 Broker，副本数 3，`min.insync.replicas=2`。
@@ -288,3 +346,7 @@ ClickHouse 写入量和 Flink 状态大小，不得直接沿用候选池容量�
 - API 不直接依赖采集器进程内存。
 - 报告可以由数据库元数据和对象存储重新定位。
 - 数据过期或依赖异常时系统停止给出入场确认。
+- 已保存策略不能被原地修改，任意时刻最多一条策略激活。
+- 调度与刷新使用 Worker 开始时的激活策略。
+- 历史研究结果不会自动激活或写入实时计划。
+- 四个 Web 页面在桌面和 390x844 视口无页面级横向溢出。

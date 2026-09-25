@@ -5,6 +5,8 @@ info:
   description: |
     一进二策略研究系统 Kafka 事件契约。所有事件至少一次投递，
     消费者必须通过 event_id 或业务唯一键实现幂等。
+    多策略运行通过不可变 strategy_version/strategy_version_id 和 plan_id 隔离；
+    同一行情事件可以被多份有效计划独立消费。
 defaultContentType: application/json
 servers:
   production:
@@ -380,6 +382,7 @@ components:
         - irreversible
         - source_event_id
         - strategy_version
+        - strategy_version_id
       properties:
         decision_id:
           type: string
@@ -419,6 +422,8 @@ components:
         source_event_id:
           type: string
         strategy_version:
+          type: string
+        strategy_version_id:
           type: string
     StrategyAuditEnvelope:
       allOf:

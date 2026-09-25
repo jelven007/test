@@ -6,6 +6,12 @@ PDB/HPA policies, and a shared report volume. Kafka, PostgreSQL, ClickHouse,
 Redis, and MinIO are expected to be managed services reachable at the DNS
 names in `base/platform.yaml`.
 
+The API serves `/strategy`, `/`, `/monitor`, and `/research` from the same image.
+Report CronJobs resolve the single active immutable strategy when execution
+starts. The target PostgreSQL database must include migrations `004` through
+`006` for research storage, strategy-day records, immutable lineage, and the
+single-active-strategy constraint.
+
 Before applying:
 
 1. Build and publish `Dockerfile` as `banxia-strategy`.
@@ -14,6 +20,9 @@ Before applying:
 4. Create `banxia-secrets` from a secret manager. The example file contains
    placeholders only and must not be applied unchanged.
 5. Adjust the `ReadWriteMany` storage class and managed-service DNS names.
+6. Run all PostgreSQL and ClickHouse migrations, then execute
+   `python -m banxia_strategy.catalog_bootstrap` once.
+7. Confirm exactly one non-archived strategy is active before enabling CronJobs.
 
 Apply the deployment:
 
@@ -34,3 +43,8 @@ advisory lease contacts mootdx. A standby takes over after the leader
 connection closes. The local WAL uses pod-local storage; production clusters
 should replace the `emptyDir` volume with a small encrypted persistent volume
 when zero-loss recovery across node eviction is required.
+
+Before production traffic, validate the four Web pages at desktop and 390x844
+mobile viewports, run the OpenAPI/AsyncAPI checks, and complete capacity,
+failover, backup, and restore drills. The manifests are a deployment baseline,
+not evidence that those production checks have passed.

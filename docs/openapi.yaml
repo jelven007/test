@@ -14,7 +14,9 @@ tags:
   - name: Health
   - name: Monitor
   - name: Reports
+  - name: Strategies
   - name: StrategyRuns
+  - name: Research
 paths:
   /api/v1/health/live:
     get:
@@ -81,6 +83,7 @@ paths:
           schema:
             type: string
             pattern: '^\d{6}(,\d{6})*$'
+        - $ref: "#/components/parameters/StrategyIdQuery"
       responses:
         "200":
           description: 监控快照
@@ -116,6 +119,12 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: trade_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/StrategyIdQuery"
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
       responses:
@@ -147,6 +156,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: trade_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/StrategyIdQuery"
       responses:
         "200":
           description: |
@@ -165,6 +180,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/StrategyIdQuery"
       responses:
         "200":
           description: 报告列表
@@ -190,6 +206,7 @@ paths:
       summary: 查询指定参考日的完整报告
       parameters:
         - $ref: "#/components/parameters/TradeDate"
+        - $ref: "#/components/parameters/StrategyIdQuery"
       responses:
         "200":
           description: 完整报告
@@ -208,6 +225,7 @@ paths:
       summary: 提交指定参考日的报告重新生成任务
       parameters:
         - $ref: "#/components/parameters/TradeDate"
+        - $ref: "#/components/parameters/StrategyIdQuery"
       responses:
         "202":
           description: 已创建独立的报告刷新任务
@@ -256,6 +274,7 @@ paths:
           schema:
             type: string
             enum: [markdown, json, csv]
+        - $ref: "#/components/parameters/StrategyIdQuery"
       responses:
         "302":
           description: 跳转到短期有效的对象存储签名地址
@@ -266,6 +285,174 @@ paths:
                 format: uri
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/strategies:
+    get:
+      tags: [Strategies]
+      operationId: listStrategies
+      summary: 列出未归档策略
+      responses:
+        "200":
+          description: 策略列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Strategy"
+    post:
+      tags: [Strategies]
+      operationId: createStrategy
+      summary: 从来源策略创建不可变子策略
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateStrategyRequest"
+      responses:
+        "201":
+          description: 已创建策略
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Strategy"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/strategies/{strategy_id}:
+    parameters:
+      - $ref: "#/components/parameters/StrategyIdPath"
+    patch:
+      tags: [Strategies]
+      operationId: setStrategyActiveState
+      summary: 激活或停用策略
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              additionalProperties: false
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: 更新后的策略
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Strategy"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [Strategies]
+      operationId: archiveStrategy
+      summary: 软删除策略并停用
+      responses:
+        "204":
+          description: 已归档
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/strategy-config:
+    get:
+      tags: [Strategies]
+      operationId: getStrategyConfig
+      summary: 查询策略配置和编辑 Schema
+      parameters:
+        - $ref: "#/components/parameters/StrategyIdQuery"
+      responses:
+        "200":
+          description: 配置、默认值、字段和 revision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StrategyConfigPayload"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+    put:
+      tags: [Strategies]
+      operationId: replaceLegacyStrategyConfig
+      summary: 文件兼容模式保存配置；策略目录模式禁止覆盖
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [config, revision]
+              properties:
+                config:
+                  type: object
+                  additionalProperties: true
+                revision:
+                  type: string
+      responses:
+        "200":
+          description: 文件兼容模式保存成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StrategyConfigPayload"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /api/v1/strategies/{strategy_id}/days:
+    get:
+      tags: [Strategies]
+      operationId: listStrategyDays
+      summary: 查询策略交易日摘要
+      parameters:
+        - $ref: "#/components/parameters/StrategyIdPath"
+        - name: before
+          in: query
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/Limit100"
+      responses:
+        "200":
+          description: 交易日摘要
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StrategyDaySummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/strategies/{strategy_id}/days/{trade_date}:
+    get:
+      tags: [Strategies]
+      operationId: getStrategyDay
+      summary: 查询策略单日完整记录
+      parameters:
+        - $ref: "#/components/parameters/StrategyIdPath"
+        - $ref: "#/components/parameters/TradeDateSnake"
+      responses:
+        "200":
+          description: 次日计划、执行计划和实际行情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StrategyDay"
         "404":
           $ref: "#/components/responses/NotFound"
   /api/v1/strategy-runs/{runId}:
@@ -290,6 +477,76 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/v1/research:
+    get:
+      tags: [Research]
+      operationId: listResearchRuns
+      summary: 查询最近的研究实验
+      responses:
+        "200":
+          description: 最近 50 个实验
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ResearchSummary"
+  /api/v1/research/{run_id}:
+    get:
+      tags: [Research]
+      operationId: getResearchRun
+      summary: 查询研究实验完整结果
+      parameters:
+        - $ref: "#/components/parameters/ResearchRunId"
+      responses:
+        "200":
+          description: 实验结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResearchRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/research/{run_id}/strategy:
+    get:
+      tags: [Research]
+      operationId: downloadResearchStrategy
+      summary: 下载研究策略 JSON
+      parameters:
+        - $ref: "#/components/parameters/ResearchRunId"
+      responses:
+        "200":
+          description: 完整策略配置
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/research/{run_id}/assets/{filename}:
+    get:
+      tags: [Research]
+      operationId: downloadResearchAsset
+      summary: 下载实验资产
+      parameters:
+        - $ref: "#/components/parameters/ResearchRunId"
+        - name: filename
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 数据库资产索引中的文件流
+        "404":
+          $ref: "#/components/responses/NotFound"
 components:
   securitySchemes:
     bearerAuth:
@@ -310,6 +567,14 @@ components:
       in: query
       schema:
         type: string
+    Limit100:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 100
     TradeDate:
       name: tradeDate
       in: path
@@ -317,6 +582,34 @@ components:
       schema:
         type: string
         format: date
+    TradeDateSnake:
+      name: trade_date
+      in: path
+      required: true
+      schema:
+        type: string
+        format: date
+    StrategyIdQuery:
+      name: strategy_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+    StrategyIdPath:
+      name: strategy_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ResearchRunId:
+      name: run_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
   responses:
     BadRequest:
       description: 请求参数无效
@@ -338,6 +631,18 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
     ServiceUnavailable:
       description: 关键依赖不可用
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: 配置冲突、不可变策略或没有激活策略
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ValidationError:
+      description: 字段或业务规则校验失败
       content:
         application/json:
           schema:
@@ -712,6 +1017,15 @@ components:
         - type: object
           required: [market, candidates, disclaimer]
           properties:
+            strategy_revision:
+              type: string
+              nullable: true
+            strategy_config:
+              type: object
+              additionalProperties: true
+            constraints:
+              type: object
+              additionalProperties: true
             market:
               $ref: "#/components/schemas/MarketSummary"
             candidates:
@@ -804,6 +1118,164 @@ components:
         error:
           type: string
           nullable: true
+    Strategy:
+      type: object
+      required: [strategy_id, code, name, enabled, archived, revision]
+      properties:
+        strategy_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        archived:
+          type: boolean
+        parent_strategy_id:
+          type: string
+          format: uuid
+          nullable: true
+        config_changes:
+          type: object
+          additionalProperties: true
+        revision:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+    CreateStrategyRequest:
+      type: object
+      required: [name, parent_strategy_id, revision]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        parent_strategy_id:
+          type: string
+          format: uuid
+        config:
+          type: object
+          additionalProperties: true
+        revision:
+          type: string
+        activate:
+          type: boolean
+          default: false
+    StrategyConfigPayload:
+      type: object
+      required: [config, defaults, groups, fields, revision]
+      properties:
+        config:
+          type: object
+          additionalProperties: true
+        defaults:
+          type: object
+          additionalProperties: true
+        groups:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        fields:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        revision:
+          type: string
+    StrategyDaySummary:
+      type: object
+      required: [trade_date, plan_status, actual_status, updated_at]
+      properties:
+        trade_date:
+          type: string
+          format: date
+        plan_date:
+          type: string
+          format: date
+          nullable: true
+        candidate_count:
+          type: integer
+          nullable: true
+        execution_count:
+          type: integer
+          nullable: true
+        plan_status:
+          type: string
+          enum: [ready, pending]
+        actual_status:
+          type: string
+        summary:
+          type: object
+          additionalProperties: true
+        strategy_version:
+          type: string
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+    StrategyDay:
+      allOf:
+        - $ref: "#/components/schemas/StrategyDaySummary"
+        - type: object
+          properties:
+            next_plan:
+              type: object
+              nullable: true
+              additionalProperties: true
+            execution_plan:
+              type: object
+              nullable: true
+              additionalProperties: true
+            actuals:
+              type: object
+              additionalProperties: true
+    ResearchSummary:
+      type: object
+      required: [run_id, start_date, end_date, created_at]
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        created_at:
+          type: string
+          format: date-time
+        strategy_status:
+          type: string
+          nullable: true
+    ResearchRun:
+      type: object
+      required: [run_id, strategy, assets]
+      additionalProperties: true
+      properties:
+        run_id:
+          type: string
+          format: uuid
+        strategy:
+          type: object
+          additionalProperties: true
+        assets:
+          type: array
+          items:
+            type: object
+            required: [filename, object_key, content_type]
+            properties:
+              filename:
+                type: string
+              object_key:
+                type: string
+              content_type:
+                type: string
     ErrorResponse:
       type: object
       required: [error]

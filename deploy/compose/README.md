@@ -30,6 +30,9 @@ make infra-check
 `report-scheduler` 随常驻服务启动，默认在交易日 16:30 生成初版、23:30 覆盖更新。
 非交易日由 mootdx 交易日历校验后跳过。调度器重启后会补跑最近缺失的交易日报；
 报告任务通过 host 网络访问 mootdx，并通过完成标记区分完整持久化和残留文件。
+调度和页面刷新都在 Worker 开始时读取 PostgreSQL 中当前唯一激活策略。使用完整策略目录前，
+数据库必须已应用 `004_strategy_research.sql`、`005_multi_strategy.sql` 和
+`006_immutable_active_strategy.sql`；新数据卷会按文件名顺序自动执行全部迁移。
 也可以手工运行一次性 Worker：
 
 ```bash
@@ -84,6 +87,18 @@ export BANXIA_STORAGE_MODE=best_effort
 初始化脚本只在空数据卷或显式初始化容器中运行。修改历史迁移后，不应直接依赖重启容器
 覆盖已有数据库；后续变更必须增加新的有序迁移文件。
 
+已有数据卷升级后执行一次策略目录引导：
+
+```bash
+set -a
+source deploy/compose/.env
+set +a
+PYTHONPATH=src .venv/bin/python -m banxia_strategy.catalog_bootstrap
+```
+
+需要补齐历史交易日时，再运行 `banxia_strategy.catalog_backfill`。该命令只补空字段，
+不会覆盖已有计划和实际行情。
+
 ## 验证
 
 完整冒烟检查：
@@ -122,3 +137,9 @@ make infra-down
 
 `infra-down` 不删除数据卷。确需删除本地数据时，应明确执行带 `--volumes` 的 Compose 命令，
 并确认没有需要保留的测试数据。
+
+若 Compose 运行在独立 Colima profile 中，还需停止虚拟机：
+
+```bash
+colima stop --profile banxia
+```

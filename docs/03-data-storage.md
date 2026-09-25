@@ -17,11 +17,14 @@
 | 一分钟线 | ClickHouse | S3/MinIO | 按股票和分钟幂等更新 |
 | Flink 衍生指标 | ClickHouse | Kafka、Redis | 历史分析与最新值查询 |
 | 策略定义和版本 | PostgreSQL | S3/MinIO | 事务控制和配置快照 |
+| 策略目录和血缘 | PostgreSQL | 无 | 不可变参数、父子关系、唯一激活状态和软删除 |
 | 每日计划和候选 | PostgreSQL | S3/MinIO | 权威业务数据 |
+| 每策略每日投影 | PostgreSQL | 无 | 次日计划、当日执行计划和实际行情汇总 |
 | 当前策略状态 | PostgreSQL | Redis | PostgreSQL 权威，Redis 为查询投影 |
 | 决策事件和审计 | PostgreSQL | Kafka、S3/MinIO | 可解释、可重建 |
 | 最新行情和实时建议 | Redis | ClickHouse、PostgreSQL | 低延迟读取，可重建 |
 | 报告文件 | S3/MinIO | PostgreSQL 元数据 | Markdown、JSON、CSV |
+| 研究实验 | PostgreSQL | S3/MinIO | 实验索引、逐日统计、候选配置和完整归档 |
 | 应用日志和追踪 | Loki、Tempo | S3/MinIO | 独立生命周期 |
 | 运行指标 | Prometheus | 长期指标存储 | 告警和容量分析 |
 
@@ -73,6 +76,8 @@ event_id = sha256(
 - 分钟线：`trade_date + symbol + bar_time`
 - 实时指标：`feature_version + symbol + window_end`
 - 策略计划：`trade_date + strategy_version`
+- 策略日记录：`strategy_id + trade_date`
+- 激活策略：未归档且 `enabled=true` 的部分唯一索引
 - 当前状态：`plan_id + symbol`
 - 状态迁移：`plan_id + symbol + source_event_id + target_state`
 - 报告：`strategy_run_id + format + content_hash`
@@ -83,7 +88,7 @@ event_id = sha256(
 
 | 表 | 主键/唯一键 | 说明 |
 | --- | --- | --- |
-| `strategy_definition` | `strategy_id` | 策略稳定身份和名称 |
+| `strategy_definition` | `strategy_id`；`code` 唯一；激活状态部分唯一索引 | 名称、不可变当前配置、父策略、差异、激活和软删除 |
 | `strategy_version` | `strategy_version_id` | 不可变规则、配置和代码版本 |
 | `strategy_run` | `run_id`；唯一 `(trade_date, strategy_version_id)` | 日报任务状态 |
 | `watchlist` | `watchlist_id` | 某计划的动态监控清单 |
@@ -97,6 +102,18 @@ event_id = sha256(
 | `outbox_event` | `outbox_id` | 可靠事件发布 |
 | `job_execution` | `job_id` | 调度、重试和执行历史 |
 | `audit_log` | `audit_id` | 配置和人工操作审计 |
+| `trading_session` | `trade_date` | mootdx 校验后的交易日日历 |
+| `strategy_day` | `(strategy_id, trade_date)` | 每策略每日的 `next_plan`、`execution_plan` 和 `actuals` |
+| `research_run` | `run_id` | 已完成实验的区间、输入哈希、结果和归档索引 |
+| `research_daily` | `(run_id, variant, reference_date)` | 基线/候选逐日准确率与完整结果 |
+| `research_strategy` | `strategy_id`；`run_id` 唯一 | 独立研究配置，数据库约束 `active=false` |
+
+`strategy_definition` 的名称、`current_config`、`parent_strategy_id` 和 `config_changes`
+由触发器禁止更新。激活、停用和归档是允许的状态变化；归档策略必须同时停用。
+激活流程使用事务级 advisory lock，并由部分唯一索引兜底。
+
+`strategy_day` 是面向页面和研究的物化聚合，不替代底层 `strategy_run`、`strategy_plan`、
+`candidate` 和 `decision_event`。正常刷新可更新同一日投影；历史回填只填充空字段。
 
 ### 5.2 状态机字段
 
@@ -214,11 +231,15 @@ market-raw/
   bar_1m/trade_date=YYYY-MM-DD/part-*.parquet
 
 strategy-reports/
-  strategy_version=<version>/trade_date=YYYY-MM-DD/
+  strategy_version=<version>/trade_date=YYYY-MM-DD/sha256=<content-hash>/
+    <report-file>
+
+  research/<run-id>/<content-hash-prefix>/
     report.md
-    candidates.json
-    candidates.csv
-    manifest.json
+    result.json
+    optimized-strategy.json
+    strategy-metadata.json
+    experiment.tar.gz
 
 strategy-audit/
   year=YYYY/month=MM/day=DD/part-*.parquet
@@ -259,9 +280,10 @@ flink-state/
 - Kafka 输入数、ClickHouse 落库数和 S3 归档数对账。
 - 策略决策引用的事件是否可定位。
 
-## 11. P1 迁移期双写
+## 11. 已实现链路与兼容模式
 
-当前兼容入口已接入以下临时链路：
+当前分布式运行链路已经接入 Kafka、SQLite WAL、ClickHouse、PostgreSQL、Redis 和 MinIO。
+旧 CLI/本地服务仍保留以下兼容模式：
 
 - 日报先写本地 Markdown、JSON、CSV，再上传 MinIO 内容寻址对象，最后由 PostgreSQL
   事务登记策略版本、运行、计划、候选和已成功上传的对象元数据。
@@ -272,13 +294,12 @@ flink-state/
 - `best_effort` 模式允许远端失败时保留本地链路，但错误必须出现在 CLI stderr 或
   `/api/monitor` 的 `storage.last_error`，不能静默成功。
 
-该队列不是持久 WAL，Redis 也暂时由兼容监控进程直接更新。P2 引入 Kafka、WAL 和独立
-Projection Worker 后，必须移除这条 Redis 直写路径，并以 Kafka 确认和消费 offset
-作为数据完整性的边界。
+该兼容队列不是持久 WAL。生产服务使用 `market-collector` 的 SQLite WAL、Kafka 确认、
+真实 Topic 坐标幂等和独立 `projection-worker`，不能把兼容双写模式视为生产数据完整性边界。
 
 严重异常必须将策略状态降级为“行情异常”，不得仅记录日志后继续判断。
 
-## 11. 备份与恢复
+## 12. 备份与恢复
 
 - PostgreSQL：持续 WAL 归档，每日全量备份，支持时间点恢复。
 - ClickHouse：每日增量备份到对象存储，定期验证恢复。
