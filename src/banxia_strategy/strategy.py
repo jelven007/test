@@ -538,17 +538,13 @@ class StrategyEngine:
         candidates.sort(key=lambda item: (-item.score, item.first_seal_time, item.code))
         selected: List[Candidate] = []
         industry_counts: Dict[str, int] = {}
-        total_position = 0
         for candidate in candidates:
             if candidate.score < self.config.minimum_score:
                 continue
             if industry_counts.get(candidate.industry, 0) >= self.config.max_per_industry:
                 continue
-            if total_position + candidate.position_limit_pct > self.config.portfolio_risk_limit_pct:
-                break
             selected.append(candidate)
             industry_counts[candidate.industry] = industry_counts.get(candidate.industry, 0) + 1
-            total_position += candidate.position_limit_pct
             if len(selected) >= self.config.max_candidates:
                 break
         return selected

@@ -108,6 +108,36 @@ class StrategyEngineTest(unittest.TestCase):
         self.assertNotIn("300001", [item.code for item in report.candidates])
         self.assertNotIn("600003", [item.code for item in report.candidates])
 
+    def test_candidate_limit_is_not_reduced_by_portfolio_position_limit(self):
+        provider = FakeProvider()
+        provider.pools[date(2026, 9, 23)] = [
+            row("600001", "候选一", "人工智能", first="09:31:00", seal=100_000_000),
+            row("600002", "候选二", "人工智能", first="09:35:00", seal=90_000_000),
+            row("600003", "候选三", "人工智能", first="09:40:00", seal=80_000_000),
+            row("600004", "候选四", "人工智能", first="09:45:00", seal=70_000_000),
+            row("600005", "候选五", "人工智能", first="09:50:00", seal=60_000_000),
+        ]
+        config = StrategyConfig(
+            lookback_sessions=3,
+            max_candidates=4,
+            max_per_industry=5,
+            minimum_score=0,
+            position_limit_pct=20,
+            portfolio_risk_limit_pct=60,
+        )
+
+        report = StrategyEngine(provider, config).run(date(2026, 9, 23))
+
+        self.assertEqual(len(report.candidates), 4)
+        self.assertEqual(
+            [item.score for item in report.candidates],
+            sorted((item.score for item in report.candidates), reverse=True),
+        )
+        self.assertEqual(
+            [item.rank for item in report.candidates],
+            [1, 2, 3, 4],
+        )
+
     def test_report_files_are_consistent(self):
         report = StrategyEngine(FakeProvider(), self.config).run(date(2026, 9, 23))
         with tempfile.TemporaryDirectory() as directory:

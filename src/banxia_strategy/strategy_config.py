@@ -14,11 +14,11 @@ from typing import Any, Mapping
 
 
 GROUPS = [
-    {"id": "selection", "title": "候选筛选", "description": "收盘后筛选首板，按得分和组合约束选出次日候选。"},
+    {"id": "selection", "title": "候选筛选", "description": "收盘后筛选首板，按综合评分和同题材上限选出次日候选。"},
     {"id": "scoring", "title": "个股评分", "description": "各项满分相加后扣分；调整权重时请同步检查最低入选分。"},
     {"id": "market", "title": "市场环境", "description": "涨停广度、炸板率和连板高度加权归一为百分制。"},
     {"id": "entry", "title": "竞价与入场", "description": "新计划保存这些规则；竞价重排、放量和回封封稳仍需人工核验。"},
-    {"id": "risk", "title": "仓位与退出", "description": "仓位限制参与候选数量计算，成本回撤为人工风险预警。"},
+    {"id": "risk", "title": "仓位与退出", "description": "仓位限制用于执行风控，不缩减候选观察池；成本回撤为人工风险预警。"},
     {"id": "runtime", "title": "运行设置", "description": "各策略独立调度，行情共用连接并按最快配置采集。保存后自动读取；时间均为北京时间。"},
 ]
 
