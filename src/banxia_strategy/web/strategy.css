@@ -49,11 +49,13 @@
 .settings-main button.primary-button:hover { background: #0b4936; }
 .settings-main button:disabled { opacity: .45; cursor: default; }
 .settings-main [hidden] { display: none !important; }
-.strategy-list-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding-top: 10px; }
+.strategy-list-heading { display: flex; flex-wrap: nowrap; align-items: end; justify-content: space-between; gap: 20px; overflow-x: auto; padding-top: 10px; overscroll-behavior-inline: contain; }
+.strategy-list-heading > div { flex: 0 0 auto; }
 .strategy-list-heading h2 { margin: 0 0 10px; font: 27px var(--serif); }
-.strategy-list-heading p { margin: 0; color: var(--muted); font-size: 12px; }
-.strategy-query { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: 8px; }
-.strategy-query label { display: grid; gap: 6px; }
+.strategy-list-heading p { margin: 0; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.strategy-query { display: flex; flex: 0 0 auto; flex-wrap: nowrap; align-items: end; justify-content: flex-end; gap: 8px; }
+.strategy-query label { display: grid; flex: 0 0 auto; gap: 6px; }
+.strategy-query button { flex: 0 0 auto; white-space: nowrap; }
 .strategy-query input { width: 190px; }
 .strategy-query select { width: 110px; }
 .strategy-table-wrap { overflow-x: auto; padding-bottom: 48px; }
@@ -67,14 +69,14 @@
 .strategy-table .is-active { color: var(--green); }
 .strategy-table .strategy-origin { max-width: 180px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; }
 .back-link { display: inline-block; margin-top: 22px; color: var(--green); font-size: 12px; text-decoration: none; }
-.catalog-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 18px; padding: 18px 0 8px; }
+.catalog-toolbar { display: flex; flex-wrap: nowrap; align-items: end; gap: 18px; overflow-x: auto; padding: 18px 0 8px; overscroll-behavior-inline: contain; }
 .catalog-toolbar label { display: grid; gap: 8px; font-size: 11px; color: var(--muted); }
 .catalog-toolbar input { min-height: 42px; min-width: 280px; max-width: 100%; padding: 8px 12px; border: 1px solid var(--line-dark); background: var(--white); color: var(--ink); font: inherit; font-size: 13px; }
-#strategy-name-form { display: flex; align-items: end; gap: 8px; }
+#strategy-name-form { display: flex; flex: 0 0 auto; align-items: end; gap: 8px; }
 #strategy-name-form button { white-space: nowrap; }
-.catalog-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.catalog-buttons { display: flex; flex: 0 0 auto; flex-wrap: nowrap; gap: 8px; }
 .catalog-buttons button { padding-inline: 12px; }
-.strategy-meta { min-height: 42px; display: grid; align-content: center; gap: 4px; padding: 0 14px; border-left: 2px solid var(--line-dark); }
+.strategy-meta { min-height: 42px; display: grid; flex: 0 0 auto; align-content: center; gap: 4px; padding: 0 14px; border-left: 2px solid var(--line-dark); white-space: nowrap; }
 .strategy-meta span { font-size: 12px; font-weight: 600; color: var(--muted); }
 .strategy-meta span.active { color: var(--green); }
 .strategy-meta small { font-size: 10px; color: var(--muted); }
@@ -107,13 +109,27 @@
 #day-detail { padding: 30px 0; border-top: 1px solid var(--ink); margin-top: 24px; }
 #strategy-records { padding-bottom: 48px; }
 @media (max-width: 720px) {
-  .strategy-query { justify-content: stretch; width: 100%; }
-  .strategy-query label:first-child { flex: 1 1 100%; }
-  .strategy-query label:nth-child(2) { flex: 1; }
-  .strategy-query input, .strategy-query select { width: 100%; }
-  #strategy-name-form { width: 100%; }
-  #strategy-name-form label { flex: 1; min-width: 0; }
-  .catalog-toolbar input { width: 100%; min-width: 0; }
+  #strategy-list-view .strategy-list-heading { align-items: end; flex-direction: row; gap: 8px; margin-inline: -14px; padding-inline: 14px; }
+  .strategy-list-heading h2 { margin-bottom: 0; font-size: 20px; white-space: nowrap; }
+  .strategy-list-heading p { display: none; }
+  .strategy-query { justify-content: flex-end; width: auto; gap: 4px; }
+  .strategy-query label { gap: 4px; font-size: 10px; }
+  .strategy-query label:first-child, .strategy-query label:nth-child(2) { flex: 0 0 auto; }
+  .strategy-query input { width: 84px; }
+  .strategy-query select { width: 62px; }
+  .strategy-query input, .strategy-query select, .strategy-query button { min-height: 36px; }
+  .strategy-query button { padding-inline: 7px; }
+  .settings-main .catalog-toolbar { flex-direction: row; flex-wrap: nowrap; gap: 4px; margin-inline: -14px; padding-inline: 14px; }
+  .settings-main #strategy-name-form { width: auto; }
+  .settings-main #strategy-name-form { gap: 4px; }
+  .settings-main #strategy-name-form label { flex: 0 0 auto; gap: 4px; }
+  .settings-main .catalog-toolbar input { width: 92px; min-width: 92px; max-width: 92px; }
+  .settings-main .catalog-toolbar .ui-button { padding-inline: 6px; }
+  .settings-main .strategy-meta { padding-inline: 6px; }
+  .settings-main .strategy-meta small { display: none; }
+  .settings-main .catalog-buttons { display: flex; grid-template-columns: none; width: auto; }
+  .settings-main .catalog-buttons .danger-button { grid-column: auto; }
+  .settings-main .catalog-buttons button { width: auto; }
   .records-heading { align-items: start; }
   .records-table { min-width: 720px; }
 }
@@ -128,7 +144,7 @@
   .settings-heading p:not(.eyebrow) { font-size: 12px; }
   .settings-revision { max-width: 108px; font-size: 10px; }
   .settings-revision code { font-size: 10px; }
-  .strategy-list-heading { align-items: start; }
+  #strategy-list-view .strategy-list-heading { align-items: end; }
   .settings-workspace { display: block; padding-top: 0; }
   .settings-index { position: static; margin-bottom: 28px; }
   .settings-index > .eyebrow, .settings-scope { display: none; }

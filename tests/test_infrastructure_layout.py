@@ -272,6 +272,7 @@ class WebAssetTest(unittest.TestCase):
         web = ROOT / "src/banxia_strategy/web"
         html = (web / "strategy.html").read_text(encoding="utf-8")
         script = (web / "strategy.js").read_text(encoding="utf-8")
+        css = (web / "strategy.css").read_text(encoding="utf-8")
         self.assertIn('id="strategy-list-view"', html)
         self.assertIn('id="strategy-detail-view" hidden', html)
         self.assertIn('id="strategy-name-form"', html)
@@ -286,12 +287,22 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn("参数变化不会覆盖初始策略", script)
         self.assertIn('save.textContent = saveAs ? "另存" : "保存"', script)
         self.assertIn('item?.enabled ? "停用" : "激活"', script)
+        self.assertIn('item?.enabled ? "激活" : "停用"', script)
         self.assertNotIn("取消激活", script)
+        self.assertIn('id="strategy-status" class="status-badge">停用</span>', html)
         self.assertIn('id="strategy-query-form"', html)
         self.assertIn('id="strategy-history-range"', html)
         self.assertIn("history_range:", script)
         self.assertIn("只有初始策略支持修改参数并另存", script)
         self.assertNotIn("const history = result.history_generation", script)
+        self.assertRegex(
+            css,
+            r"#strategy-list-view \.strategy-list-heading \{[^}]*flex-direction: row;",
+        )
+        self.assertRegex(
+            css,
+            r"\.settings-main \.catalog-toolbar \{[^}]*flex-wrap: nowrap;",
+        )
 
     def test_strategy_selector_keeps_management_navigation_on_list_view(self):
         web = ROOT / "src/banxia_strategy/web"

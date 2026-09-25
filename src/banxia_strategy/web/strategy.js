@@ -151,7 +151,7 @@ async function loadCatalog() {
   originalName = item.name;
   nameInput.value = item.name;
   refreshNameState();
-  document.querySelector("#strategy-status").textContent = item?.enabled ? "激活" : "未激活";
+  document.querySelector("#strategy-status").textContent = item?.enabled ? "激活" : "停用";
   document.querySelector("#strategy-status").classList.toggle("active", Boolean(item?.enabled));
   const parent = strategies.find(candidate => candidate.strategy_id === item?.parent_strategy_id);
   document.querySelector("#strategy-lineage").textContent = item.is_initial
