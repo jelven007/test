@@ -28,17 +28,20 @@ body,
 body.monitor-body,
 body.settings-body,
 body.research-body {
+  min-width: 320px;
   overflow-x: clip;
   color: var(--ink);
   background: var(--paper);
   font-family: var(--sans);
   font-size: 14px;
+  line-height: 1.55;
 }
 
 button,
 input,
 select,
 textarea {
+  font-family: inherit;
   letter-spacing: 0;
 }
 
@@ -77,19 +80,25 @@ h1 {
   position: sticky;
   z-index: 30;
   top: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-height: 64px;
+  align-items: center;
+  gap: 24px;
   padding: 10px var(--page-gutter);
   border-bottom: 1px solid var(--line-dark);
   background: rgb(246 247 245 / 96%);
   backdrop-filter: blur(12px);
 }
 
+.dashboard-topbar {
+  grid-template-columns: minmax(180px, 1fr) auto minmax(150px, 1fr);
+}
+
 .settings-topbar,
 .research-topbar,
 .monitor-header {
-  display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, auto);
-  align-items: center;
 }
 
 .brand {
@@ -208,6 +217,38 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.content-heading,
+.monitor-section-title,
+.strategy-list-heading,
+.records-heading,
+.section-title {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.content-heading h2,
+.monitor-section-title h2,
+.strategy-list-heading h2,
+.records-heading h2,
+.section-title h2 {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 22px;
+  line-height: 1.3;
+}
+
+.content-heading p,
+.monitor-section-title p,
+.strategy-list-heading p,
+.records-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
 .section-title h2,
 .name-row h3,
 .settings-group h2,
@@ -237,6 +278,16 @@ h1 {
   color: var(--ink);
   font: 12px var(--sans);
   transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+.page-main label,
+.report-tools label,
+.sync-tools label,
+.research-picker label,
+.catalog-toolbar label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .report-tools #page-strategy.ui-control,
@@ -356,6 +407,7 @@ h1 {
 }
 
 .status-badge.active,
+.status-badge.is-active,
 .status-badge[data-tone="focus"] {
   border-color: rgb(18 96 68 / 35%);
   background: var(--green-soft);
@@ -407,6 +459,7 @@ h1 {
 }
 
 .table-scroll,
+.strategy-table-wrap,
 .records-table-wrap,
 .research-table-scroll {
   width: 100%;
@@ -417,6 +470,7 @@ h1 {
 }
 
 .data-table,
+.strategy-table.data-table,
 .watch-table.data-table,
 .records-table.data-table,
 .research-table.data-table {
@@ -440,6 +494,7 @@ h1 {
 }
 
 .data-table th,
+.strategy-table.data-table th,
 .watch-table.data-table th,
 .records-table.data-table th,
 .research-table.data-table th {
@@ -455,6 +510,7 @@ h1 {
 }
 
 .data-table td,
+.strategy-table.data-table td,
 .watch-table.data-table td,
 .records-table.data-table td,
 .research-table.data-table td {
@@ -470,6 +526,7 @@ h1 {
 }
 
 .data-table tbody tr:hover td,
+.strategy-table.data-table tbody tr:hover td,
 .records-table.data-table tbody tr:hover td {
   background: var(--paper);
 }
@@ -482,6 +539,25 @@ h1 {
 .data-table small,
 .data-table time {
   font-family: var(--mono);
+}
+
+.data-table a {
+  color: var(--green);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: rgb(18 96 68 / 35%);
+  text-underline-offset: 3px;
+}
+
+.data-table a:hover {
+  color: var(--green-hover);
+  text-decoration-color: currentColor;
+}
+
+.table-empty {
+  min-height: 120px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .table-footnote,
@@ -510,6 +586,20 @@ h1 {
   border-left-color: var(--amber);
   background: var(--amber-soft);
   color: #6d4a16;
+}
+
+.ui-status {
+  min-height: 44px;
+  margin: 0;
+  padding: 13px 0;
+  color: var(--green);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ui-status.is-error,
+.ui-status.error {
+  color: var(--red);
 }
 
 .ui-link,
@@ -545,6 +635,17 @@ h1 {
 .waiting-cell,
 .empty-event {
   color: var(--muted);
+}
+
+.loading-state,
+.error-state,
+.empty-state,
+#research-empty {
+  min-height: 240px;
+  align-content: center;
+  justify-items: center;
+  padding: 40px 16px;
+  text-align: center;
 }
 
 dialog {
@@ -650,6 +751,15 @@ details > summary {
     flex-direction: column;
   }
 
+  .content-heading,
+  .monitor-section-title,
+  .strategy-list-heading,
+  .section-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
   .app-source,
   .settings-source,
   .research-source,
@@ -667,11 +777,35 @@ details > summary {
     max-width: none;
   }
 
+  .monitor-title .sync-tools {
+    grid-template-columns: minmax(0, 1fr) auto;
+    text-align: left;
+  }
+
+  .monitor-title .sync-tools label,
+  .monitor-title .sync-tools #page-strategy {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .monitor-title .sync-tools #page-strategy.ui-control {
+    max-width: none;
+  }
+
+  .monitor-title .sync-tools #connection {
+    grid-column: 1;
+  }
+
+  .monitor-title .sync-tools #sync-button {
+    grid-column: 2;
+  }
+
   .section-title {
     flex-wrap: wrap;
   }
 
   .table-scroll,
+  .strategy-table-wrap,
   .records-table-wrap,
   .research-table-scroll {
     margin-right: -14px;
@@ -683,6 +817,8 @@ details > summary {
 
   .data-table th,
   .data-table td,
+  .strategy-table.data-table th,
+  .strategy-table.data-table td,
   .watch-table.data-table th,
   .watch-table.data-table td,
   .records-table.data-table th,
@@ -695,6 +831,7 @@ details > summary {
 }
 
 @media (max-width: 560px) {
+  .topbar,
   .settings-topbar,
   .research-topbar,
   .monitor-header {
@@ -722,6 +859,25 @@ details > summary {
   }
 
   .settings-buttons button {
+    width: 100%;
+  }
+
+  .catalog-toolbar,
+  .catalog-buttons,
+  #strategy-name-form {
+    width: 100%;
+  }
+
+  .catalog-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .catalog-buttons .danger-button {
+    grid-column: 1 / -1;
+  }
+
+  .catalog-buttons button {
     width: 100%;
   }
 }
@@ -764,7 +920,9 @@ details > summary {
 
 @media (prefers-reduced-motion: reduce) {
   .page-header,
-  dialog[open] {
+  dialog[open],
+  .candidate,
+  .quote-update {
     animation: none;
   }
 }

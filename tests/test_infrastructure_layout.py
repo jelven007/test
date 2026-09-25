@@ -186,7 +186,7 @@ class WebAssetTest(unittest.TestCase):
         ]
         for page in pages:
             html = page.read_text(encoding="utf-8")
-            self.assertIn("/ui-standard.css?v=20260925.2", html, page.name)
+            self.assertIn("/ui-standard.css?v=20260925.3", html, page.name)
             self.assertIn('class="primary-nav"', html, page.name)
             self.assertRegex(html, r'<main[^>]*class="[^"]*page-main')
 
@@ -203,6 +203,7 @@ class WebAssetTest(unittest.TestCase):
             ".ui-control",
             ".ui-button",
             ".status-badge",
+            ".ui-status",
             ".segmented-control",
             ".data-table",
             ".notice",
@@ -219,6 +220,14 @@ class WebAssetTest(unittest.TestCase):
             standard,
         )
         self.assertNotRegex(standard, r"letter-spacing:\s*-")
+        self.assertNotIn(".watch-table thead { display: none;", (web / "monitor.css").read_text(encoding="utf-8"))
+
+        strategy_html = (web / "strategy.html").read_text(encoding="utf-8")
+        research_html = (web / "research.html").read_text(encoding="utf-8")
+        self.assertIn('class="strategy-table-wrap" tabindex="0" role="region"', strategy_html)
+        self.assertIn('id="settings-message" class="ui-status"', strategy_html)
+        self.assertIn('id="research-status" class="ui-status"', research_html)
+        self.assertEqual(research_html.count('class="research-table-scroll" tabindex="0" role="region"'), 4)
 
     def test_report_date_control_queries_trade_date_with_fixed_size(self):
         app = (ROOT / "src/banxia_strategy/web/app.js").read_text(

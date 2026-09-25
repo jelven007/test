@@ -180,7 +180,7 @@ function renderStudy() {
 async function loadStudy(id) {
   const sequence = ++requestSequence;
   text("research-status", "正在读取实验明细…");
-  byId("research-status").className = "";
+  byId("research-status").className = "ui-status";
   byId("research-content").hidden = true;
   try {
     const result = await get(`/api/v1/research/${encodeURIComponent(id)}`);
@@ -192,10 +192,11 @@ async function loadStudy(id) {
   } catch (error) {
     if (sequence !== requestSequence) return;
     text("research-status", error.message);
-    byId("research-status").className = "error";
+    byId("research-status").className = "ui-status is-error";
   }
 }
 async function initialize() {
+  byId("research-status").className = "ui-status";
   byId("reload-research").disabled = true;
   try {
     const payload = await get("/api/v1/research");
@@ -212,7 +213,7 @@ async function initialize() {
     else { text("research-status", "尚无实验记录"); byId("research-content").hidden = true; }
   } catch (error) {
     text("research-status", error.message);
-    byId("research-status").className = "error";
+    byId("research-status").className = "ui-status is-error";
   } finally { byId("reload-research").disabled = false; }
 }
 byId("run-select").addEventListener("change", (event) => loadStudy(event.target.value));

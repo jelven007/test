@@ -8,8 +8,8 @@
     <title>策略管理 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260925.1">
     <link rel="stylesheet" href="/strategy.css?v=20260925.3">
-    <link rel="stylesheet" href="/ui-standard.css?v=20260925.2">
-    <script src="/strategy.js?v=20260925.3" defer></script>
+    <link rel="stylesheet" href="/ui-standard.css?v=20260925.3">
+    <script src="/strategy.js?v=20260925.4" defer></script>
   </head>
   <body class="settings-body">
     <header class="topbar settings-topbar">
@@ -27,13 +27,13 @@
         <div><p class="eyebrow">STRATEGY LIBRARY</p><h1>策略管理</h1><p>每条策略独立运行，每个交易日一条记录：次日计划与当日实盘。</p></div>
         <div class="settings-revision"><span id="revision-label">策略总数</span><code id="config-revision">读取中</code><a id="plan-link" href="/">查看次日计划 ↗</a></div>
       </header>
-      <div id="settings-message" role="status" aria-live="polite">正在读取策略列表…</div>
+      <p id="settings-message" class="ui-status" role="status" aria-live="polite">正在读取策略列表…</p>
       <div id="settings-errors" class="notice is-error" role="alert" hidden></div>
       <section id="strategy-list-view" aria-labelledby="strategy-list-title">
         <div class="strategy-list-heading">
           <div><h2 id="strategy-list-title">全部策略</h2><p>点击策略名称查看交易日记录、调整名称或创建参数新版本。</p></div>
         </div>
-        <div class="strategy-table-wrap">
+        <div class="strategy-table-wrap" tabindex="0" role="region" aria-label="策略关键参数">
           <table class="strategy-table data-table">
             <thead><tr><th>策略名称</th><th>状态</th><th>最低评分</th><th>成交额</th><th>换手率</th><th>流通市值</th><th>题材涨停</th><th>入场截止</th><th>来源</th></tr></thead>
             <tbody id="strategy-list"></tbody>
@@ -60,12 +60,12 @@
         </div>
         <section id="strategy-records">
           <div class="records-heading"><div><h2>计划与实盘</h2><p>按交易日归档；重复刷新更新同一条记录。实盘为行情及策略观察，非券商成交记录。</p></div><button type="button" class="ui-button" id="reload-days">刷新记录</button></div>
-          <div class="records-table-wrap"><table class="records-table data-table">
+          <div class="records-table-wrap" tabindex="0" role="region" aria-label="策略交易日记录"><table class="records-table data-table">
             <thead><tr><th>交易日</th><th>次日计划</th><th>当日实盘</th><th>收盘封板命中率</th><th>操作</th></tr></thead>
             <tbody id="strategy-days"></tbody>
           </table></div>
           <button type="button" class="ui-button" id="more-days" hidden>更早记录</button>
-          <section id="day-detail" hidden aria-live="polite"></section>
+          <section id="day-detail" tabindex="0" role="region" aria-label="交易日实盘明细" hidden aria-live="polite"></section>
         </section>
         <form id="strategy-form" novalidate hidden>
           <div class="settings-workspace">
