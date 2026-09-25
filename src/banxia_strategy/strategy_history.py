@@ -75,6 +75,7 @@ def materialize_strategy_history(
         effective_start,
         effective_end,
         commit=commit,
+        replace_existing=True,
     )
     return {
         "strategy_id": strategy["strategy_id"],

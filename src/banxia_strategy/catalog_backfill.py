@@ -23,7 +23,16 @@ def _references(snapshot, start: date, end: date):
     return ([previous[-1]] if previous else []) + in_scope
 
 
-def backfill_strategy(repository, strategy, snapshot, start: date, end: date, *, commit: str):
+def backfill_strategy(
+    repository,
+    strategy,
+    snapshot,
+    start: date,
+    end: date,
+    *,
+    commit: str,
+    replace_existing: bool = False,
+):
     references = _references(snapshot, start, end)
     config = StrategyConfig.from_mapping(strategy.get("config") or {})
     result = evaluate_config(
@@ -48,7 +57,7 @@ def backfill_strategy(repository, strategy, snapshot, start: date, end: date, *,
         existing = repository.get_strategy_day(strategy["strategy_id"], day["reference_date"])
         should_save_plan = (
             reference >= start
-            and (not existing or not existing["next_plan"])
+            and (replace_existing or not existing or not existing["next_plan"])
         )
         execution = (
             repository.get_strategy_day(strategy["strategy_id"], day["plan_date"])
@@ -57,9 +66,11 @@ def backfill_strategy(repository, strategy, snapshot, start: date, end: date, *,
         should_fill_execution = (
             plan_date is not None
             and start <= plan_date <= end
-            and (not execution or not execution["execution_plan"])
+            and (replace_existing or not execution or not execution["execution_plan"])
         )
-        if should_save_plan or should_fill_execution:
+        if replace_existing:
+            repository.save_daily_report(strategy["strategy_id"], report)
+        elif should_save_plan or should_fill_execution:
             repository.fill_daily_report_gaps(strategy["strategy_id"], report)
         if should_save_plan:
             counters["plans"] += 1
@@ -71,7 +82,7 @@ def backfill_strategy(repository, strategy, snapshot, start: date, end: date, *,
         execution = repository.get_strategy_day(strategy["strategy_id"], day["plan_date"])
         if not execution or not execution["execution_plan"]:
             raise RuntimeError(f"{strategy['name']} {day['plan_date']} 缺少执行计划")
-        if execution["actuals"]:
+        if execution["actuals"] and not replace_existing:
             counters["preserved_actuals"] += 1
             continue
         summary = day["summary"]

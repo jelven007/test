@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from banxia_strategy.catalog_backfill import backfill_catalog
+from banxia_strategy.catalog_backfill import backfill_catalog, backfill_strategy
 from banxia_strategy.research import (
     aggregate_days, enough_samples, experiment_specs, group_periods,
     label_candidate, optimize, summarize,
@@ -259,6 +259,7 @@ class CatalogBackfillTest(unittest.TestCase):
             date(2026, 9, 19),
             date(2026, 9, 19),
         ))
+        self.assertTrue(backfill.call_args.kwargs["replace_existing"])
 
     def test_backfill_seeds_first_actual_and_preserves_existing_values(self):
         class Repository:
@@ -329,6 +330,91 @@ class CatalogBackfillTest(unittest.TestCase):
         self.assertEqual(first["strategies"]["strategy-1"]["actuals"], 2)
         self.assertEqual(second["strategies"]["strategy-1"]["plans"], 0)
         self.assertEqual(second["strategies"]["strategy-1"]["actuals"], 0)
+
+    def test_history_replaces_existing_plan_and_actuals(self):
+        class Repository:
+            def __init__(self):
+                self.days = {
+                    ("strategy-1", "2026-09-24"): {
+                        "next_plan": {"candidates": [candidate()] * 3},
+                        "execution_plan": None,
+                        "actuals": {},
+                    },
+                    ("strategy-1", "2026-09-25"): {
+                        "next_plan": None,
+                        "execution_plan": {"candidates": [candidate()] * 3},
+                        "actuals": {"status": "stale"},
+                    },
+                }
+
+            def get_strategy_day(self, strategy_id, trade_date):
+                return self.days.get((strategy_id, trade_date))
+
+            def save_daily_report(self, strategy_id, report):
+                reference = self.days.setdefault(
+                    (strategy_id, report["as_of"]),
+                    {"next_plan": None, "execution_plan": None, "actuals": {}},
+                )
+                reference["next_plan"] = report
+                target = self.days.setdefault(
+                    (strategy_id, report["next_session"]),
+                    {"next_plan": None, "execution_plan": None, "actuals": {}},
+                )
+                target["execution_plan"] = report
+
+            def save_day_actuals(self, strategy_id, trade_date, actuals, plan_id=None):
+                self.days[(strategy_id, trade_date)]["actuals"] = actuals
+
+        current = [candidate()] * 8
+        rows = [outcome() for _ in current]
+        day = {
+            "reference_date": "2026-09-24",
+            "plan_date": "2026-09-25",
+            "report": {
+                "as_of": "2026-09-24",
+                "next_session": "2026-09-25",
+                "candidates": current,
+            },
+            "outcomes": rows,
+            "summary": summarize(rows),
+        }
+        repository = Repository()
+        strategy = {
+            "strategy_id": "strategy-1",
+            "code": "one",
+            "name": "策略一",
+            "config": {},
+        }
+        with patch(
+            "banxia_strategy.catalog_backfill.evaluate_config",
+            return_value={"days": [day], "summary": {"accuracy_pct": 100}},
+        ):
+            result = backfill_strategy(
+                repository,
+                strategy,
+                {"calendar": ["2026-09-24", "2026-09-25"]},
+                date(2026, 9, 24),
+                date(2026, 9, 25),
+                commit="test",
+                replace_existing=True,
+            )
+
+        self.assertEqual(
+            len(repository.days[("strategy-1", "2026-09-24")]["next_plan"]["candidates"]),
+            8,
+        )
+        self.assertEqual(
+            len(repository.days[("strategy-1", "2026-09-25")]["execution_plan"]["candidates"]),
+            8,
+        )
+        self.assertEqual(
+            repository.days[("strategy-1", "2026-09-25")]["actuals"]["summary"]["observed_count"],
+            8,
+        )
+        self.assertEqual(result["plans"], 1)
+        self.assertEqual(result["actuals"], 1)
+        self.assertEqual(result["preserved_plans"], 0)
+        self.assertEqual(result["preserved_actuals"], 0)
 
 
 if __name__ == "__main__":
