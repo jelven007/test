@@ -318,6 +318,26 @@ class ApiV1Test(unittest.TestCase):
         self.assertIsNone(payload["stocks"][0]["price"])
         self.assertEqual(payload["data_status"]["state"], "unavailable")
 
+    def test_nontrading_monitor_date_returns_empty_snapshot_and_events(self):
+        snapshot = self.client.get(
+            "/api/v1/monitor?trade_date=2026-09-25"
+        )
+        events = self.client.get(
+            "/api/v1/monitor/events?trade_date=2026-09-25"
+        )
+
+        self.assertEqual(snapshot.status_code, 200)
+        self.assertEqual(snapshot.json()["trade_date"], "2026-09-25")
+        self.assertIsNone(snapshot.json()["reference_date"])
+        self.assertEqual(snapshot.json()["plan_id"], "")
+        self.assertEqual(snapshot.json()["stocks"], [])
+        self.assertEqual(
+            snapshot.json()["data_status"]["reason"],
+            "non_trading_day",
+        )
+        self.assertEqual(events.status_code, 200)
+        self.assertEqual(events.json(), {"items": [], "next_cursor": None})
+
     def test_historical_monitor_prefers_materialized_execution_over_stale_active_plan(self):
         strategy_id = "00000000-0000-0000-0000-000000000010"
         candidates = [

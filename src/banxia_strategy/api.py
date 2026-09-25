@@ -246,6 +246,28 @@ def create_api_app(services: ApiServices):
         strategy_id = strategy_id or (active["strategy_id"] if active else None)
         if strategy_id:
             require_strategy(strategy_id)
+        if trade_date:
+            try:
+                requested_date = date.fromisoformat(trade_date)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="日期无效") from exc
+            is_trading_session = getattr(
+                services.repository,
+                "is_trading_session",
+                None,
+            )
+            if (
+                is_trading_session is not None
+                and not is_trading_session(requested_date)
+            ):
+                return {
+                    "plan_id": "",
+                    "reference_date": None,
+                    "trade_date": trade_date,
+                    "strategy_version": "",
+                    "candidates": [],
+                    "non_trading_day": True,
+                }
         day = (
             services.repository.get_strategy_day(strategy_id, trade_date)
             if strategy_id and trade_date
@@ -576,7 +598,15 @@ def create_api_app(services: ApiServices):
         active = active_strategy() if not strategy_id else None
         strategy_id = strategy_id or (active["strategy_id"] if active else None)
         plan = active_plan(trade_date, strategy_id)
-        day = services.repository.get_strategy_day(strategy_id, plan["trade_date"]) if strategy_id else None
+        non_trading_day = bool(plan.get("non_trading_day"))
+        day = (
+            services.repository.get_strategy_day(
+                strategy_id,
+                plan["trade_date"],
+            )
+            if strategy_id and not non_trading_day
+            else None
+        )
         actuals = day.get("actuals", {}) if day else {}
         outcomes = {item["symbol"]: item for item in actuals.get("outcomes", [])}
         selected = set(symbols.split(",")) if symbols else None
@@ -745,6 +775,11 @@ def create_api_app(services: ApiServices):
                 "state": _data_state(max_age, missing),
                 "max_quote_age_seconds": max_age,
                 "consumer_lag": None,
+                "reason": (
+                    "non_trading_day"
+                    if non_trading_day
+                    else None
+                ),
             },
             "phase": current_phase,
             "phase_label": PHASE_LABELS[current_phase],

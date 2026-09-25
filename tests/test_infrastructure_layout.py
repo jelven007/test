@@ -285,7 +285,8 @@ class WebAssetTest(unittest.TestCase):
             "/api/v1/report-jobs/${encodeURIComponent(job.job_id)}",
             monitor_app,
         )
-        self.assertIn("/monitor.js?v=20260926.2", monitor_html)
+        self.assertIn("snapshot.data_status.reason === \"non_trading_day\"", monitor_app)
+        self.assertIn("/monitor.js?v=20260926.3", monitor_html)
         self.assertNotIn("刷新数据", html)
         self.assertIn("width: 148px", css)
         self.assertIn("flex-basis: 122px", css)

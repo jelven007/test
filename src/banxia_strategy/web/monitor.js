@@ -91,7 +91,11 @@ function normalize(snapshot, eventPayload) {
     ...snapshot,
     collected_at: stocks.map((stock) => stock.quote.quote_time).filter(Boolean).sort().at(-1),
     delayed: snapshot.data_status.state !== "fresh",
-    error: snapshot.data_status.state === "unavailable" ? "实时投影尚未就绪，暂停入场判断。" : null,
+    error: snapshot.data_status.reason === "non_trading_day"
+      ? "所选日期为非交易日，无当日实盘数据。"
+      : snapshot.data_status.state === "unavailable"
+        ? "实时投影尚未就绪，暂停入场判断。"
+        : null,
     plan_date: snapshot.trade_date,
     revision: stocks.map((stock) => stock.quote.quote_time || "").sort().at(-1) || "—",
     requested_codes: stocks.map((stock) => stock.code),
