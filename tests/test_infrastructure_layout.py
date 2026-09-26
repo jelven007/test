@@ -333,8 +333,8 @@ class WebAssetTest(unittest.TestCase):
             app,
         )
         self.assertIn("resolvedFromNonTradingDay", app)
-        self.assertIn("/trading-calendar.js?v=20260926.2", html)
-        self.assertIn("/app.js?v=20260926.4", html)
+        self.assertIn("/trading-calendar.js?v=20260926.3", html)
+        self.assertIn("/app.js?v=20260926.5", html)
         self.assertIn('timeZone: "Asia/Shanghai"', app)
         self.assertIn('select id="report-date"', html)
         self.assertIn('{ defaultKey: "next_plan" }', app)
@@ -342,7 +342,7 @@ class WebAssetTest(unittest.TestCase):
         self.assertNotIn("复盘日期", html)
         self.assertIn('class="topbar dashboard-topbar"', monitor_html)
         self.assertIn('select id="report-date"', monitor_html)
-        self.assertIn("/trading-calendar.js?v=20260926.2", monitor_html)
+        self.assertIn("/trading-calendar.js?v=20260926.3", monitor_html)
         self.assertIn('{ defaultKey: "monitor" }', monitor_app)
         self.assertRegex(
             monitor_html,
@@ -367,7 +367,7 @@ class WebAssetTest(unittest.TestCase):
             "data.requested_date || data.plan_date",
             monitor_app,
         )
-        self.assertIn("/monitor.js?v=20260926.9", monitor_html)
+        self.assertIn("/monitor.js?v=20260926.10", monitor_html)
         self.assertIn('class="monitor-workspace"', monitor_html)
         self.assertIn('id="watch-list" class="watch-list"', monitor_html)
         self.assertIn('id="stock-detail" class="stock-detail"', monitor_html)
@@ -472,7 +472,34 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn("if (!scopedNavPaths.has(link.pathname)) return;", script)
         for page in ("index.html", "monitor.html"):
             html = (web / page).read_text(encoding="utf-8")
-            self.assertIn("/strategy-selector.js?v=20260925.2", html)
+            self.assertIn("/strategy-selector.js?v=20260926.1", html)
+
+    def test_primary_pages_keep_clean_urls_for_default_state(self):
+        web = ROOT / "src/banxia_strategy/web"
+        stocks = (web / "stocks.js").read_text(encoding="utf-8")
+        selector = (web / "strategy-selector.js").read_text(encoding="utf-8")
+        calendar = (web / "trading-calendar.js").read_text(encoding="utf-8")
+        plan = (web / "app.js").read_text(encoding="utf-8")
+        monitor = (web / "monitor.js").read_text(encoding="utf-8")
+
+        self.assertIn(
+            'query ? `${location.pathname}?${query}` : location.pathname',
+            stocks,
+        )
+        self.assertIn('visibleParameters.delete("limit")', stocks)
+        self.assertNotIn("history.replaceState", selector)
+        self.assertIn('if (params.has("strategy_id"))', selector)
+        self.assertIn(
+            'if (locationParameters.has("trade_date"))',
+            calendar,
+        )
+        self.assertNotIn("rememberDate", plan)
+        self.assertIn('fetch(monitorURL("/api/v1/monitor")', monitor)
+        self.assertIn(
+            'new EventSource(monitorURL("/api/v1/monitor/stream"))',
+            monitor,
+        )
+        self.assertNotIn('if (!params.get("trade_date"))', monitor)
 
 
 if __name__ == "__main__":

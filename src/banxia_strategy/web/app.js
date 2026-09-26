@@ -284,12 +284,6 @@ function wait(milliseconds) {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-function rememberDate(value) {
-  const params = new URLSearchParams(location.search);
-  params.set("trade_date", value);
-  history.replaceState(null, "", `${location.pathname}?${params}`);
-}
-
 async function loadReport(asOf) {
   activeDate = asOf;
   refreshButton.disabled = true;
@@ -302,7 +296,6 @@ async function loadReport(asOf) {
     );
     renderReport(report);
     reportDateInput.value = selectedDate;
-    rememberDate(selectedDate);
   } catch (error) {
     if (activeDate === asOf) renderError(error.message);
   } finally {

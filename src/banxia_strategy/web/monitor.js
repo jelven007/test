@@ -39,6 +39,13 @@ function element(tag, text, className) {
   if (className) node.className = className;
   return node;
 }
+function monitorURL(path) {
+  const url = new URL(path, location.origin);
+  if (reportDateInput.value) {
+    url.searchParams.set("trade_date", reportDateInput.value);
+  }
+  return window.strategyURL(`${url.pathname}${url.search}`);
+}
 function changeClass(value) { return Number(value) > 0 ? "up" : Number(value) < 0 ? "down" : ""; }
 function toneFor(state, irreversible) {
   if (irreversible || ["expired", "stale", "unavailable", "reject_open", "reject_low", "outside_open", "window_closed"].includes(state)) return "risk";
@@ -455,11 +462,6 @@ function render(data) {
   byId("connection").dataset.error = String(Boolean(data.error));
   sourceStatus.className = `source-status ${data.error ? "error" : "ready"}`;
   reportDateInput.value = data.requested_date || data.plan_date;
-  const params = new URLSearchParams(location.search);
-  if (!params.get("trade_date")) {
-    params.set("trade_date", data.plan_date);
-    history.replaceState(null, "", `${location.pathname}?${params}`);
-  }
   renderRows(data);
   renderDetail(data.stocks.find((stock) => stock.code === selected));
   renderEvents(data.events);
@@ -488,8 +490,8 @@ async function sync({ userInitiated = false } = {}) {
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
     const [snapshotResponse, eventsResponse] = await Promise.all([
-      fetch(window.strategyURL("/api/v1/monitor"), { cache: "no-store", signal: controller.signal }),
-      fetch(window.strategyURL("/api/v1/monitor/events?limit=40"), { cache: "no-store", signal: controller.signal }),
+      fetch(monitorURL("/api/v1/monitor"), { cache: "no-store", signal: controller.signal }),
+      fetch(monitorURL("/api/v1/monitor/events?limit=40"), { cache: "no-store", signal: controller.signal }),
     ]);
     const snapshot = await snapshotResponse.json();
     const events = await eventsResponse.json();
@@ -573,7 +575,7 @@ async function refreshSelectedDay() {
 async function connectStream() {
   await window.strategyReady;
   if (eventSource) eventSource.close();
-  eventSource = new EventSource(window.strategyURL("/api/v1/monitor/stream"));
+  eventSource = new EventSource(monitorURL("/api/v1/monitor/stream"));
   eventSource.onopen = () => {
     connected = true;
     write("connection", "事件流已连接");

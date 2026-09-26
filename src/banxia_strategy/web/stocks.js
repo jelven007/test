@@ -61,6 +61,17 @@ function queryParameters() {
   return parameters;
 }
 
+function updateBrowserUrl(parameters) {
+  const visibleParameters = new URLSearchParams(parameters);
+  visibleParameters.delete("limit");
+  if (!visibleParameters.get("q")) visibleParameters.delete("q");
+  if (visibleParameters.get("board") === "all") visibleParameters.delete("board");
+  if (visibleParameters.get("market") === "all") visibleParameters.delete("market");
+  if (visibleParameters.get("offset") === "0") visibleParameters.delete("offset");
+  const query = visibleParameters.toString();
+  history.replaceState(null, "", query ? `${location.pathname}?${query}` : location.pathname);
+}
+
 function renderRows(items) {
   const root = byId("stock-rows");
   root.replaceChildren();
@@ -151,7 +162,7 @@ async function loadStocks() {
       ? `盘口时间 ${times.at(-1)}`
       : "当前页暂无实时报价";
     byId("stock-status").textContent = `已读取 ${payload.items.length} 只股票 · ${payload.source}`;
-    history.replaceState(null, "", `${location.pathname}?${parameters}`);
+    updateBrowserUrl(parameters);
   } catch (error) {
     byId("stock-status").textContent = error.message;
     renderRows([]);

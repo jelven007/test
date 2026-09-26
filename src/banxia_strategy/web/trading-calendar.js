@@ -78,7 +78,8 @@ window.initializeTradingDateControl = async function(
     return option;
   }));
 
-  const requested = new URLSearchParams(location.search).get("trade_date");
+  const locationParameters = new URLSearchParams(location.search);
+  const requested = locationParameters.get("trade_date");
   const cached = readCachedTradingDate(defaultKey);
   const selected = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested)
     ? resolveSelectedDate(sessions, requested, calendar.defaults[defaultKey])
@@ -87,7 +88,9 @@ window.initializeTradingDateControl = async function(
       : resolveSelectedDate(sessions, null, calendar.defaults[defaultKey]);
   control.value = selected;
   control.disabled = false;
-  updateTradeDateInUrl(selected);
+  if (locationParameters.has("trade_date")) {
+    updateTradeDateInUrl(selected);
+  }
   cacheTradingDate(defaultKey, selected);
 
   control.addEventListener("change", () => {
