@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -140,6 +140,48 @@ class FakeReferenceRepository(FakeRepository):
             "as_of_date": "2026-09-25",
             "freshness": "fresh",
         }
+
+    def get_latest_security_daily_snapshots(self, symbols):
+        self.reference_calls.append(("daily-latest", tuple(symbols)))
+        return {
+            symbol: {
+                "symbol": symbol,
+                "trade_date": "2026-09-24",
+                "price": 10.4,
+                "last_close": 10,
+                "open": 10.1,
+                "high": 10.6,
+                "low": 9.9,
+                "volume": 400000,
+                "amount": 250000000,
+                "source_time": "2026-09-24T15:00:00+08:00",
+                "collected_at": "2026-09-24T16:20:00+08:00",
+                "data_state": "available",
+            }
+            for symbol in symbols
+        }
+
+    def list_security_daily_history(
+        self,
+        symbol,
+        *,
+        start_date=None,
+        end_date=None,
+        limit=250,
+    ):
+        self.reference_calls.append(
+            ("daily-history", symbol, start_date, end_date, limit)
+        )
+        return [
+            {
+                "symbol": symbol,
+                "trade_date": "2026-09-24",
+                "price": 10.4,
+                "previous_close": 10,
+                "change_pct": 4,
+                "data_state": "available",
+            }
+        ]
 
 
 class FakeCache:
@@ -718,6 +760,60 @@ class ApiV1Test(unittest.TestCase):
             if call[0] == "securities"
         )
         self.assertEqual(securities_call[1]["block"], "持久化板块")
+
+    def test_stock_directory_falls_back_to_daily_snapshot_without_cache(self):
+        repository = FakeReferenceRepository()
+        cache = FakeCache()
+        cache.get_latest_quote = Mock(return_value=None)
+        services = ApiServices(
+            reports=self.services.reports,
+            repository=repository,
+            cache=cache,
+            history_provider=FakeHistoryProvider(),
+        )
+        client = TestClient(create_api_app(services))
+
+        response = client.get("/api/v1/stocks?limit=20")
+
+        self.assertEqual(response.status_code, 200)
+        quote = response.json()["items"][0]["quote"]
+        self.assertEqual(quote["price"], 10.4)
+        self.assertEqual(quote["change_pct"], 4.0)
+        self.assertIn(("daily-latest", ("002635",)), repository.reference_calls)
+
+    def test_daily_snapshot_history_validates_dates_and_reads_postgres(self):
+        repository = FakeReferenceRepository()
+        services = ApiServices(
+            reports=self.services.reports,
+            repository=repository,
+            cache=self.services.cache,
+            history_provider=FakeHistoryProvider(),
+        )
+        client = TestClient(create_api_app(services))
+
+        response = client.get(
+            "/api/v1/stocks/002635/daily-history"
+            "?start_date=2026-09-01&end_date=2026-09-24&limit=20"
+        )
+        invalid = client.get(
+            "/api/v1/stocks/002635/daily-history"
+            "?start_date=2026-09-25&end_date=2026-09-24"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["source"], "postgres")
+        self.assertEqual(response.json()["items"][0]["trade_date"], "2026-09-24")
+        self.assertIn(
+            (
+                "daily-history",
+                "002635",
+                date(2026, 9, 1),
+                date(2026, 9, 24),
+                20,
+            ),
+            repository.reference_calls,
+        )
+        self.assertEqual(invalid.status_code, 400)
 
     def test_stock_history_is_written_then_served_from_clickhouse(self):
         store = FakeMarketHistory()

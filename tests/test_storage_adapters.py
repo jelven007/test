@@ -567,6 +567,27 @@ class PostgresAdapterTest(unittest.TestCase):
                     "raw": {},
                 }
             ],
+            daily_snapshots=[
+                {
+                    "symbol": "600001",
+                    "exchange": "sh",
+                    "instrument_type": "stock",
+                    "trade_date": date(2026, 9, 24),
+                    "source_node": "example:7709",
+                    "source_time": STAMP,
+                    "collected_at": STAMP,
+                    "open": 10.1,
+                    "high": 10.8,
+                    "low": 9.9,
+                    "close": 10.5,
+                    "previous_close": 10,
+                    "change_pct": 5,
+                    "volume": 500000,
+                    "amount": 300000000,
+                    "data_state": "available",
+                    "raw": {},
+                }
+            ],
             observed_at=STAMP,
         )
 
@@ -576,6 +597,7 @@ class PostgresAdapterTest(unittest.TestCase):
         )
         statements = "\n".join(statement for statement, _ in cursor.calls)
         self.assertIn("CREATE TEMP TABLE incoming_security", statements)
+        self.assertIn("banxia.security_daily_snapshot", statements)
         self.assertIn("CREATE TEMP TABLE incoming_membership", statements)
         self.assertIn(
             "UPDATE banxia.source_snapshot SET status = 'published'",
@@ -605,6 +627,93 @@ class PostgresAdapterTest(unittest.TestCase):
         self.assertEqual(security["symbol"], "600001")
         self.assertEqual(security["market"], "sh")
         self.assertEqual(security["previous_close"], 10.0)
+
+    def test_security_version_hash_excludes_daily_fields(self):
+        first = {
+            "market": 1,
+            "exchange": "sh",
+            "instrument_type": "stock",
+            "symbol": "600001",
+            "board": "main",
+            "name": "样本股份",
+            "volume_unit": 100,
+            "decimal_point": 2,
+            "previous_close": 10,
+            "raw": {"code": "600001", "pre_close": 10},
+        }
+        second = {
+            **first,
+            "previous_close": 10.5,
+            "raw": {"code": "600001", "pre_close": 10.5},
+        }
+
+        first_row = PostgresStorage._security_row(first)
+        second_row = PostgresStorage._security_row(second)
+
+        self.assertIsNone(first_row[9])
+        self.assertEqual(first_row[10], second_row[10])
+        self.assertNotIn("pre_close", first_row[11])
+
+    def test_daily_snapshot_read_models_map_database_rows(self):
+        cursor = FakeCursor(
+            [
+                [
+                    (
+                        "600001",
+                        date(2026, 9, 24),
+                        "example:7709",
+                        STAMP,
+                        STAMP,
+                        10.1,
+                        10.8,
+                        9.9,
+                        10.5,
+                        10,
+                        5,
+                        500000,
+                        300000000,
+                        "available",
+                        {"code": "600001"},
+                    )
+                ],
+                [
+                    (
+                        "600001",
+                        date(2026, 9, 24),
+                        "example:7709",
+                        STAMP,
+                        STAMP,
+                        10.1,
+                        10.8,
+                        9.9,
+                        10.5,
+                        10,
+                        5,
+                        500000,
+                        300000000,
+                        "available",
+                        {"code": "600001"},
+                    )
+                ],
+            ]
+        )
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+
+        latest = storage.get_latest_security_daily_snapshots(["600001"])
+        history = storage.list_security_daily_history(
+            "600001",
+            start_date=date(2026, 9, 1),
+            end_date=date(2026, 9, 24),
+            limit=20,
+        )
+
+        self.assertEqual(latest["600001"]["price"], 10.5)
+        self.assertEqual(latest["600001"]["last_close"], 10.0)
+        self.assertEqual(history[0]["trade_date"], "2026-09-24")
+        self.assertIn("DISTINCT ON", cursor.calls[0][0])
+        self.assertIn("snapshot.trade_date >= %s", cursor.calls[1][0])
 
     def test_trading_session_check_uses_persisted_calendar(self):
         cursor = FakeCursor([(True,), (False,)])

@@ -120,12 +120,16 @@ class MarketReferenceMixin:
         expected_count: int,
         securities: Iterable[Mapping[str, Any]],
         memberships: Iterable[Mapping[str, Any]],
+        daily_snapshots: Iterable[Mapping[str, Any]] = (),
         observed_at: Optional[datetime] = None,
     ) -> str:
         observed_at = observed_at or datetime.now(timezone.utc)
         security_rows = tuple(self._security_row(item) for item in securities)
         membership_rows = tuple(
             self._membership_row(item) for item in memberships
+        )
+        daily_rows = tuple(
+            self._daily_snapshot_row(item) for item in daily_snapshots
         )
         if not security_rows:
             raise ValueError("security catalog is empty")
@@ -213,6 +217,11 @@ class MarketReferenceMixin:
                     observed_at,
                     security_rows,
                 )
+                self._stage_daily_snapshots(
+                    cursor,
+                    snapshot_id,
+                    daily_rows,
+                )
                 self._stage_memberships(
                     cursor,
                     snapshot_id,
@@ -266,6 +275,10 @@ class MarketReferenceMixin:
         normalized = dict(item)
         normalized.setdefault("instrument_type", "stock")
         normalized["instrument_id"] = _instrument_id(normalized)
+        stable_raw = dict(normalized.get("raw") or {})
+        for key in ("pre_close", "last_close", "price"):
+            stable_raw.pop(key, None)
+        normalized["raw"] = stable_raw
         version = {
             key: normalized.get(key)
             for key in (
@@ -273,7 +286,6 @@ class MarketReferenceMixin:
                 "board",
                 "volume_unit",
                 "decimal_point",
-                "previous_close",
                 "raw",
             )
         }
@@ -287,9 +299,34 @@ class MarketReferenceMixin:
             str(normalized["name"]),
             int(normalized.get("volume_unit") or 100),
             int(normalized.get("decimal_point") or 2),
-            normalized.get("previous_close"),
+            None,
             _content_hash(version),
-            _json(normalized.get("raw") or {}),
+            _json(stable_raw),
+        )
+
+    @staticmethod
+    def _daily_snapshot_row(item: Mapping[str, Any]) -> tuple[Any, ...]:
+        instrument_id = (
+            str(item.get("instrument_id"))
+            if item.get("instrument_id")
+            else _instrument_id(item)
+        )
+        return (
+            instrument_id,
+            item["trade_date"],
+            str(item["source_node"]),
+            item.get("source_time"),
+            item["collected_at"],
+            item.get("open"),
+            item.get("high"),
+            item.get("low"),
+            item.get("close"),
+            item.get("previous_close"),
+            item.get("change_pct"),
+            item.get("volume"),
+            item.get("amount"),
+            str(item["data_state"]),
+            _json(item.get("raw") or {}),
         )
 
     @staticmethod
@@ -407,6 +444,43 @@ class MarketReferenceMixin:
               AND current.content_sha256 = incoming.version_hash
             """,
             (observed_at,),
+        )
+
+    @staticmethod
+    def _stage_daily_snapshots(
+        cursor: Any,
+        snapshot_id: str,
+        rows: Sequence[tuple[Any, ...]],
+    ) -> None:
+        if not rows:
+            return
+        cursor.executemany(
+            """
+            INSERT INTO banxia.security_daily_snapshot (
+                instrument_id, trade_date, snapshot_id, source_node,
+                source_time, collected_at, open, high, low, close,
+                previous_close, change_pct, volume, amount, data_state, raw
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s, %s, %s, %s, %s::jsonb
+            )
+            ON CONFLICT (instrument_id, trade_date) DO UPDATE SET
+                snapshot_id = EXCLUDED.snapshot_id,
+                source_node = EXCLUDED.source_node,
+                source_time = EXCLUDED.source_time,
+                collected_at = EXCLUDED.collected_at,
+                open = EXCLUDED.open,
+                high = EXCLUDED.high,
+                low = EXCLUDED.low,
+                close = EXCLUDED.close,
+                previous_close = EXCLUDED.previous_close,
+                change_pct = EXCLUDED.change_pct,
+                volume = EXCLUDED.volume,
+                amount = EXCLUDED.amount,
+                data_state = EXCLUDED.data_state,
+                raw = EXCLUDED.raw
+            """,
+            ((row[0], row[1], snapshot_id, *row[2:]) for row in rows),
         )
 
     @staticmethod
@@ -598,12 +672,21 @@ class MarketReferenceMixin:
                     f"""
                     SELECT DISTINCT
                         security.symbol, security.name, security.exchange,
-                        security.board, version.previous_close,
+                        security.board, daily.previous_close,
                         security.volume_unit, security.decimal_point
                     FROM banxia.security_master security
                     JOIN banxia.security_master_version version
                       ON version.instrument_id = security.instrument_id
                      AND version.valid_to IS NULL
+                    LEFT JOIN LATERAL (
+                        SELECT snapshot.previous_close
+                        FROM banxia.security_daily_snapshot snapshot
+                        WHERE snapshot.instrument_id =
+                            security.instrument_id
+                          AND snapshot.data_state = 'available'
+                        ORDER BY snapshot.trade_date DESC
+                        LIMIT 1
+                    ) daily ON TRUE
                     {joins}
                     WHERE {where}
                     ORDER BY security.symbol
@@ -637,12 +720,21 @@ class MarketReferenceMixin:
                     """
                     SELECT
                         security.symbol, security.name, security.exchange,
-                        security.board, version.previous_close,
+                        security.board, daily.previous_close,
                         security.volume_unit, security.decimal_point
                     FROM banxia.security_master security
                     JOIN banxia.security_master_version version
                       ON version.instrument_id = security.instrument_id
                      AND version.valid_to IS NULL
+                    LEFT JOIN LATERAL (
+                        SELECT snapshot.previous_close
+                        FROM banxia.security_daily_snapshot snapshot
+                        WHERE snapshot.instrument_id =
+                            security.instrument_id
+                          AND snapshot.data_state = 'available'
+                        ORDER BY snapshot.trade_date DESC
+                        LIMIT 1
+                    ) daily ON TRUE
                     WHERE security.symbol = %s
                       AND security.instrument_type = 'stock'
                       AND security.listing_status = 'active'
@@ -662,6 +754,107 @@ class MarketReferenceMixin:
             "previous_close": float(row[4]) if row[4] is not None else None,
             "volume_unit": int(row[5]),
             "decimal_point": int(row[6]),
+        }
+
+    def get_latest_security_daily_snapshots(
+        self,
+        symbols: Sequence[str],
+    ) -> dict[str, dict[str, Any]]:
+        requested = tuple(dict.fromkeys(symbols))
+        if not requested:
+            return {}
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT DISTINCT ON (security.symbol)
+                        security.symbol, snapshot.trade_date,
+                        snapshot.source_node, snapshot.source_time,
+                        snapshot.collected_at, snapshot.open, snapshot.high,
+                        snapshot.low, snapshot.close,
+                        snapshot.previous_close, snapshot.change_pct,
+                        snapshot.volume, snapshot.amount,
+                        snapshot.data_state
+                    FROM banxia.security_master security
+                    JOIN banxia.security_daily_snapshot snapshot
+                      ON snapshot.instrument_id = security.instrument_id
+                    WHERE security.symbol = ANY(%s)
+                      AND security.instrument_type = 'stock'
+                    ORDER BY security.symbol, snapshot.trade_date DESC
+                    """,
+                    (list(requested),),
+                )
+                rows = cursor.fetchall()
+        return {
+            str(row[0]): self._daily_snapshot_mapping(row)
+            for row in rows
+        }
+
+    def list_security_daily_history(
+        self,
+        symbol: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        limit: int = 250,
+    ) -> list[dict[str, Any]]:
+        conditions = ["security.symbol = %s"]
+        parameters: list[Any] = [symbol]
+        if start_date is not None:
+            conditions.append("snapshot.trade_date >= %s")
+            parameters.append(start_date)
+        if end_date is not None:
+            conditions.append("snapshot.trade_date <= %s")
+            parameters.append(end_date)
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                    SELECT
+                        security.symbol, snapshot.trade_date,
+                        snapshot.source_node, snapshot.source_time,
+                        snapshot.collected_at, snapshot.open, snapshot.high,
+                        snapshot.low, snapshot.close,
+                        snapshot.previous_close, snapshot.change_pct,
+                        snapshot.volume, snapshot.amount,
+                        snapshot.data_state
+                    FROM banxia.security_master security
+                    JOIN banxia.security_daily_snapshot snapshot
+                      ON snapshot.instrument_id = security.instrument_id
+                    WHERE {' AND '.join(conditions)}
+                      AND security.instrument_type = 'stock'
+                    ORDER BY snapshot.trade_date DESC
+                    LIMIT %s
+                    """,
+                    (*parameters, limit),
+                )
+                rows = cursor.fetchall()
+        return [
+            self._daily_snapshot_mapping(row)
+            for row in reversed(rows)
+        ]
+
+    @staticmethod
+    def _daily_snapshot_mapping(row: Sequence[Any]) -> dict[str, Any]:
+        return {
+            "symbol": str(row[0]),
+            "trade_date": row[1].isoformat(),
+            "source_node": str(row[2]),
+            "source_time": row[3].isoformat() if row[3] else None,
+            "collected_at": row[4].isoformat(),
+            "open": float(row[5]) if row[5] is not None else None,
+            "high": float(row[6]) if row[6] is not None else None,
+            "low": float(row[7]) if row[7] is not None else None,
+            "price": float(row[8]) if row[8] is not None else None,
+            "close": float(row[8]) if row[8] is not None else None,
+            "last_close": float(row[9]) if row[9] is not None else None,
+            "previous_close": (
+                float(row[9]) if row[9] is not None else None
+            ),
+            "change_pct": float(row[10]) if row[10] is not None else None,
+            "volume": float(row[11]) if row[11] is not None else None,
+            "amount": float(row[12]) if row[12] is not None else None,
+            "data_state": str(row[13]),
         }
 
     def latest_market_reference_snapshot(self) -> Optional[dict[str, Any]]:

@@ -13,6 +13,7 @@ servers:
 tags:
   - name: Health
   - name: Monitor
+  - name: Stocks
   - name: Reports
   - name: Strategies
   - name: StrategyRuns
@@ -172,6 +173,62 @@ paths:
                 type: string
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/v1/stocks/{symbol}/daily-history:
+    get:
+      tags: [Stocks]
+      operationId: listStockDailyHistory
+      summary: 查询股票每日行情快照历史
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Symbol"
+        - name: start_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+            default: 250
+      responses:
+        "200":
+          description: 按交易日升序排列的每日行情快照
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [symbol, name, source, count, items]
+                properties:
+                  symbol:
+                    $ref: "#/components/schemas/Symbol"
+                  name:
+                    type: string
+                  source:
+                    type: string
+                    enum: [postgres]
+                  count:
+                    type: integer
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SecurityDailySnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: 股票不存在
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /api/v1/reports:
     get:
       tags: [Reports]
@@ -876,6 +933,56 @@ components:
           additionalProperties: true
         decision:
           $ref: "#/components/schemas/Decision"
+    SecurityDailySnapshot:
+      type: object
+      required:
+        - symbol
+        - trade_date
+        - source_node
+        - collected_at
+        - data_state
+      properties:
+        symbol:
+          $ref: "#/components/schemas/Symbol"
+        trade_date:
+          type: string
+          format: date
+        source_node:
+          type: string
+        source_time:
+          type: string
+          format: date-time
+          nullable: true
+        collected_at:
+          type: string
+          format: date-time
+        open:
+          type: number
+          nullable: true
+        high:
+          type: number
+          nullable: true
+        low:
+          type: number
+          nullable: true
+        close:
+          type: number
+          nullable: true
+        previous_close:
+          type: number
+          nullable: true
+        change_pct:
+          type: number
+          nullable: true
+        volume:
+          type: number
+          nullable: true
+        amount:
+          type: number
+          nullable: true
+        data_state:
+          type: string
+          enum: [available, missing]
     RealtimeFeature:
       type: object
       properties:

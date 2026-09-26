@@ -28,8 +28,8 @@ make infra-check
 ```
 
 `report-scheduler` 随常驻服务启动，默认在交易日 16:30 生成初版、23:30 覆盖更新。
-`market-reference-sync` 首次启动时补齐主数据，之后每个工作日 16:20 更新证券目录、
-板块和行业版本。
+`market-reference-sync` 首次启动时补齐主数据，之后每个交易日 16:20 更新证券目录、
+板块、行业版本和全市场每日行情快照。
 非交易日由 mootdx 交易日历校验后跳过。调度器重启后会补跑最近缺失的交易日报；
 报告任务通过 host 网络访问 mootdx，并通过完成标记区分完整持久化和残留文件。
 API 与调度器启动时会幂等预置受保护的初始策略，并提交最近一年次日计划与当日实盘
@@ -104,6 +104,17 @@ docker compose \
   exec -T postgres sh -c \
   'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < migrations/postgres/011_market_reference.sql
+```
+
+再应用每日行情历史表：
+
+```bash
+docker compose \
+  --env-file deploy/compose/.env \
+  -f deploy/compose/docker-compose.yml \
+  exec -T postgres sh -c \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/postgres/012_security_daily_snapshot.sql
 ```
 
 已有数据卷升级后执行一次策略目录引导：

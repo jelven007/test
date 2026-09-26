@@ -457,21 +457,33 @@ def create_api_app(services: ApiServices):
     def reference_quotes(symbols):
         if reference_repository is None:
             return history_provider.quote_snapshots(symbols)
+        quotes = {}
+        get_daily = getattr(
+            reference_repository,
+            "get_latest_security_daily_snapshots",
+            None,
+        )
+        if callable(get_daily):
+            quotes.update(get_daily(symbols))
         get_many = getattr(services.cache, "get_latest_quotes", None)
         if callable(get_many):
             cached = get_many(symbols)
-            return {
-                symbol: dict(value.get("payload") or value)
-                for symbol, value in cached.items()
-            }
-        quotes = {}
-        for symbol in symbols:
-            try:
-                cached = services.cache.get_latest_quote(symbol)
-            except Exception:
-                cached = None
-            if cached:
-                quotes[symbol] = dict(cached.get("payload") or cached)
+            quotes.update(
+                {
+                    symbol: dict(value.get("payload") or value)
+                    for symbol, value in cached.items()
+                }
+            )
+        else:
+            for symbol in symbols:
+                try:
+                    cached = services.cache.get_latest_quote(symbol)
+                except Exception:
+                    cached = None
+                if cached:
+                    quotes[symbol] = dict(
+                        cached.get("payload") or cached
+                    )
         return quotes
 
     def history_items(
@@ -1056,6 +1068,56 @@ def create_api_app(services: ApiServices):
             "section": section,
             "source": getattr(history_provider, "source_name", "mootdx"),
             "content": content,
+        }
+
+    @app.get("/api/v1/stocks/{symbol}/daily-history")
+    def stock_daily_history(
+        symbol: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 250,
+    ):
+        if not 1 <= limit <= 2000:
+            raise HTTPException(
+                status_code=400,
+                detail="limit 必须为 1 至 2000",
+            )
+        try:
+            security = reference_security(symbol)
+            if security is None:
+                raise HTTPException(status_code=404, detail="股票不存在")
+            first = date.fromisoformat(start_date) if start_date else None
+            last = date.fromisoformat(end_date) if end_date else None
+            if first is not None and last is not None and first > last:
+                raise ValueError("start_date 不能晚于 end_date")
+            history_reader = getattr(
+                reference_repository,
+                "list_security_daily_history",
+                None,
+            )
+            if not callable(history_reader):
+                raise RuntimeError("每日行情历史存储尚未启用")
+            items = history_reader(
+                symbol,
+                start_date=first,
+                end_date=last,
+                limit=limit,
+            )
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"每日行情历史暂不可用：{exc}",
+            ) from exc
+        return {
+            "symbol": symbol,
+            "name": security["name"],
+            "source": "postgres",
+            "count": len(items),
+            "items": items,
         }
 
     @app.get("/api/v1/stocks/{symbol}/history")

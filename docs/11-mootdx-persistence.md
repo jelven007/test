@@ -152,13 +152,26 @@ Redis 清空后必须能由 PostgreSQL、ClickHouse 和 MinIO 重建。
 `security_master_version`
 
 - 主键 `(instrument_id, valid_from)`。
-- 保存名称、板块类型、交易单位、小数位、昨收参考值和完整 `raw JSONB`。
+- 保存名称、板块类型、交易单位、小数位和不含行情字段的 `raw JSONB`。
 - `valid_from/valid_to TIMESTAMPTZ` 采用半开区间；内容哈希不变时只更新 `last_seen_at`。
 
 完整目录批次缺少单只股票时不能立即标记退市。只有批次通过完整性校验且连续多个交易日缺失，
 才将 `listing_status` 改为 `inactive`。
 
-### 5.2 交易日历
+### 5.2 每日行情快照
+
+`security_daily_snapshot`
+
+- 主键 `(instrument_id, trade_date)`，每只股票每个交易日最多一行。
+- 保存开高低收、昨收、涨跌幅、成交量、成交额、源时间和采集时间。
+- `data_state` 为 `available` 或 `missing`；全量同步未返回报价时仍写入缺失行。
+- 每个交易日 16:20 通过 mootdx 全量采集，并将原始批次压缩归档到 MinIO。
+- 与证券目录、板块成员在同一个 PostgreSQL 发布事务中提交，失败时保留上一批已发布数据。
+
+非交易日仍可更新证券和板块参考数据，但不采集或写入每日行情。盘中页面先读取 PostgreSQL
+最近每日快照，再用 Redis 实时行情覆盖，因此 Redis 重启或个股尚无实时缓存时仍有最近收盘数据。
+
+### 5.3 交易日历
 
 沿用 `trading_session` 主键，并增加：
 
@@ -169,7 +182,7 @@ Redis 清空后必须能由 PostgreSQL、ClickHouse 和 MinIO 重建。
 历史指数日线存在时才是 `confirmed`。未来工作日只能是 `projected`，不得在历史研究中冒充
 已确认交易日。
 
-### 5.3 板块和行业
+### 5.4 板块和行业
 
 `market_block`
 
@@ -187,7 +200,7 @@ Redis 清空后必须能由 PostgreSQL、ClickHouse 和 MinIO 重建。
 只有完整板块快照发布后才能关闭消失的成员关系。这样历史研究可以按参考日读取当时的题材归属，
 消除当前实现中“使用今天板块解释过去行情”的时点偏差。
 
-### 5.4 当前财务摘要
+### 5.5 当前财务摘要
 
 `company_finance_snapshot`
 
@@ -201,7 +214,7 @@ Redis 清空后必须能由 PostgreSQL、ClickHouse 和 MinIO 重建。
 `finance()` 返回的是通达信当前财务摘要，不等同于完整历史财务报表。即使
 `source_updated_date` 相同，只要内容哈希变化也保留修订版本。
 
-### 5.5 除权除息与股本事件
+### 5.6 除权除息与股本事件
 
 `corporate_action`
 
@@ -215,7 +228,7 @@ Redis 清空后必须能由 PostgreSQL、ClickHouse 和 MinIO 重建。
 同一日期和类别可能被修订，不能只按日期覆盖。复权因子由该表按明确算法和版本计算，算法结果
 可进入 ClickHouse 派生表，但源事件仍以 PostgreSQL 为准。
 
-### 5.6 F10 公司资料
+### 5.7 F10 公司资料
 
 `company_document`
 
@@ -233,7 +246,7 @@ Redis 清空后必须能由 PostgreSQL、ClickHouse 和 MinIO 重建。
 正文保存到 MinIO，PostgreSQL 只保存索引和短摘要。F10 栏目目录即使正文暂未下载，也要保存
 为待采集版本。栏目删除只有在完整 `F10C()` 目录刷新成功后才能生效。
 
-### 5.7 历史财务包清单
+### 5.8 历史财务包清单
 
 `financial_package`
 
@@ -350,8 +363,9 @@ market-raw/
 改造后的读取路径：
 
 - `/api/v1/stock-blocks`：PostgreSQL 当前已发布板块快照。
-- `/api/v1/stocks`：PostgreSQL 证券主数据和板块关系，实时价格仍取 Redis。
+- `/api/v1/stocks`：PostgreSQL 证券主数据和最近每日行情，盘中价格由 Redis 覆盖。
 - `/api/v1/stocks/{symbol}`：PostgreSQL 当前财务摘要、除权除息和 F10 目录。
+- `/api/v1/stocks/{symbol}/daily-history`：PostgreSQL 每日行情快照历史。
 - `/api/v1/stocks/{symbol}/company`：PostgreSQL 定位版本，MinIO 返回正文。
 - `/api/v1/stocks/{symbol}/history`：ClickHouse。
 - 研究任务：按参考时点读取证券、板块和财务版本，按区间读取 ClickHouse 行情。

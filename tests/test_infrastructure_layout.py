@@ -103,6 +103,15 @@ class StorageSchemaTest(unittest.TestCase):
         self.assertIn("WHERE valid_to IS NULL", schema)
         self.assertIn("published_snapshot_id", schema)
 
+    def test_daily_security_snapshot_schema_keeps_per_day_history(self):
+        schema = (
+            ROOT / "migrations/postgres/012_security_daily_snapshot.sql"
+        ).read_text(encoding="utf-8")
+        self.assertIn("banxia.security_daily_snapshot", schema)
+        self.assertIn("PRIMARY KEY (instrument_id, trade_date)", schema)
+        self.assertIn("data_state IN ('available', 'missing')", schema)
+        self.assertIn("security_daily_snapshot_history", schema)
+
 
 class ComposeLayoutTest(unittest.TestCase):
     def test_compose_declares_required_local_services(self):

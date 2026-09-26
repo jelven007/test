@@ -632,9 +632,37 @@ class MootdxProvider:
         def fetch(client: Any) -> List[Dict[str, Any]]:
             result: List[Dict[str, Any]] = []
             for start in range(0, len(codes), 80):
-                frame = client.quotes(symbol=list(codes[start : start + 80]))
+                batch = codes[start : start + 80]
+                rows: Dict[str, Dict[str, Any]] = {}
+                frame = client.quotes(symbol=list(batch))
                 if frame is not None and not frame.empty:
-                    result.extend(frame.to_dict(orient="records"))
+                    for row in frame.to_dict(orient="records"):
+                        code = str(row.get("code") or "")
+                        if code in batch:
+                            rows[code] = row
+                pending = [
+                    code for code in batch if code not in rows
+                ]
+                for retry_start in range(0, len(pending), 10):
+                    retry = pending[retry_start : retry_start + 10]
+                    frame = client.quotes(symbol=retry)
+                    if frame is None or frame.empty:
+                        continue
+                    for row in frame.to_dict(orient="records"):
+                        code = str(row.get("code") or "")
+                        if code in batch:
+                            rows[code] = row
+                for code in batch:
+                    if code in rows:
+                        continue
+                    frame = client.quotes(symbol=[code])
+                    if frame is None or frame.empty:
+                        continue
+                    for row in frame.to_dict(orient="records"):
+                        returned_code = str(row.get("code") or "")
+                        if returned_code == code:
+                            rows[code] = row
+                result.extend(rows.values())
             return result
 
         return {

@@ -185,6 +185,48 @@ class MootdxCalculationTest(unittest.TestCase):
             {"default", "concept", "style", "index"},
         )
 
+    def test_quote_snapshots_retry_missing_rows_within_each_batch(self):
+        class Frame:
+            def __init__(self, rows):
+                self.rows = rows
+                self.empty = not rows
+
+            def to_dict(self, orient):
+                assert orient == "records"
+                return self.rows
+
+        class Client:
+            def __init__(self):
+                self.calls = []
+
+            def quotes(self, *, symbol):
+                self.calls.append(tuple(symbol))
+                if len(self.calls) == 1:
+                    return Frame(
+                        [{"code": "600001", "price": 10}]
+                    )
+                return Frame(
+                    [{"code": "600002", "price": 20}]
+                )
+
+            @staticmethod
+            def close():
+                pass
+
+        client = Client()
+        provider = MootdxProvider(
+            servers=[("example", 7709)],
+            client_factory=lambda _server: client,
+        )
+
+        result = provider.quote_snapshots(["600001", "600002"])
+
+        self.assertEqual(set(result), {"600001", "600002"})
+        self.assertEqual(
+            client.calls,
+            [("600001", "600002"), ("600002",)],
+        )
+
     def test_historical_minutes_receive_stable_market_times(self):
         class Frame:
             empty = False
