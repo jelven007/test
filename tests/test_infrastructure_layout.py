@@ -278,7 +278,7 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('data-field="candidate-scope"', plan_header)
         self.assertIn('candidates.map((candidate) => candidate.name)', app)
         self.assertIn('<span id="monitor-date">—</span> 当日实盘', monitor_html)
-        self.assertIn("/monitor.css?v=20260926.2", monitor_html)
+        self.assertIn("/monitor.css?v=20260926.3", monitor_html)
         self.assertIn(".monitor-title #watch-count", monitor_css)
         self.assertNotIn(".monitor-title h1 span", monitor_css)
         self.assertIn(
@@ -304,6 +304,9 @@ class WebAssetTest(unittest.TestCase):
             encoding="utf-8"
         )
         monitor_app = (ROOT / "src/banxia_strategy/web/monitor.js").read_text(
+            encoding="utf-8"
+        )
+        monitor_css = (ROOT / "src/banxia_strategy/web/monitor.css").read_text(
             encoding="utf-8"
         )
         calendar_app = (
@@ -357,7 +360,18 @@ class WebAssetTest(unittest.TestCase):
             "data.requested_date || data.plan_date",
             monitor_app,
         )
-        self.assertIn("/monitor.js?v=20260926.7", monitor_html)
+        self.assertIn("/monitor.js?v=20260926.8", monitor_html)
+        self.assertIn('class="monitor-workspace"', monitor_html)
+        self.assertIn('id="watch-list" class="watch-list"', monitor_html)
+        self.assertIn('id="stock-detail" class="stock-detail"', monitor_html)
+        self.assertNotIn('id="watch-rows"', monitor_html)
+        self.assertIn(
+            "grid-template-columns: minmax(280px, 320px) minmax(0, 1fr)",
+            monitor_css,
+        )
+        for label in ("最新价", "涨跌幅", "今日开盘", "盘口时间"):
+            self.assertIn(f'["{label}",', monitor_app)
+        self.assertIn('element("p", stock.advice.reason, "watch-reason")', monitor_app)
         self.assertIn("/api/v1/trading-calendar", calendar_app)
         self.assertIn('"banxia.trade-date."', calendar_app)
         self.assertIn("window.localStorage.getItem", calendar_app)

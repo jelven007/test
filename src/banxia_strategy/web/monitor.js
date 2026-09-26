@@ -106,46 +106,50 @@ function normalize(snapshot, eventPayload) {
 }
 
 function renderRows(data) {
-  const rows = byId("watch-rows");
-  rows.replaceChildren();
+  const list = byId("watch-list");
+  list.replaceChildren();
   if (!data.stocks.length) {
-    const row = element("tr");
-    const cell = element("td", data.error || "等待行情投影。", "waiting-cell");
-    cell.colSpan = 6;
-    row.append(cell);
-    rows.append(row);
+    list.append(element("p", data.error || "等待行情投影。", "waiting-cell"));
     return;
   }
   for (const stock of data.stocks) {
-    const row = element("tr");
-    row.classList.toggle("selected", stock.code === selected);
-    const identity = element("td");
-    const button = element("button", undefined, "stock-select");
+    const button = element("button", undefined, "watch-stock");
     button.type = "button";
-    button.setAttribute("aria-pressed", String(stock.code === selected));
+    button.role = "option";
+    button.classList.toggle("selected", stock.code === selected);
+    button.setAttribute("aria-selected", String(stock.code === selected));
     button.setAttribute("aria-label", `查看${stock.name}分时与执行细则`);
-    button.append(element("strong", stock.name), element("small", stock.code), element("small", originLabel(stock)));
+
+    const identity = element("div", undefined, "watch-stock-identity");
+    identity.append(
+      element("strong", stock.name),
+      element("small", stock.code),
+      element("small", originLabel(stock)),
+    );
+    const advice = element("span", stock.advice.label, "watch-advice");
+    advice.dataset.tone = stock.advice.tone;
+    const heading = element("div", undefined, "watch-stock-head");
+    heading.append(identity, advice);
+
+    const q = stock.quote;
+    const quoteGrid = element("dl", undefined, "watch-quote-grid");
+    for (const [label, value, className] of [
+      ["最新价", price(q.price), changeClass(q.change_pct)],
+      ["涨跌幅", percent(q.change_pct), changeClass(q.change_pct)],
+      ["今日开盘", price(q.open), ""],
+      ["盘口时间", clock(q.quote_time), ""],
+    ]) {
+      const metric = element("div");
+      metric.append(element("dt", label), element("dd", value, className));
+      quoteGrid.append(metric);
+    }
+    button.append(heading, quoteGrid, element("p", stock.advice.reason, "watch-reason"));
     button.addEventListener("click", () => {
       selected = stock.code;
       renderRows(latest);
       renderDetail(latest.stocks.find((item) => item.code === selected));
-      byId("stock-detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
-    identity.append(button);
-    const q = stock.quote;
-    const decision = element("td");
-    const label = element("span", stock.advice.label, "advice-label");
-    label.dataset.tone = stock.advice.tone;
-    decision.append(label, element("span", stock.advice.reason, "advice-reason"));
-    row.append(
-      identity,
-      element("td", price(q.price), `quote-value ${changeClass(q.change_pct)}`),
-      element("td", percent(q.change_pct), `change-value ${changeClass(q.change_pct)}`),
-      element("td", price(q.open), "quote-small"),
-      element("td", clock(q.quote_time), "quote-small"),
-      decision,
-    );
-    rows.append(row);
+    list.append(button);
   }
 }
 
