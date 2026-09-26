@@ -44,6 +44,15 @@ def write_report(root: Path, payload):
     )
 
 
+def write_strategy_report(root: Path, strategy_id: str, payload):
+    output = root / "strategies" / strategy_id / payload["as_of"]
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "candidates.json").write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
 class ReportStoreTest(unittest.TestCase):
     def test_watch_report_selection_uses_latest_dynamic_candidates(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -86,6 +95,17 @@ class ReportStoreTest(unittest.TestCase):
 
             self.assertEqual(len(store.latest()["candidates"]), 3)
             self.assertEqual(len(store.list_reports()), 1)
+
+    def test_loads_reports_from_multi_strategy_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = report("2026-09-24", "2026-09-24T16:20:00+08:00", 2)
+            write_strategy_report(root, "strategy-01", payload)
+
+            store = ReportStore([root])
+
+            self.assertEqual(store.latest()["as_of"], "2026-09-24")
+            self.assertEqual(store.list_reports()[0]["candidate_count"], 2)
 
 
 class DashboardServerTest(unittest.TestCase):

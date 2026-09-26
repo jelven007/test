@@ -31,7 +31,11 @@ class ReportStore:
         for root in self.roots:
             if not root.exists():
                 continue
-            for path in root.glob("*/candidates.json"):
+            paths = (
+                *root.glob("*/candidates.json"),
+                *root.glob("strategies/*/*/candidates.json"),
+            )
+            for path in paths:
                 try:
                     payload = self._read(path)
                 except (OSError, ValueError, json.JSONDecodeError):
