@@ -434,6 +434,18 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn("grid-template-columns: 92px 122px 48px;", standard)
         self.assertIn("grid-template-columns: 78px 114px 42px;", standard)
 
+    def test_stock_filters_stay_compact_and_single_row(self):
+        css = (
+            ROOT / "src/banxia_strategy/web/market.css"
+        ).read_text(encoding="utf-8")
+        self.assertIn(".stock-filters {\n  display: flex;", css)
+        self.assertIn("flex-wrap: nowrap;", css)
+        self.assertIn("overflow-x: auto;", css)
+        for width in ("160px", "112px", "96px"):
+            self.assertIn(f"width: {width};", css)
+        self.assertIn("flex: 0 0 58px;", css)
+        self.assertNotIn("grid-template-columns: 1fr 1fr;", css)
+
     def test_strategy_page_defaults_to_list_and_links_to_detail(self):
         web = ROOT / "src/banxia_strategy/web"
         html = (web / "strategy.html").read_text(encoding="utf-8")
