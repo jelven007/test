@@ -73,6 +73,10 @@ export BANXIA_STORAGE_MODE=best_effort
 | Strategy API | `http://127.0.0.1:8765` |
 | Prometheus | `http://127.0.0.1:9090` |
 
+本地 `.env.example` 显式设置 `BANXIA_API_PORT=8765`。在 ECS 上未设置该变量时，
+Compose 默认将宿主机 `80` 端口映射到 API 容器的 `8765` 端口，因此可直接通过
+`http://<ECS 公网 IP>/` 访问；安全组需要放行 TCP 80。
+
 默认凭证只允许本地开发。共享环境必须修改 `.env`，生产环境必须使用密钥管理服务。
 
 ## 初始化行为

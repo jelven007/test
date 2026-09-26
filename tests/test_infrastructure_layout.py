@@ -118,6 +118,11 @@ class ComposeLayoutTest(unittest.TestCase):
         self.assertIn("RESTARTING", compose)
         self.assertIn("RECONCILING", compose)
         self.assertIn("16:30,23:30", compose)
+        self.assertIn('"${BANXIA_API_PORT:-80}:8765"', compose)
+        env_example = (ROOT / "deploy/compose/.env.example").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("BANXIA_API_PORT=8765", env_example)
         for service in ("report-worker", "report-scheduler"):
             self.assertEqual(services[service]["network_mode"], "host")
             self.assertIn(
