@@ -3,6 +3,7 @@ const pageSize = 50;
 let offset = 0;
 let total = 0;
 let loading = false;
+let requestedBlock = "";
 
 const boardLabels = {
   main: "沪深主板",
@@ -54,7 +55,7 @@ function queryParameters() {
   const parameters = new URLSearchParams({
     q: byId("stock-query").value.trim(),
     board: byId("stock-board").value,
-    market: byId("stock-market").value,
+    block: byId("stock-block").value,
     limit: String(pageSize),
     offset: String(offset),
   });
@@ -66,7 +67,7 @@ function updateBrowserUrl(parameters) {
   visibleParameters.delete("limit");
   if (!visibleParameters.get("q")) visibleParameters.delete("q");
   if (visibleParameters.get("board") === "all") visibleParameters.delete("board");
-  if (visibleParameters.get("market") === "all") visibleParameters.delete("market");
+  if (!visibleParameters.get("block")) visibleParameters.delete("block");
   if (visibleParameters.get("offset") === "0") visibleParameters.delete("offset");
   const query = visibleParameters.toString();
   history.replaceState(null, "", query ? `${location.pathname}?${query}` : location.pathname);
@@ -176,11 +177,31 @@ function restoreFilters() {
   const parameters = new URLSearchParams(location.search);
   byId("stock-query").value = parameters.get("q") || "";
   byId("stock-board").value = parameters.get("board") || "all";
-  byId("stock-market").value = parameters.get("market") || "all";
+  requestedBlock = parameters.get("block") || "";
   const requestedOffset = Number(parameters.get("offset"));
   offset = Number.isInteger(requestedOffset) && requestedOffset >= 0
     ? requestedOffset
     : 0;
+}
+
+async function loadBlocks() {
+  const select = byId("stock-block");
+  const payload = await fetchJson("/api/v1/stock-blocks");
+  for (const item of payload.items) {
+    const option = document.createElement("option");
+    option.value = item.blockname;
+    option.textContent = item.blockname;
+    select.append(option);
+  }
+  select.value = [...select.options].some((option) => option.value === requestedBlock)
+    ? requestedBlock
+    : "";
+}
+
+function disableBlockFilter() {
+  const select = byId("stock-block");
+  select.options[0].textContent = "板块加载失败";
+  select.disabled = true;
 }
 
 byId("stock-filters").addEventListener("submit", (event) => {
@@ -192,7 +213,7 @@ byId("stock-filters").addEventListener("submit", (event) => {
 byId("stock-reset").addEventListener("click", () => {
   byId("stock-query").value = "";
   byId("stock-board").value = "all";
-  byId("stock-market").value = "all";
+  byId("stock-block").value = "";
   offset = 0;
   loadStocks();
 });
@@ -209,5 +230,15 @@ byId("next-page").addEventListener("click", () => {
   }
 });
 
-restoreFilters();
-loadStocks();
+async function initialize() {
+  restoreFilters();
+  if (requestedBlock) {
+    await loadBlocks().catch(disableBlockFilter);
+    loadStocks();
+    return;
+  }
+  await loadStocks();
+  loadBlocks().catch(disableBlockFilter);
+}
+
+initialize();

@@ -112,6 +112,23 @@ def _board_for(code: str) -> str:
     return "main"
 
 
+def _stock_blocks_from_records(
+    records: Iterable[Dict[str, Any]],
+    valid_symbols: Iterable[str],
+) -> Dict[str, Tuple[str, ...]]:
+    symbols = set(valid_symbols)
+    blocks: Dict[str, set[str]] = defaultdict(set)
+    for row in records:
+        blockname = str(row.get("blockname") or "").replace("\x00", "").strip()
+        code = str(row.get("code") or "").replace("\x00", "").strip()
+        if blockname and code in symbols:
+            blocks[blockname].add(code)
+    return {
+        blockname: tuple(sorted(codes))
+        for blockname, codes in sorted(blocks.items())
+    }
+
+
 def _minute_label(index: int) -> str:
     if index < 120:
         minutes = 9 * 60 + 31 + index
@@ -237,6 +254,7 @@ class MootdxProvider:
         self._concepts: Dict[str, List[str]] = {}
         self._concept_sizes: Dict[str, int] = {}
         self._industry_codes: Dict[str, str] = {}
+        self._stock_blocks: Optional[Dict[str, Tuple[str, ...]]] = None
         self._analysis_session: Optional[date] = None
         self._enriched_sessions: set[date] = set()
 
@@ -334,6 +352,44 @@ class MootdxProvider:
     def securities(self) -> List[Dict[str, Any]]:
         self._load_securities()
         return [dict(item) for item in self._securities or ()]
+
+    @staticmethod
+    def _parse_block_records(content: bytes, filename: str) -> List[Dict[str, Any]]:
+        from tdxpy.reader.block_reader import BlockReader, BlockReader_TYPE_FLAT
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / filename
+            path.write_bytes(content)
+            return BlockReader().get_data(str(path), BlockReader_TYPE_FLAT)
+
+    def _load_stock_blocks(self) -> None:
+        if self._stock_blocks is not None:
+            return
+        self._load_securities()
+        records = self._parse_block_records(
+            self._download_server_file("block.dat"),
+            "block.dat",
+        )
+        self._stock_blocks = _stock_blocks_from_records(
+            records,
+            (item["symbol"] for item in self._securities or ()),
+        )
+        if not self._stock_blocks:
+            raise RuntimeError("mootdx returned no stock block data")
+
+    def stock_blocks(self) -> List[Dict[str, Any]]:
+        self._load_stock_blocks()
+        return [
+            {"blockname": blockname, "count": len(symbols)}
+            for blockname, symbols in (self._stock_blocks or {}).items()
+        ]
+
+    def stock_block_symbols(self, blockname: str) -> Tuple[str, ...]:
+        self._load_stock_blocks()
+        try:
+            return (self._stock_blocks or {})[blockname]
+        except KeyError as exc:
+            raise ValueError("股票板块无效") from exc
 
     def security(self, symbol: str) -> Optional[Dict[str, Any]]:
         self._validate_symbol(symbol)
@@ -703,16 +759,9 @@ class MootdxProvider:
             self._industry_codes = {}
 
     def _parse_concepts(self, content: bytes) -> None:
-        from tdxpy.reader.block_reader import BlockReader, BlockReader_TYPE_FLAT
-
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "block_gn.dat"
-            path.write_bytes(content)
-            records = BlockReader().get_data(str(path), BlockReader_TYPE_FLAT)
-
         concepts: Dict[str, List[str]] = defaultdict(list)
         sizes: Counter[str] = Counter()
-        for row in records:
+        for row in self._parse_block_records(content, "block_gn.dat"):
             concept = str(row.get("blockname") or "").strip()
             code = str(row.get("code") or "").strip()
             if (

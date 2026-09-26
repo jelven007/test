@@ -9,6 +9,7 @@ from banxia_strategy.mootdx_provider import (
     _extract_pools,
     _limit_price,
     _seal_statistics,
+    _stock_blocks_from_records,
 )
 
 
@@ -25,6 +26,27 @@ def bar(day: int, close: float, high: float, amount: float = 500_000_000):
 
 
 class MootdxCalculationTest(unittest.TestCase):
+    def test_stock_blocks_are_deduplicated_from_raw_blockname_records(self):
+        blocks = _stock_blocks_from_records(
+            [
+                {"blockname": "新能源车", "code": "000001"},
+                {"blockname": "新能源车", "code": "000001"},
+                {"blockname": "新能源车", "code": "300001"},
+                {"blockname": "半导体", "code": "688001"},
+                {"blockname": "指数板块", "code": "399001"},
+                {"blockname": "", "code": "000001"},
+            ],
+            {"000001", "300001", "688001"},
+        )
+
+        self.assertEqual(
+            blocks,
+            {
+                "半导体": ("688001",),
+                "新能源车": ("000001", "300001"),
+            },
+        )
+
     def test_all_a_share_universe_keeps_growth_and_star_boards_separate(self):
         class LowLevelClient:
             @staticmethod

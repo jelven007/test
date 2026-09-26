@@ -732,11 +732,26 @@ def create_api_app(services: ApiServices):
             },
         }
 
+    @app.get("/api/v1/stock-blocks")
+    def stock_blocks():
+        try:
+            items = history_provider.stock_blocks()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"mootdx 板块数据暂不可用：{exc}",
+            ) from exc
+        return {
+            "source": getattr(history_provider, "source_name", "mootdx"),
+            "items": items,
+        }
+
     @app.get("/api/v1/stocks")
     def stocks(
         q: Optional[str] = None,
         board: str = "all",
         market: str = "all",
+        block: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ):
@@ -749,14 +764,26 @@ def create_api_app(services: ApiServices):
                 status_code=400,
                 detail="limit 必须为 1 至 100，offset 不能小于 0",
             )
+        blockname = (block or "").strip()
+        if len(blockname) > 40:
+            raise HTTPException(status_code=400, detail="股票板块无效")
         try:
             universe = history_provider.securities()
+            block_symbols = (
+                set(history_provider.stock_block_symbols(blockname))
+                if blockname
+                else None
+            )
             keyword = (q or "").strip().lower()
             filtered = [
                 item
                 for item in universe
                 if (board == "all" or item["board"] == board)
                 and (market == "all" or item["market"] == market)
+                and (
+                    block_symbols is None
+                    or item["symbol"] in block_symbols
+                )
                 and (
                     not keyword
                     or keyword in item["symbol"]

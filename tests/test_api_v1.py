@@ -190,6 +190,21 @@ class FakeHistoryProvider:
             },
         ]
 
+    def stock_blocks(self):
+        return [
+            {"blockname": "新能源车", "count": 2},
+            {"blockname": "半导体", "count": 1},
+        ]
+
+    def stock_block_symbols(self, blockname):
+        blocks = {
+            "新能源车": ("002635", "300750"),
+            "半导体": ("688981",),
+        }
+        if blockname not in blocks:
+            raise ValueError("股票板块无效")
+        return blocks[blockname]
+
     def security(self, symbol):
         return next(
             (item for item in self.securities() if item["symbol"] == symbol),
@@ -501,6 +516,13 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(missing_stock.status_code, 404)
 
     def test_stock_directory_detail_company_and_history_use_mootdx(self):
+        blocks = self.client.get("/api/v1/stock-blocks")
+        self.assertEqual(blocks.status_code, 200)
+        self.assertEqual(
+            [item["blockname"] for item in blocks.json()["items"]],
+            ["新能源车", "半导体"],
+        )
+
         directory = self.client.get(
             "/api/v1/stocks?board=star&market=sh&limit=20"
         )
@@ -511,6 +533,16 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(
             directory.json()["items"][0]["quote"]["change_pct"],
             5.0,
+        )
+
+        block_directory = self.client.get(
+            "/api/v1/stocks?board=main&block=新能源车&limit=20"
+        )
+        self.assertEqual(block_directory.status_code, 200)
+        self.assertEqual(block_directory.json()["total"], 1)
+        self.assertEqual(
+            block_directory.json()["items"][0]["symbol"],
+            "002635",
         )
 
         detail = self.client.get("/api/v1/stocks/002635")

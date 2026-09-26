@@ -435,9 +435,12 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn("grid-template-columns: 78px 114px 42px;", standard)
 
     def test_stock_filters_stay_compact_and_single_row(self):
+        web = ROOT / "src/banxia_strategy/web"
         css = (
-            ROOT / "src/banxia_strategy/web/market.css"
+            web / "market.css"
         ).read_text(encoding="utf-8")
+        html = (web / "stocks.html").read_text(encoding="utf-8")
+        script = (web / "stocks.js").read_text(encoding="utf-8")
         self.assertIn(".stock-filters {\n  display: flex;", css)
         self.assertIn("flex-wrap: nowrap;", css)
         self.assertIn("overflow-x: auto;", css)
@@ -445,6 +448,11 @@ class WebAssetTest(unittest.TestCase):
             self.assertIn(f"width: {width};", css)
         self.assertIn("flex: 0 0 58px;", css)
         self.assertNotIn("grid-template-columns: 1fr 1fr;", css)
+        self.assertIn('<select id="stock-block"', html)
+        self.assertIn('<option value="">全部板块</option>', html)
+        self.assertNotIn('id="stock-market"', html)
+        self.assertIn('fetchJson("/api/v1/stock-blocks")', script)
+        self.assertIn('block: byId("stock-block").value', script)
 
     def test_strategy_page_defaults_to_list_and_links_to_detail(self):
         web = ROOT / "src/banxia_strategy/web"

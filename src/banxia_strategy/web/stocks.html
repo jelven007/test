@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/styles.css?v=20260926.1">
     <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
     <link rel="stylesheet" href="/market.css?v=20260926.1">
-    <script src="/stocks.js?v=20260926.2" defer></script>
+    <script src="/stocks.js?v=20260926.3" defer></script>
   </head>
   <body class="market-body">
     <header class="topbar market-topbar">
@@ -48,11 +48,9 @@
             <option value="star">科创板</option>
           </select>
         </label>
-        <label>市场
-          <select id="stock-market" class="ui-control">
-            <option value="all">沪深全部</option>
-            <option value="sh">上海</option>
-            <option value="sz">深圳</option>
+        <label>板块
+          <select id="stock-block" class="ui-control">
+            <option value="">全部板块</option>
           </select>
         </label>
         <button class="ui-button primary-button" type="submit">查询</button>
