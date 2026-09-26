@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
 from .domain.intraday import PHASE_LABELS, SHANGHAI, phase_at
+from .mootdx_provider import MootdxProvider
 from .web_server import ReportStore
 from .strategy_config import ConfigConflict, ConfigError, StrategyConfig, StrategyConfigStore, revision_for
 from .strategy_history import HISTORY_RANGE_DAYS, history_window
@@ -39,6 +40,7 @@ class ApiServices:
     clickhouse_ready: Optional[Callable[[], bool]] = None
     strategy_version: str = "v1"
     config_store: Optional[StrategyConfigStore] = None
+    history_provider: Optional[Any] = None
 
 
 def _now() -> str:
@@ -328,6 +330,7 @@ def create_api_app(services: ApiServices):
         return with_requested_date(plan)
 
     config_store = services.config_store or StrategyConfigStore(Path("config/strategy.json"))
+    history_provider = services.history_provider or MootdxProvider()
 
     def require_strategy(strategy_id):
         try:
@@ -833,6 +836,42 @@ def create_api_app(services: ApiServices):
             "phase": current_phase,
             "phase_label": PHASE_LABELS[current_phase],
             "stocks": stocks,
+        }
+
+    @app.get("/api/v1/monitor/kline/{symbol}")
+    def monitor_kline(
+        symbol: str,
+        period: str = "day",
+        trade_date: Optional[str] = None,
+        strategy_id: Optional[str] = None,
+    ):
+        if len(symbol) != 6 or not symbol.isdigit():
+            raise HTTPException(status_code=400, detail="股票代码必须为六位数字")
+        plan = active_plan(trade_date, strategy_id)
+        if symbol not in {
+            candidate["symbol"] for candidate in plan["candidates"]
+        }:
+            raise HTTPException(status_code=404, detail="股票不在所选当日实盘计划中")
+        try:
+            items = history_provider.kline_bars(
+                symbol,
+                period,
+                date.fromisoformat(plan["trade_date"]),
+                limit=120,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"mootdx K线暂不可用：{exc}",
+            ) from exc
+        return {
+            "symbol": symbol,
+            "period": period,
+            "trade_date": plan["trade_date"],
+            "source": getattr(history_provider, "source_name", "mootdx"),
+            "items": items,
         }
 
     @app.get("/api/v1/monitor/events")

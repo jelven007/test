@@ -48,9 +48,17 @@
 .detail-heading { display: flex; justify-content: space-between; align-items: baseline; }
 .detail-heading h2 { font-size: 25px; font-family: var(--serif); margin-bottom: 0; }
 .detail-heading > span { font-size: 11px; color: var(--muted); }
-.intraday-chart { height: 170px; margin-top: 20px; }
+.chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; min-width: 0; }
+.kline-tabs { flex: 0 1 auto; overflow-x: auto; }
+.kline-tabs button { min-width: 54px; min-height: 32px; padding: 6px 11px; color: var(--muted); font-size: 11px; white-space: nowrap; cursor: pointer; }
+#chart-periods button[aria-pressed="true"] { border-color: var(--green); background: var(--green); color: var(--white); }
+#chart-status { flex: 0 0 auto; color: var(--muted); font: 10px var(--mono); }
+.intraday-chart { position: relative; height: 170px; margin-top: 14px; }
+.intraday-chart:not([data-period="minute"]) { height: 272px; }
 .intraday-chart svg { width: 100%; height: 100%; overflow: visible; }
 .chart-empty { display: grid; place-items: center; height: 100%; background: repeating-linear-gradient(0deg, transparent, transparent 41px, var(--line) 42px); color: var(--muted); font-size: 12px; }
+.kline-tooltip { position: absolute; z-index: 2; display: grid; gap: 3px; min-width: 150px; padding: 8px 10px; transform: translateX(-50%); border: 1px solid var(--line-dark); background: rgb(255 255 255 / 96%); box-shadow: 0 4px 16px rgb(31 38 34 / 12%); color: var(--ink); font: 10px var(--mono); line-height: 1.45; pointer-events: none; }
+.kline-tooltip strong { font-size: 11px; }
 .chart-legend { display: flex; justify-content: space-between; gap: 8px; font-size: 9px; color: var(--muted); margin-top: 9px; }
 .detail-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; margin-bottom: 7px; }
 .detail-metrics dt { color: var(--muted); font-size: 10px; margin-bottom: 4px; }
@@ -95,6 +103,10 @@
   .session-strip > div:nth-child(odd) { border: 0; padding-left: 0; }
   .session-strip strong { font-size: 15px; }
   .watchlist-panel .monitor-section-title { display: flex; }
+  .chart-toolbar { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .kline-tabs { width: 100%; }
+  .kline-tabs button { flex: 1 0 50px; min-width: 50px; padding-inline: 7px; }
+  #chart-status { align-self: flex-end; }
   .detail-metrics { grid-template-columns: 1fr 1fr; gap: 18px; }
   .chart-legend { flex-wrap: wrap; }
   .execution-values dd { font-size: 13px; }

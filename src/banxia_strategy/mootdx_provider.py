@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import tempfile
 import warnings
 from collections import Counter, defaultdict
@@ -29,6 +30,12 @@ GENERIC_CONCEPTS = {
     "含可转债",
     "通达信88",
 }
+KLINE_FREQUENCIES = {
+    "day": 9,
+    "week": 5,
+    "month": 6,
+    "year": 11,
+}
 
 
 def _limit_price(previous_close: float, name: str = "") -> float:
@@ -51,6 +58,14 @@ def _bar_date(bar: Dict[str, Any]) -> date:
     if value:
         return datetime.fromisoformat(str(value)[:19]).date()
     return date(int(bar["year"]), int(bar["month"]), int(bar["day"]))
+
+
+def _finite_number(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def _minute_label(index: int) -> str:
@@ -229,6 +244,55 @@ class MootdxProvider:
             candidate += timedelta(days=1)
         self._calendar = sessions
         return sessions
+
+    def kline_bars(
+        self,
+        symbol: str,
+        period: str,
+        end_date: date,
+        *,
+        limit: int = 120,
+    ) -> List[Dict[str, Any]]:
+        if period not in KLINE_FREQUENCIES:
+            raise ValueError("K线周期必须是 day、week、month 或 year")
+        if not isinstance(symbol, str) or len(symbol) != 6 or not symbol.isdigit():
+            raise ValueError("股票代码必须为六位数字")
+        if not 1 <= limit <= 240:
+            raise ValueError("K线数量必须为 1 至 240")
+
+        frame = self._first_result(
+            lambda client: client.bars(
+                symbol=symbol,
+                frequency=KLINE_FREQUENCIES[period],
+                offset=800,
+            )
+        )
+        result = []
+        for raw in frame.to_dict(orient="records"):
+            try:
+                session = _bar_date(raw)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if session > end_date:
+                continue
+            values = {
+                key: _finite_number(raw.get(key))
+                for key in ("open", "high", "low", "close")
+            }
+            if any(value is None or value <= 0 for value in values.values()):
+                continue
+            result.append(
+                {
+                    "date": session.isoformat(),
+                    **values,
+                    "volume": _finite_number(
+                        raw.get("vol", raw.get("volume"))
+                    ),
+                    "amount": _finite_number(raw.get("amount")),
+                }
+            )
+        result.sort(key=lambda item: item["date"])
+        return result[-limit:]
 
     @staticmethod
     def _is_holiday(value: date) -> bool:

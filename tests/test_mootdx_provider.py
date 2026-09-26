@@ -25,6 +25,70 @@ def bar(day: int, close: float, high: float, amount: float = 500_000_000):
 
 
 class MootdxCalculationTest(unittest.TestCase):
+    def test_kline_bars_use_native_period_and_stop_at_selected_date(self):
+        class Frame:
+            def to_dict(self, orient):
+                self.orient = orient
+                return [
+                    bar(22, 10.0, 10.4),
+                    bar(23, 10.5, 10.8),
+                    bar(24, 11.0, 11.2),
+                ]
+
+        class Client:
+            def __init__(self):
+                self.calls = []
+
+            def bars(self, **kwargs):
+                self.calls.append(kwargs)
+                return Frame()
+
+            def close(self):
+                pass
+
+        client = Client()
+        provider = MootdxProvider(
+            servers=[("example", 7709)],
+            client_factory=lambda _server: client,
+        )
+
+        result = provider.kline_bars(
+            "600001",
+            "week",
+            date(2026, 9, 23),
+            limit=1,
+        )
+
+        self.assertEqual(client.calls[0]["frequency"], 5)
+        self.assertEqual(client.calls[0]["offset"], 800)
+        self.assertEqual(
+            result,
+            [
+                {
+                    "date": "2026-09-23",
+                    "open": 10.5,
+                    "high": 10.8,
+                    "low": 10.5,
+                    "close": 10.5,
+                    "volume": 500000.0,
+                    "amount": 500000000.0,
+                }
+            ],
+        )
+
+    def test_kline_bars_reject_invalid_period(self):
+        provider = MootdxProvider(
+            servers=[("example", 7709)],
+            client_factory=lambda _server: None,
+        )
+
+        with self.assertRaisesRegex(ValueError, "K线周期"):
+            provider.kline_bars(
+                "600001",
+                "quarter",
+                date(2026, 9, 23),
+            )
+
     def test_missing_holiday_data_never_guesses_a_trading_day(self):
         for result in (None, RuntimeError("unavailable")):
             options = {"side_effect": result} if isinstance(result, Exception) else {"return_value": result}

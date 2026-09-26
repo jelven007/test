@@ -11,6 +11,17 @@ let serverOffset = 0;
 let lastPageSync = 0;
 let eventSource = null;
 let reconnectTimer = null;
+let selectedPeriod = "minute";
+let chartRenderVersion = 0;
+let displayedChartKey = null;
+const klineCache = new Map();
+const periodLabels = {
+  minute: "分时",
+  day: "日K",
+  week: "周K",
+  month: "月K",
+  year: "年K",
+};
 
 function write(id, value) { byId(id).textContent = value ?? "—"; }
 function numeric(value) { return value !== null && value !== undefined && Number.isFinite(Number(value)); }
@@ -159,13 +170,18 @@ function svgNode(tag, attrs, text) {
   if (text !== undefined) node.textContent = text;
   return node;
 }
-function renderChart(stock) {
+function renderIntradayChart(stock) {
   const root = byId("chart");
   root.replaceChildren();
+  root.dataset.period = "minute";
+  write("chart-status", "当日分钟走势");
+  write("chart-primary-label", "当日分钟收盘价");
+  write("chart-reference-label", "虚线：昨收基准");
   const candles = stock.quote.candles || [];
   const reference = stock.plan.previous_close;
   if (!candles.length || !numeric(reference)) {
     root.append(element("div", "暂无可核验的当日分钟成交数据", "chart-empty"));
+    write("bar-time", "分钟线时间 —");
     return;
   }
   const values = candles.map((candle) => Number(candle.price)).concat(Number(reference));
@@ -196,13 +212,191 @@ function renderChart(stock) {
   }));
   root.append(svg);
 }
+
+function showKlineTooltip(event, candle, tooltip, root) {
+  tooltip.replaceChildren(
+    element("strong", dateLabel(candle.date)),
+    element("span", `开 ${price(candle.open)}　高 ${price(candle.high)}`),
+    element("span", `低 ${price(candle.low)}　收 ${price(candle.close)}`),
+    element("span", `量 ${numeric(candle.volume) ? Number(candle.volume).toLocaleString("zh-CN") : "—"}`),
+  );
+  const bounds = root.getBoundingClientRect();
+  const x = Math.max(72, Math.min(bounds.width - 72, event.clientX - bounds.left));
+  const y = Math.max(8, event.clientY - bounds.top - 82);
+  tooltip.style.left = `${x}px`;
+  tooltip.style.top = `${y}px`;
+  tooltip.hidden = false;
+}
+
+function renderKlineChart(stock, payload) {
+  const root = byId("chart");
+  root.replaceChildren();
+  root.dataset.period = payload.period;
+  const candles = (payload.items || []).filter((item) => (
+    numeric(item.open) && numeric(item.high) && numeric(item.low) && numeric(item.close)
+  ));
+  write("chart-status", `${periodLabels[payload.period]} · ${payload.source}`);
+  write("chart-primary-label", "红柱上涨 · 绿柱下跌");
+  write("chart-reference-label", "下方柱状图：成交量");
+  if (!candles.length) {
+    root.append(element("div", `暂无${periodLabels[payload.period]}数据`, "chart-empty"));
+    write("bar-time", `截至 ${dateLabel(payload.trade_date)}`);
+    return;
+  }
+
+  const width = 640;
+  const plotLeft = 10;
+  const plotRight = 580;
+  const priceTop = 12;
+  const priceBottom = 190;
+  const volumeTop = 207;
+  const volumeBottom = 250;
+  const lows = candles.map((item) => Number(item.low));
+  const highs = candles.map((item) => Number(item.high));
+  const rawLow = Math.min(...lows);
+  const rawHigh = Math.max(...highs);
+  const padding = Math.max((rawHigh - rawLow) * 0.06, rawHigh * 0.002);
+  const yMin = rawLow - padding;
+  const yMax = rawHigh + padding;
+  const priceY = (value) => priceTop + (yMax - Number(value)) / (yMax - yMin) * (priceBottom - priceTop);
+  const maxVolume = Math.max(...candles.map((item) => Number(item.volume) || 0), 1);
+  const band = (plotRight - plotLeft) / candles.length;
+  const bodyWidth = Math.max(1, Math.min(8, band * 0.62));
+  const svg = svgNode("svg", {
+    viewBox: `0 0 ${width} 272`,
+    role: "img",
+    "aria-label": `${stock.name}${periodLabels[payload.period]}，共${candles.length}根`,
+  });
+
+  for (const value of [yMax, (yMax + yMin) / 2, yMin]) {
+    const lineY = priceY(value);
+    svg.append(
+      svgNode("line", {
+        x1: plotLeft, x2: plotRight, y1: lineY, y2: lineY,
+        stroke: "#ddd7cb", "stroke-width": 1,
+      }),
+      svgNode("text", {
+        x: plotRight + 8, y: lineY + 3, fill: "#68716b", "font-size": 10,
+      }, price(value)),
+    );
+  }
+
+  const tooltip = element("div", undefined, "kline-tooltip");
+  tooltip.hidden = true;
+  candles.forEach((candle, index) => {
+    const x = plotLeft + band * (index + 0.5);
+    const openY = priceY(candle.open);
+    const closeY = priceY(candle.close);
+    const rising = Number(candle.close) >= Number(candle.open);
+    const color = rising ? "#a33c32" : "#116149";
+    const group = svgNode("g", {});
+    group.append(
+      svgNode("title", {}, `${candle.date} 开${price(candle.open)} 高${price(candle.high)} 低${price(candle.low)} 收${price(candle.close)}`),
+      svgNode("line", {
+        x1: x, x2: x, y1: priceY(candle.high), y2: priceY(candle.low),
+        stroke: color, "stroke-width": 1,
+      }),
+      svgNode("rect", {
+        x: x - bodyWidth / 2,
+        y: Math.min(openY, closeY),
+        width: bodyWidth,
+        height: Math.max(1, Math.abs(closeY - openY)),
+        fill: color,
+      }),
+      svgNode("rect", {
+        x: x - bodyWidth / 2,
+        y: volumeBottom - (Number(candle.volume) || 0) / maxVolume * (volumeBottom - volumeTop),
+        width: bodyWidth,
+        height: (Number(candle.volume) || 0) / maxVolume * (volumeBottom - volumeTop),
+        fill: color,
+        opacity: 0.55,
+      }),
+    );
+    const hit = svgNode("rect", {
+      x: plotLeft + band * index,
+      y: priceTop,
+      width: Math.max(1, band),
+      height: volumeBottom - priceTop,
+      fill: "transparent",
+    });
+    hit.addEventListener("pointerenter", (event) => showKlineTooltip(event, candle, tooltip, root));
+    hit.addEventListener("pointermove", (event) => showKlineTooltip(event, candle, tooltip, root));
+    hit.addEventListener("pointerleave", () => { tooltip.hidden = true; });
+    group.append(hit);
+    svg.append(group);
+  });
+
+  const tickIndexes = [...new Set([0, Math.floor((candles.length - 1) / 2), candles.length - 1])];
+  for (const index of tickIndexes) {
+    const x = plotLeft + band * (index + 0.5);
+    svg.append(svgNode("text", {
+      x,
+      y: 268,
+      fill: "#68716b",
+      "font-size": 10,
+      "text-anchor": index === 0 ? "start" : index === candles.length - 1 ? "end" : "middle",
+    }, candles[index].date.slice(2)));
+  }
+  root.append(svg, tooltip);
+  write(
+    "bar-time",
+    `${candles.length}根 · ${dateLabel(candles[0].date)} 至 ${dateLabel(candles.at(-1).date)}`,
+  );
+}
+
+function updatePeriodButtons() {
+  document.querySelectorAll("[data-chart-period]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.chartPeriod === selectedPeriod));
+  });
+}
+
+async function renderSelectedChart(stock) {
+  updatePeriodButtons();
+  if (selectedPeriod === "minute") {
+    displayedChartKey = null;
+    renderIntradayChart(stock);
+    return;
+  }
+
+  const key = `${latest.plan_id}:${latest.plan_date}:${stock.code}:${selectedPeriod}`;
+  if (displayedChartKey === key) return;
+  const version = ++chartRenderVersion;
+  write("chart-status", `正在读取${periodLabels[selectedPeriod]} · mootdx`);
+  write("chart-primary-label", "历史行情加载中");
+  write("chart-reference-label", "数据源：mootdx");
+  write("bar-time", `截至 ${dateLabel(latest.plan_date)}`);
+  byId("chart").dataset.period = selectedPeriod;
+  byId("chart").replaceChildren(
+    element("div", `正在读取${stock.name}${periodLabels[selectedPeriod]}数据`, "chart-empty"),
+  );
+  let request = klineCache.get(key);
+  if (!request) {
+    request = fetchJson(
+      `/api/v1/monitor/kline/${encodeURIComponent(stock.code)}?period=${encodeURIComponent(selectedPeriod)}&trade_date=${encodeURIComponent(latest.plan_date)}`,
+    );
+    klineCache.set(key, request);
+  }
+  try {
+    const payload = await request;
+    if (version !== chartRenderVersion || selected !== stock.code || selectedPeriod !== payload.period) return;
+    displayedChartKey = key;
+    renderKlineChart(stock, payload);
+  } catch (error) {
+    klineCache.delete(key);
+    if (version !== chartRenderVersion) return;
+    displayedChartKey = null;
+    write("chart-status", `${periodLabels[selectedPeriod]}读取失败`);
+    byId("chart").replaceChildren(element("div", error.message, "chart-empty"));
+  }
+}
+
 function renderDetail(stock) {
   byId("stock-detail").hidden = !stock;
   if (!stock) return;
   const q = stock.quote;
   const p = stock.plan;
   write("detail-name", stock.name);
-  write("detail-code", `${stock.code} · 分时与执行细则`);
+  write("detail-code", `${stock.code} · 行情与执行细则`);
   write("detail-industry", stock.industry);
   write("detail-advice", stock.advice.label);
   byId("detail-advice").dataset.tone = stock.advice.tone;
@@ -220,8 +414,7 @@ function renderDetail(stock) {
   write("detail-position", numeric(p.position_limit_pct) ? `${p.position_limit_pct}%（上限，非目标）` : "—");
   write("detail-entry", p.entry_trigger);
   write("detail-cancel", p.invalidation);
-  write("bar-time", `分钟线时间 ${clock(q.bar_time)}`);
-  renderChart(stock);
+  renderSelectedChart(stock);
 }
 function renderEvents(events) {
   const root = byId("events");
@@ -238,6 +431,14 @@ function renderEvents(events) {
   }
 }
 function render(data) {
+  if (latest && (
+    latest.plan_id !== data.plan_id
+    || latest.plan_date !== data.plan_date
+  )) {
+    klineCache.clear();
+    displayedChartKey = null;
+    chartRenderVersion += 1;
+  }
   latest = data;
   selected = data.stocks.some((stock) => stock.code === selected) ? selected : data.stocks[0]?.code;
   write("monitor-date", dateLabel(data.requested_date || data.plan_date));
@@ -422,6 +623,16 @@ reportDateInput.addEventListener("change", () => {
   connectStream();
 });
 refreshButton.addEventListener("click", refreshSelectedDay);
+document.querySelectorAll("[data-chart-period]").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (selectedPeriod === button.dataset.chartPeriod) return;
+    selectedPeriod = button.dataset.chartPeriod;
+    displayedChartKey = null;
+    chartRenderVersion += 1;
+    const stock = latest?.stocks.find((item) => item.code === selected);
+    if (stock) renderSelectedChart(stock);
+  });
+});
 
 async function initialize() {
   await window.strategyReady;

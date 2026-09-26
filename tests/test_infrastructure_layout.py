@@ -278,7 +278,7 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('data-field="candidate-scope"', plan_header)
         self.assertIn('candidates.map((candidate) => candidate.name)', app)
         self.assertIn('<span id="monitor-date">—</span> 当日实盘', monitor_html)
-        self.assertIn("/monitor.css?v=20260926.3", monitor_html)
+        self.assertIn("/monitor.css?v=20260926.5", monitor_html)
         self.assertIn(".monitor-title #watch-count", monitor_css)
         self.assertNotIn(".monitor-title h1 span", monitor_css)
         self.assertIn(
@@ -360,10 +360,16 @@ class WebAssetTest(unittest.TestCase):
             "data.requested_date || data.plan_date",
             monitor_app,
         )
-        self.assertIn("/monitor.js?v=20260926.8", monitor_html)
+        self.assertIn("/monitor.js?v=20260926.9", monitor_html)
         self.assertIn('class="monitor-workspace"', monitor_html)
         self.assertIn('id="watch-list" class="watch-list"', monitor_html)
         self.assertIn('id="stock-detail" class="stock-detail"', monitor_html)
+        self.assertIn('data-chart-period="minute"', monitor_html)
+        for period in ("day", "week", "month", "year"):
+            self.assertIn(f'data-chart-period="{period}"', monitor_html)
+        self.assertIn("/api/v1/monitor/kline/", monitor_app)
+        self.assertIn("renderKlineChart(stock, payload)", monitor_app)
+        self.assertIn(".kline-tabs", monitor_css)
         self.assertNotIn('id="watch-rows"', monitor_html)
         self.assertIn(
             "grid-template-columns: minmax(280px, 320px) minmax(0, 1fr)",

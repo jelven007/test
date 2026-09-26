@@ -158,6 +158,29 @@ class FakeCache:
         )
 
 
+class FakeHistoryProvider:
+    source_name = "mootdx"
+
+    def __init__(self):
+        self.calls = []
+
+    def kline_bars(self, symbol, period, end_date, *, limit):
+        if period not in {"day", "week", "month", "year"}:
+            raise ValueError("K线周期必须是 day、week、month 或 year")
+        self.calls.append((symbol, period, end_date.isoformat(), limit))
+        return [
+            {
+                "date": "2026-09-23",
+                "open": 10.0,
+                "high": 10.8,
+                "low": 9.9,
+                "close": 10.5,
+                "volume": 500000.0,
+                "amount": 300000000.0,
+            }
+        ]
+
+
 def write_report(root: Path):
     directory = root / "2026-09-23"
     directory.mkdir()
@@ -286,6 +309,7 @@ class ApiV1Test(unittest.TestCase):
             kafka_ready=lambda: True,
             clickhouse_ready=lambda: True,
             strategy_version="v2",
+            history_provider=FakeHistoryProvider(),
         )
         self.client = TestClient(create_api_app(self.services))
 
@@ -317,6 +341,31 @@ class ApiV1Test(unittest.TestCase):
         report = self.client.get("/api/v1/reports/2026-09-23").json()
         self.assertEqual(report["candidates"][0]["symbol"], "002635")
         self.assertEqual(report["strategy_version"], "v2")
+
+    def test_monitor_kline_returns_selected_stock_period_from_mootdx(self):
+        response = self.client.get(
+            "/api/v1/monitor/kline/002635"
+            "?period=week&trade_date=2026-09-24"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["source"], "mootdx")
+        self.assertEqual(response.json()["period"], "week")
+        self.assertEqual(response.json()["trade_date"], "2026-09-24")
+        self.assertEqual(response.json()["items"][0]["close"], 10.5)
+        self.assertEqual(
+            self.services.history_provider.calls,
+            [("002635", "week", "2026-09-24", 120)],
+        )
+
+        invalid_period = self.client.get(
+            "/api/v1/monitor/kline/002635?period=quarter"
+        )
+        missing_stock = self.client.get(
+            "/api/v1/monitor/kline/600999?period=day"
+        )
+        self.assertEqual(invalid_period.status_code, 400)
+        self.assertEqual(missing_stock.status_code, 404)
 
     def test_trading_calendar_returns_page_specific_default_dates(self):
         class TradingDay(datetime):
