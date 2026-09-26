@@ -11,6 +11,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY src ./src
+ARG PIP_INDEX_URL
 RUN python -m pip install --no-cache-dir ".[production]"
 
 COPY config ./config
