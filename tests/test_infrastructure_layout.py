@@ -470,6 +470,23 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('<select id="stock-block"', html)
         self.assertIn('<option value="">全部板块</option>', html)
         self.assertNotIn('id="stock-market"', html)
+        for sort_key in (
+            "symbol",
+            "board",
+            "price",
+            "change_pct",
+            "open",
+            "high",
+            "low",
+            "volume",
+            "amount",
+            "quote_time",
+        ):
+            self.assertIn(f'data-sort="{sort_key}"', html)
+        self.assertEqual(html.count('aria-sort="none"'), 10)
+        self.assertIn('parameters.set("sort", sortBy)', script)
+        self.assertIn('header.setAttribute(\n      "aria-sort"', script)
+        self.assertIn("sortBy = key;", script)
         self.assertIn('fetchJson("/api/v1/stock-blocks")', script)
         self.assertIn('block: byId("stock-block").value', script)
 

@@ -610,6 +610,70 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(history.json()["source"], "mootdx")
         self.assertEqual(history.json()["items"][0]["close"], 10.5)
 
+    def test_stock_directory_sorts_full_result_before_pagination(self):
+        quotes = {
+            "002635": {
+                "price": 10.5,
+                "last_close": 10,
+                "open": 10.2,
+                "high": 10.8,
+                "low": 10.1,
+                "volume": 500000,
+                "amount": 300000000,
+                "servertime": "09:45:00",
+            },
+            "688981": {
+                "price": 120,
+                "last_close": 100,
+                "open": 110,
+                "high": 125,
+                "low": 108,
+                "volume": 800000,
+                "amount": 900000000,
+                "servertime": "09:46:00",
+            },
+        }
+        self.services.history_provider.quote_snapshots = (
+            lambda symbols: {
+                symbol: quotes[symbol]
+                for symbol in symbols
+                if symbol in quotes
+            }
+        )
+
+        response = self.client.get(
+            "/api/v1/stocks?sort=price&direction=desc&limit=2"
+        )
+        second_page = self.client.get(
+            "/api/v1/stocks?sort=price&direction=desc&limit=2&offset=2"
+        )
+        board_order = self.client.get(
+            "/api/v1/stocks?sort=board&direction=desc&limit=3"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["sort"], "price")
+        self.assertEqual(response.json()["direction"], "desc")
+        self.assertEqual(
+            [item["symbol"] for item in response.json()["items"]],
+            ["688981", "002635"],
+        )
+        self.assertEqual(
+            [item["symbol"] for item in second_page.json()["items"]],
+            ["300750"],
+        )
+        self.assertEqual(
+            [item["symbol"] for item in board_order.json()["items"]],
+            ["688981", "300750", "002635"],
+        )
+
+        invalid_field = self.client.get("/api/v1/stocks?sort=missing")
+        invalid_direction = self.client.get(
+            "/api/v1/stocks?sort=price&direction=sideways"
+        )
+        self.assertEqual(invalid_field.status_code, 400)
+        self.assertEqual(invalid_direction.status_code, 400)
+
     def test_stock_directory_and_blocks_prefer_persisted_reference_data(self):
         repository = FakeReferenceRepository()
         provider = FakeHistoryProvider()
@@ -975,7 +1039,7 @@ class ApiV1Test(unittest.TestCase):
     def test_web_assets_are_not_served_from_stale_browser_cache(self):
         home = self.client.get("/")
         self.assertEqual(home.headers["Cache-Control"], "no-store")
-        self.assertIn("/market.css?v=20260926.1", home.text)
+        self.assertIn("/market.css?v=20260926.2", home.text)
 
         dashboard = self.client.get("/plan")
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store")

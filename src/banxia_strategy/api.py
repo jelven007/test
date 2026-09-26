@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -27,6 +28,70 @@ STRATEGY_LIST_PARAMETER_KEYS = (
     "minimum_industry_limit_up_count",
     "entry_cutoff_time",
 )
+
+STOCK_SORT_FIELDS = {
+    "symbol",
+    "board",
+    "price",
+    "change_pct",
+    "open",
+    "high",
+    "low",
+    "volume",
+    "amount",
+    "quote_time",
+}
+STOCK_QUOTE_SORT_FIELDS = STOCK_SORT_FIELDS - {"symbol", "board"}
+STOCK_SORT_DIRECTIONS = {"asc", "desc"}
+STOCK_BOARD_ORDER = {"main": 0, "gem": 1, "star": 2}
+
+
+def _stock_sort_value(item: Mapping[str, Any], sort_by: str):
+    if sort_by == "symbol":
+        return str(item.get("symbol") or "")
+    if sort_by == "board":
+        return (
+            STOCK_BOARD_ORDER.get(str(item.get("board")), 99),
+            str(item.get("market") or ""),
+        )
+
+    quote = item.get("quote") or {}
+    if sort_by == "quote_time":
+        value = (
+            quote.get("servertime")
+            or quote.get("source_time")
+            or quote.get("collected_at")
+        )
+        return str(value) if value else None
+
+    value = quote.get(sort_by)
+    if sort_by == "volume" and value is None:
+        value = quote.get("vol")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _sort_stock_items(
+    items: list[dict[str, Any]],
+    sort_by: str,
+    direction: str,
+) -> list[dict[str, Any]]:
+    available = []
+    missing = []
+    for item in items:
+        value = _stock_sort_value(item, sort_by)
+        (missing if value is None else available).append((item, value))
+
+    available.sort(key=lambda pair: str(pair[0].get("symbol") or ""))
+    available.sort(
+        key=lambda pair: pair[1],
+        reverse=direction == "desc",
+    )
+    missing.sort(key=lambda pair: str(pair[0].get("symbol") or ""))
+    return [item for item, _value in (*available, *missing)]
 
 
 @dataclass
@@ -392,6 +457,13 @@ def create_api_app(services: ApiServices):
     def reference_quotes(symbols):
         if reference_repository is None:
             return history_provider.quote_snapshots(symbols)
+        get_many = getattr(services.cache, "get_latest_quotes", None)
+        if callable(get_many):
+            cached = get_many(symbols)
+            return {
+                symbol: dict(value.get("payload") or value)
+                for symbol, value in cached.items()
+            }
         quotes = {}
         for symbol in symbols:
             try:
@@ -814,6 +886,8 @@ def create_api_app(services: ApiServices):
         board: str = "all",
         market: str = "all",
         block: Optional[str] = None,
+        sort: Optional[str] = None,
+        direction: str = "asc",
         limit: int = 50,
         offset: int = 0,
     ):
@@ -829,6 +903,11 @@ def create_api_app(services: ApiServices):
         blockname = (block or "").strip()
         if len(blockname) > 40:
             raise HTTPException(status_code=400, detail="股票板块无效")
+        sort_by = (sort or "").strip()
+        if sort_by and sort_by not in STOCK_SORT_FIELDS:
+            raise HTTPException(status_code=400, detail="股票排序字段无效")
+        if direction not in STOCK_SORT_DIRECTIONS:
+            raise HTTPException(status_code=400, detail="股票排序方向无效")
         try:
             keyword = (q or "").strip().lower()
             if reference_repository is not None:
@@ -837,11 +916,11 @@ def create_api_app(services: ApiServices):
                     board=board,
                     market=market,
                     block=blockname or None,
-                    limit=limit,
-                    offset=offset,
+                    limit=100_000 if sort_by else limit,
+                    offset=0 if sort_by else offset,
                 )
                 total = result["total"]
-                page = result["items"]
+                securities = result["items"]
             else:
                 universe = history_provider.securities()
                 block_symbols = (
@@ -865,10 +944,50 @@ def create_api_app(services: ApiServices):
                     )
                 ]
                 total = len(filtered)
-                page = filtered[offset : offset + limit]
-            quotes = reference_quotes(
-                [item["symbol"] for item in page]
-            )
+                securities = (
+                    filtered
+                    if sort_by
+                    else filtered[offset : offset + limit]
+                )
+
+            if sort_by in STOCK_QUOTE_SORT_FIELDS:
+                quotes = reference_quotes(
+                    [item["symbol"] for item in securities]
+                )
+                enriched = [
+                    {
+                        **item,
+                        "quote": stock_quote(
+                            quotes.get(item["symbol"], {})
+                        ),
+                    }
+                    for item in securities
+                ]
+                items = _sort_stock_items(
+                    enriched,
+                    sort_by,
+                    direction,
+                )[offset : offset + limit]
+            else:
+                page = (
+                    _sort_stock_items(securities, sort_by, direction)[
+                        offset : offset + limit
+                    ]
+                    if sort_by
+                    else securities
+                )
+                quotes = reference_quotes(
+                    [item["symbol"] for item in page]
+                )
+                items = [
+                    {
+                        **item,
+                        "quote": stock_quote(
+                            quotes.get(item["symbol"], {})
+                        ),
+                    }
+                    for item in page
+                ]
             metadata = reference_metadata()
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -882,13 +1001,9 @@ def create_api_app(services: ApiServices):
             "total": total,
             "limit": limit,
             "offset": offset,
-            "items": [
-                {
-                    **item,
-                    "quote": stock_quote(quotes.get(item["symbol"], {})),
-                }
-                for item in page
-            ],
+            "sort": sort_by or None,
+            "direction": direction if sort_by else None,
+            "items": items,
         }
 
     @app.get("/api/v1/stocks/{symbol}")

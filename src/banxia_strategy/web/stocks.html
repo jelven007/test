@@ -8,8 +8,8 @@
     <title>沪深股票 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260926.1">
     <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
-    <link rel="stylesheet" href="/market.css?v=20260926.1">
-    <script src="/stocks.js?v=20260926.3" defer></script>
+    <link rel="stylesheet" href="/market.css?v=20260926.2">
+    <script src="/stocks.js?v=20260926.4" defer></script>
   </head>
   <body class="market-body">
     <header class="topbar market-topbar">
@@ -70,16 +70,17 @@
           <table class="data-table stock-table">
             <thead>
               <tr>
-                <th>股票</th>
-                <th>大盘</th>
-                <th>最新价</th>
-                <th>涨跌幅</th>
-                <th>今开</th>
-                <th>最高 / 最低</th>
-                <th>成交量</th>
-                <th>成交额</th>
-                <th>行情时间</th>
-                <th>操作</th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="symbol">股票<span aria-hidden="true">↕</span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="board">大盘<span aria-hidden="true">↕</span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="price">最新价<span aria-hidden="true">↕</span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="change_pct">涨跌幅<span aria-hidden="true">↕</span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="open">今开<span aria-hidden="true">↕</span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="high">最高<span aria-hidden="true">↕</span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="low">最低<span aria-hidden="true">↕</span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="volume">成交量<span aria-hidden="true">↕</span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="amount">成交额<span aria-hidden="true">↕</span></button></th>
+                <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="quote_time">行情时间<span aria-hidden="true">↕</span></button></th>
+                <th scope="col">操作</th>
               </tr>
             </thead>
             <tbody id="stock-rows"></tbody>

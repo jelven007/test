@@ -92,6 +92,22 @@ class RedisSnapshotCache:
     def get_latest_quote(self, symbol: str) -> Optional[Mapping[str, Any]]:
         return self._deserialize(self.client.get(self._event_key("quote", symbol)))
 
+    def get_latest_quotes(
+        self,
+        symbols: Iterable[str],
+    ) -> dict[str, Mapping[str, Any]]:
+        symbol_list = [str(symbol) for symbol in symbols]
+        if not symbol_list:
+            return {}
+        values = self.client.mget(
+            [self._event_key("quote", symbol) for symbol in symbol_list]
+        )
+        return {
+            symbol: value
+            for symbol, raw in zip(symbol_list, values)
+            if (value := self._deserialize(raw)) is not None
+        }
+
     def set_latest_feature(self, event: EventEnvelope, ttl_seconds: int) -> None:
         symbol = str(event.payload["symbol"])
         key = self._event_key("feature", symbol)

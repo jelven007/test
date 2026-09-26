@@ -4,11 +4,26 @@ let offset = 0;
 let total = 0;
 let loading = false;
 let requestedBlock = "";
+let sortBy = "";
+let sortDirection = "asc";
 
 const boardLabels = {
   main: "沪深主板",
   gem: "创业板",
   star: "科创板",
+};
+
+const sortLabels = {
+  symbol: "股票",
+  board: "大盘",
+  price: "最新价",
+  change_pct: "涨跌幅",
+  open: "今开",
+  high: "最高",
+  low: "最低",
+  volume: "成交量",
+  amount: "成交额",
+  quote_time: "行情时间",
 };
 
 function numeric(value) {
@@ -37,6 +52,13 @@ function tone(value) {
   return Number(value) > 0 ? "up" : Number(value) < 0 ? "down" : "";
 }
 
+function quoteTime(quote) {
+  const value = quote.servertime || quote.source_time || quote.collected_at;
+  if (!value) return "—";
+  const match = String(value).match(/T(\d{2}:\d{2}:\d{2})/);
+  return match ? match[1] : value;
+}
+
 function cell(text, className) {
   const node = document.createElement("td");
   node.textContent = text;
@@ -59,6 +81,10 @@ function queryParameters() {
     limit: String(pageSize),
     offset: String(offset),
   });
+  if (sortBy) {
+    parameters.set("sort", sortBy);
+    parameters.set("direction", sortDirection);
+  }
   return parameters;
 }
 
@@ -69,8 +95,36 @@ function updateBrowserUrl(parameters) {
   if (visibleParameters.get("board") === "all") visibleParameters.delete("board");
   if (!visibleParameters.get("block")) visibleParameters.delete("block");
   if (visibleParameters.get("offset") === "0") visibleParameters.delete("offset");
+  if (!visibleParameters.get("sort")) visibleParameters.delete("direction");
   const query = visibleParameters.toString();
   history.replaceState(null, "", query ? `${location.pathname}?${query}` : location.pathname);
+}
+
+function updateSortHeaders() {
+  document.querySelectorAll(".sort-button").forEach((button) => {
+    const key = button.dataset.sort;
+    const active = key === sortBy;
+    const header = button.closest("th");
+    const indicator = button.querySelector("span");
+    const label = sortLabels[key];
+    const nextDirection = active && sortDirection === "asc" ? "desc" : "asc";
+    header.setAttribute(
+      "aria-sort",
+      active
+        ? sortDirection === "asc" ? "ascending" : "descending"
+        : "none",
+    );
+    indicator.textContent = active
+      ? sortDirection === "asc" ? "↑" : "↓"
+      : "↕";
+    button.setAttribute(
+      "aria-label",
+      active
+        ? `${label}当前${sortDirection === "asc" ? "升序" : "降序"}，切换为${nextDirection === "asc" ? "升序" : "降序"}`
+        : `按${label}升序排列`,
+    );
+    button.title = button.getAttribute("aria-label");
+  });
 }
 
 function renderRows(items) {
@@ -79,7 +133,7 @@ function renderRows(items) {
   if (!items.length) {
     const row = document.createElement("tr");
     const empty = cell("没有符合条件的股票");
-    empty.colSpan = 10;
+    empty.colSpan = 11;
     empty.className = "waiting-cell";
     row.append(empty);
     root.append(row);
@@ -123,10 +177,11 @@ function renderRows(items) {
       cell(price(quote.price), `quote-number ${tone(quote.change_pct)}`),
       cell(percent(quote.change_pct), `quote-number ${tone(quote.change_pct)}`),
       cell(price(quote.open), "quote-number"),
-      cell(`${price(quote.high)} / ${price(quote.low)}`, "quote-number"),
+      cell(price(quote.high), "quote-number"),
+      cell(price(quote.low), "quote-number"),
       cell(compact(quote.volume ?? quote.vol), "quote-number"),
       cell(compact(quote.amount), "quote-number"),
-      cell(quote.servertime || "—", "quote-number"),
+      cell(quoteTime(quote), "quote-number"),
       actions,
     );
     root.append(row);
@@ -162,7 +217,10 @@ async function loadStocks() {
     byId("market-time").textContent = times.length
       ? `盘口时间 ${times.at(-1)}`
       : "当前页暂无实时报价";
-    byId("stock-status").textContent = `已读取 ${payload.items.length} 只股票 · ${payload.source}`;
+    const sorting = sortBy
+      ? ` · ${sortLabels[sortBy]}${sortDirection === "asc" ? "升序" : "降序"}`
+      : "";
+    byId("stock-status").textContent = `已读取 ${payload.items.length} 只股票 · ${payload.source}${sorting}`;
     updateBrowserUrl(parameters);
   } catch (error) {
     byId("stock-status").textContent = error.message;
@@ -178,6 +236,9 @@ function restoreFilters() {
   byId("stock-query").value = parameters.get("q") || "";
   byId("stock-board").value = parameters.get("board") || "all";
   requestedBlock = parameters.get("block") || "";
+  const requestedSort = parameters.get("sort") || "";
+  sortBy = Object.hasOwn(sortLabels, requestedSort) ? requestedSort : "";
+  sortDirection = parameters.get("direction") === "desc" ? "desc" : "asc";
   const requestedOffset = Number(parameters.get("offset"));
   offset = Number.isInteger(requestedOffset) && requestedOffset >= 0
     ? requestedOffset
@@ -214,8 +275,23 @@ byId("stock-reset").addEventListener("click", () => {
   byId("stock-query").value = "";
   byId("stock-board").value = "all";
   byId("stock-block").value = "";
+  sortBy = "";
+  sortDirection = "asc";
   offset = 0;
+  updateSortHeaders();
   loadStocks();
+});
+
+document.querySelectorAll(".sort-button").forEach((button) => {
+  button.addEventListener("click", () => {
+    if (loading) return;
+    const key = button.dataset.sort;
+    sortDirection = sortBy === key && sortDirection === "asc" ? "desc" : "asc";
+    sortBy = key;
+    offset = 0;
+    updateSortHeaders();
+    loadStocks();
+  });
 });
 
 byId("previous-page").addEventListener("click", () => {
@@ -232,6 +308,7 @@ byId("next-page").addEventListener("click", () => {
 
 async function initialize() {
   restoreFilters();
+  updateSortHeaders();
   if (requestedBlock) {
     await loadBlocks().catch(disableBlockFilter);
     loadStocks();

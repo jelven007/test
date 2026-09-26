@@ -216,6 +216,9 @@ class FakeRedisClient:
     def get(self, key):
         return self.values.get(key)
 
+    def mget(self, keys):
+        return [self.values.get(key) for key in keys]
+
     def pipeline(self, transaction=True):
         return self
 
@@ -290,6 +293,27 @@ class RedisAdapterTest(unittest.TestCase):
         payload = cache.get_latest_feature("002635")["payload"]
         self.assertEqual(payload["sector_rise_ratio"], 0.75)
         self.assertEqual(payload["minute_volume_ratio"], 2.5)
+
+    def test_quote_projection_supports_batch_reads(self):
+        client = FakeRedisClient()
+        cache = RedisSnapshotCache(client=client)
+        first = event(
+            "market.quote.snapshot.v1",
+            {"symbol": "002635", "price": 10.5},
+        )
+        second = event(
+            "market.quote.snapshot.v1",
+            {"symbol": "300750", "price": 300.0},
+        )
+        cache.set_latest_quote(first, 90)
+        cache.set_latest_quote(second, 90)
+
+        quotes = cache.get_latest_quotes(
+            ["002635", "missing", "300750"]
+        )
+
+        self.assertEqual(set(quotes), {"002635", "300750"})
+        self.assertEqual(quotes["002635"]["payload"]["price"], 10.5)
 
     def test_minute_bar_projection_round_trip(self):
         client = FakeRedisClient()
