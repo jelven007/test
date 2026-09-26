@@ -229,6 +229,7 @@ def create_api_app(services: ApiServices):
         if (
             request.url.path in {
                 "/",
+                "/plan",
                 "/monitor",
                 "/strategy",
                 "/research",
@@ -1571,6 +1572,10 @@ def create_api_app(services: ApiServices):
                                  headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
     @app.get("/")
+    def stocks_home():
+        return FileResponse(static_root / "stocks.html")
+
+    @app.get("/plan")
     def dashboard():
         return FileResponse(static_root / "index.html")
 

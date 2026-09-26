@@ -119,11 +119,14 @@ class DashboardServerTest(unittest.TestCase):
             base_url = f"http://127.0.0.1:{server.server_port}"
             try:
                 with urlopen(f"{base_url}/", timeout=2) as response:
-                    html = response.read().decode("utf-8")
+                    home_html = response.read().decode("utf-8")
+                with urlopen(f"{base_url}/plan", timeout=2) as response:
+                    plan_html = response.read().decode("utf-8")
                 with urlopen(f"{base_url}/api/reports/latest", timeout=2) as response:
                     payload = json.load(response)
 
-                self.assertIn("次日执行台", html)
+                self.assertIn("沪深股票", home_html)
+                self.assertIn("次日执行台", plan_html)
                 self.assertEqual(payload["as_of"], "2026-09-23")
                 with self.assertRaises(HTTPError) as context:
                     urlopen(f"{base_url}/api/reports/2026-09-20", timeout=2)
@@ -161,7 +164,7 @@ class SharedNavigationTest(unittest.TestCase):
         self.assertEqual(blocks[0], blocks[3])
         self.assertEqual(
             blocks[0],
-            '<a href="/stocks">首页</a> <a href="/strategy">策略管理</a> <a href="/">次日计划</a> <a href="/monitor">当日实盘</a> <a href="/research">回测优化</a>',
+            '<a href="/">首页</a> <a href="/strategy">策略管理</a> <a href="/plan">次日计划</a> <a href="/monitor">当日实盘</a> <a href="/research">回测优化</a>',
         )
 
 

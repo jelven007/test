@@ -468,7 +468,7 @@ class WebAssetTest(unittest.TestCase):
     def test_strategy_selector_keeps_management_navigation_on_list_view(self):
         web = ROOT / "src/banxia_strategy/web"
         script = (web / "strategy-selector.js").read_text(encoding="utf-8")
-        self.assertIn('const scopedNavPaths = new Set(["/", "/monitor"]);', script)
+        self.assertIn('const scopedNavPaths = new Set(["/plan", "/monitor"]);', script)
         self.assertIn("if (!scopedNavPaths.has(link.pathname)) return;", script)
         for page in ("index.html", "monitor.html"):
             html = (web / page).read_text(encoding="utf-8")

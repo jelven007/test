@@ -29,7 +29,7 @@ window.strategyReady = (async () => {
     if (selected) {
       params.set("strategy_id", selected);
       history.replaceState(null, "", `${location.pathname}?${params}`);
-      const scopedNavPaths = new Set(["/", "/monitor"]);
+      const scopedNavPaths = new Set(["/plan", "/monitor"]);
       document.querySelectorAll(".primary-nav a").forEach(link => {
         if (!scopedNavPaths.has(link.pathname)) return;
         link.href = `${link.pathname}?strategy_id=${encodeURIComponent(selected)}`;

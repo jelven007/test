@@ -180,6 +180,8 @@ def make_handler(store: ReportStore, static_root: Path, monitor=None, config_sto
                     self._send_json(report)
                 return
             if path == "/":
+                path = "/stocks.html"
+            elif path in ("/plan", "/plan/"):
                 path = "/index.html"
             elif path in ("/monitor", "/monitor/"):
                 path = "/monitor.html"
@@ -187,6 +189,8 @@ def make_handler(store: ReportStore, static_root: Path, monitor=None, config_sto
                 path = "/strategy.html"
             elif path in ("/research", "/research/"):
                 path = "/research.html"
+            elif path in ("/stocks", "/stocks/"):
+                path = "/stocks.html"
             self._send_static(path)
 
         def _send_research(self, path):

@@ -159,7 +159,7 @@ async function loadCatalog() {
     ? "初始策略"
     : `来源：${parent?.name || (item.parent_strategy_id ? "已删除策略" : "历史导入")}`;
   document.querySelector("#toggle-strategy").textContent = item?.enabled ? "停用" : "激活";
-  document.querySelector("#plan-link").href = `/?strategy_id=${strategyId}`;
+  document.querySelector("#plan-link").href = `/plan?strategy_id=${strategyId}`;
   document.querySelector("#parameters-tab").title = item.permissions.edit_parameters
     ? "可调整参数；发生变化后另存为新策略"
     : "派生策略参数只读";
@@ -178,7 +178,7 @@ async function loadDays(append = false) {
     const plan = node("td");
     if (day.plan_status === "ready") {
       const link = node("a", `${day.plan_date || "待定"} · ${day.candidate_count} 只`);
-      link.href = `/?strategy_id=${selectedId}&trade_date=${day.trade_date}`;
+      link.href = `/plan?strategy_id=${selectedId}&trade_date=${day.trade_date}`;
       plan.append(link);
     } else plan.textContent = "待生成";
     tr.append(plan, node("td", `${statuses[day.actual_status] || day.actual_status}${day.execution_count != null ? ` · ${day.execution_count} 只` : ""}`));
