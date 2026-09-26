@@ -38,6 +38,7 @@ class ApiServices:
     api_token: Optional[str] = None
     kafka_ready: Optional[Callable[[], bool]] = None
     clickhouse_ready: Optional[Callable[[], bool]] = None
+    market_history: Optional[Any] = None
     strategy_version: str = "v1"
     config_store: Optional[StrategyConfigStore] = None
     history_provider: Optional[Any] = None
@@ -226,7 +227,16 @@ def create_api_app(services: ApiServices):
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
         if (
-            request.url.path in {"/", "/monitor", "/strategy", "/research", "/api/v1/strategy-config"}
+            request.url.path in {
+                "/",
+                "/monitor",
+                "/strategy",
+                "/research",
+                "/stocks",
+                "/api/v1/strategy-config",
+            }
+            or request.url.path.startswith("/stocks/")
+            or request.url.path.startswith("/api/v1/stocks")
             or request.url.path.startswith("/api/v1/research")
             or request.url.path.endswith((".css", ".js"))
         ):
@@ -331,6 +341,88 @@ def create_api_app(services: ApiServices):
 
     config_store = services.config_store or StrategyConfigStore(Path("config/strategy.json"))
     history_provider = services.history_provider or MootdxProvider()
+    market_history = services.market_history
+
+    def history_items(
+        symbol: str,
+        period: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        limit: int = 800,
+        refresh: bool = False,
+    ):
+        stored = []
+        complete_required = period != "minute" and limit >= 20000
+        if market_history is not None and not refresh:
+            stored = market_history.get_history_bars(
+                symbol,
+                period,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+            )
+        sync = None
+        get_sync = (
+            getattr(market_history, "get_history_sync", None)
+            if market_history is not None
+            else None
+        )
+        if complete_required and get_sync is not None:
+            sync = get_sync(symbol, period)
+        if stored and (
+            not complete_required
+            or (sync is not None and sync.get("completed"))
+        ):
+            return stored, "clickhouse"
+
+        if period == "minute":
+            if start_date is None or end_date is None or start_date != end_date:
+                raise ValueError("分时历史必须指定单个交易日")
+            fetched = history_provider.historical_minutes(symbol, start_date)
+        else:
+            fetched = history_provider.history_bars(
+                symbol,
+                period,
+                end_date=end_date,
+                max_bars=max(limit, 800),
+            )
+            if start_date is not None:
+                fetched = [
+                    item
+                    for item in fetched
+                    if date.fromisoformat(item["date"]) >= start_date
+                ]
+        if market_history is not None and fetched:
+            market_history.upsert_history_bars(symbol, period, fetched)
+            mark_sync = getattr(
+                market_history,
+                "mark_history_sync",
+                None,
+            )
+            if period != "minute" and mark_sync is not None:
+                mark_sync(
+                    symbol,
+                    period,
+                    row_count=len(fetched),
+                    completed=max(limit, 800) >= 20000,
+                )
+        return fetched[-limit:], getattr(history_provider, "source_name", "mootdx")
+
+    def stock_quote(raw: Mapping[str, Any]):
+        previous_close = raw.get("last_close")
+        current = raw.get("price")
+        change_pct = None
+        if current is not None and previous_close:
+            change_pct = round(
+                (float(current) / float(previous_close) - 1) * 100,
+                4,
+            )
+        return {
+            **dict(raw),
+            "previous_close": previous_close,
+            "change_pct": change_pct,
+        }
 
     def require_strategy(strategy_id):
         try:
@@ -639,6 +731,164 @@ def create_api_app(services: ApiServices):
             },
         }
 
+    @app.get("/api/v1/stocks")
+    def stocks(
+        q: Optional[str] = None,
+        board: str = "all",
+        market: str = "all",
+        limit: int = 50,
+        offset: int = 0,
+    ):
+        if board not in {"all", "main", "gem", "star"}:
+            raise HTTPException(status_code=400, detail="股票板块无效")
+        if market not in {"all", "sh", "sz"}:
+            raise HTTPException(status_code=400, detail="交易市场无效")
+        if not 1 <= limit <= 100 or offset < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="limit 必须为 1 至 100，offset 不能小于 0",
+            )
+        try:
+            universe = history_provider.securities()
+            keyword = (q or "").strip().lower()
+            filtered = [
+                item
+                for item in universe
+                if (board == "all" or item["board"] == board)
+                and (market == "all" or item["market"] == market)
+                and (
+                    not keyword
+                    or keyword in item["symbol"]
+                    or keyword in item["name"].lower()
+                )
+            ]
+            page = filtered[offset : offset + limit]
+            quotes = history_provider.quote_snapshots(
+                [item["symbol"] for item in page]
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"mootdx 股票目录暂不可用：{exc}",
+            ) from exc
+        return {
+            "source": getattr(history_provider, "source_name", "mootdx"),
+            "total": len(filtered),
+            "limit": limit,
+            "offset": offset,
+            "items": [
+                {
+                    **item,
+                    "quote": stock_quote(quotes.get(item["symbol"], {})),
+                }
+                for item in page
+            ],
+        }
+
+    @app.get("/api/v1/stocks/{symbol}")
+    def stock_detail(symbol: str):
+        try:
+            security = history_provider.security(symbol)
+            if security is None:
+                raise HTTPException(status_code=404, detail="股票不存在")
+            quotes = history_provider.quote_snapshots([symbol])
+            profile = history_provider.company_profile(symbol)
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"mootdx 股票资料暂不可用：{exc}",
+            ) from exc
+        return {
+            **security,
+            "source": getattr(history_provider, "source_name", "mootdx"),
+            "quote": stock_quote(quotes.get(symbol, {})),
+            **profile,
+        }
+
+    @app.get("/api/v1/stocks/{symbol}/company")
+    def stock_company_section(symbol: str, section: str):
+        try:
+            if history_provider.security(symbol) is None:
+                raise HTTPException(status_code=404, detail="股票不存在")
+            content = history_provider.company_section(symbol, section)
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"mootdx 公司资料暂不可用：{exc}",
+            ) from exc
+        return {
+            "symbol": symbol,
+            "section": section,
+            "source": getattr(history_provider, "source_name", "mootdx"),
+            "content": content,
+        }
+
+    @app.get("/api/v1/stocks/{symbol}/history")
+    def stock_history(
+        symbol: str,
+        period: str = "day",
+        trade_date: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 1200,
+        refresh: bool = False,
+    ):
+        if period not in {"minute", "day", "week", "month", "year"}:
+            raise HTTPException(status_code=400, detail="历史周期无效")
+        if not 1 <= limit <= 20000:
+            raise HTTPException(status_code=400, detail="limit 必须为 1 至 20000")
+        try:
+            security = history_provider.security(symbol)
+            if security is None:
+                raise HTTPException(status_code=404, detail="股票不存在")
+            if period == "minute":
+                if not trade_date:
+                    raise ValueError("分时历史必须指定交易日")
+                first = last = date.fromisoformat(trade_date)
+            else:
+                first = date.fromisoformat(start_date) if start_date else None
+                last = (
+                    date.fromisoformat(end_date)
+                    if end_date
+                    else datetime.now(SHANGHAI).date()
+                )
+            items, served_by = history_items(
+                symbol,
+                period,
+                start_date=first,
+                end_date=last,
+                limit=limit,
+                refresh=refresh,
+            )
+        except HTTPException:
+            raise
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"历史行情暂不可用：{exc}",
+            ) from exc
+        return {
+            "symbol": symbol,
+            "name": security["name"],
+            "period": period,
+            "source": getattr(history_provider, "source_name", "mootdx"),
+            "served_by": served_by,
+            "count": len(items),
+            "items": items,
+        }
+
     @app.get("/api/v1/monitor")
     def monitor(trade_date: Optional[str] = None, symbols: Optional[str] = None, strategy_id: Optional[str] = None):
         active = active_strategy() if not strategy_id else None
@@ -662,54 +912,137 @@ def create_api_app(services: ApiServices):
         ages = []
         missing = 0
         now = datetime.now(timezone.utc)
+        current_session = datetime.now(SHANGHAI).date()
+        plan_session = date.fromisoformat(plan["trade_date"])
+        live_market_data = (
+            market_history is None
+            or (
+                plan_session == current_session
+                and services.repository.is_trading_session(current_session)
+            )
+        )
         for candidate in plan["candidates"]:
             symbol = candidate["symbol"]
             if selected is not None and symbol not in selected:
                 continue
-            quote_event = services.cache.get_latest_quote(symbol)
-            get_feature = getattr(services.cache, "get_latest_feature", None)
-            feature_event = get_feature(symbol) if get_feature else None
-            decision_event = services.cache.get_latest_decision(
-                plan["plan_id"],
-                symbol,
-            )
-            quote = quote_event["payload"] if quote_event else {}
-            feature = feature_event["payload"] if feature_event else {}
-            if (quote.get("trade_date") or str(quote.get("source_time", ""))[:10]) != plan["trade_date"]:
-                quote = {}
-                feature = {}
-            decision = decision_event["payload"] if decision_event else {}
             saved = actuals.get("stocks", {}).get(symbol)
+            quote = {}
+            feature = {}
+            decision = {}
+            bars = []
+            if live_market_data:
+                quote_event = services.cache.get_latest_quote(symbol)
+                get_feature = getattr(
+                    services.cache,
+                    "get_latest_feature",
+                    None,
+                )
+                feature_event = get_feature(symbol) if get_feature else None
+                decision_event = services.cache.get_latest_decision(
+                    plan["plan_id"],
+                    symbol,
+                )
+                quote = quote_event["payload"] if quote_event else {}
+                feature = feature_event["payload"] if feature_event else {}
+                if (
+                    quote.get("trade_date")
+                    or str(quote.get("source_time", ""))[:10]
+                ) != plan["trade_date"]:
+                    quote = {}
+                    feature = {}
+                decision = (
+                    decision_event["payload"] if decision_event else {}
+                )
+                get_bars = getattr(services.cache, "get_minute_bars", None)
+                cached_bars = (
+                    get_bars(symbol, limit=240) if get_bars else ()
+                )
+                bars = [
+                    item["payload"]
+                    for item in cached_bars
+                    if item.get("payload", {}).get("trade_date")
+                    == plan["trade_date"]
+                ]
+            else:
+                try:
+                    daily, _ = history_items(
+                        symbol,
+                        "day",
+                        end_date=plan_session,
+                        limit=2,
+                    )
+                    current_bar = next(
+                        (
+                            item
+                            for item in reversed(daily)
+                            if item["date"] == plan["trade_date"]
+                        ),
+                        None,
+                    )
+                    previous_bar = next(
+                        (
+                            item
+                            for item in reversed(daily)
+                            if item["date"] < plan["trade_date"]
+                        ),
+                        None,
+                    )
+                    if current_bar:
+                        quote = {
+                            "trade_date": plan["trade_date"],
+                            "price": current_bar.get("close"),
+                            "open": current_bar.get("open"),
+                            "high": current_bar.get("high"),
+                            "low": current_bar.get("low"),
+                            "previous_close": (
+                                previous_bar.get("close")
+                                if previous_bar
+                                else candidate.get("latest_price")
+                            ),
+                            "cumulative_volume": current_bar.get("volume"),
+                            "cumulative_amount_cny": current_bar.get("amount"),
+                            "source_time": current_bar.get("time"),
+                            "collected_at": current_bar.get("fetched_at"),
+                        }
+                except Exception:
+                    quote = {}
+                try:
+                    minute_items, _ = history_items(
+                        symbol,
+                        "minute",
+                        start_date=plan_session,
+                        end_date=plan_session,
+                        limit=240,
+                    )
+                    bars = [
+                        {
+                            "trade_date": plan["trade_date"],
+                            "bar_time": item["time"],
+                            "open": item.get("open"),
+                            "high": item.get("high"),
+                            "low": item.get("low"),
+                            "close": item.get("close"),
+                            "volume": item.get("volume"),
+                            "amount_cny": item.get("amount"),
+                        }
+                        for item in minute_items
+                    ]
+                except Exception:
+                    bars = []
             if not decision and saved:
                 decision = saved
             outcome = outcomes.get(symbol)
             if outcome and outcome.get("status") == "observed":
-                quote = {
-                    "price": outcome["close"], "open": outcome["open"],
-                    "high": outcome["high"], "low": outcome["low"],
-                    "previous_close": outcome["reference_close"],
-                    "source_time": plan["trade_date"] + "T15:00:00+08:00",
-                    "collected_at": day["updated_at"],
-                }
-                feature = {}
                 decision = {"state": "expired", "label": "收盘封板" if outcome["closed_limit_up"] else "收盘未封板",
                             "reason": outcome["reason"], "updated_at": day["updated_at"]}
-            get_bars = getattr(services.cache, "get_minute_bars", None)
-            cached_bars = get_bars(symbol, limit=240) if get_bars else ()
-            bars = [
-                item["payload"]
-                for item in cached_bars
-                if item.get("payload", {}).get("trade_date")
-                == plan["trade_date"]
-            ]
             source_time = quote.get("source_time")
-            if source_time:
+            if source_time and live_market_data:
                 age = (
                     now
                     - datetime.fromisoformat(str(source_time)).astimezone(timezone.utc)
                 ).total_seconds()
                 ages.append(max(0.0, age))
-            else:
+            elif not source_time:
                 missing += 1
             stocks.append(
                 {
@@ -813,6 +1146,11 @@ def create_api_app(services: ApiServices):
             )
         max_age = max(ages) if ages else None
         current_phase = phase_at(datetime.now(SHANGHAI))
+        data_state = (
+            _data_state(max_age, missing)
+            if live_market_data
+            else ("historical" if missing == 0 else "unavailable")
+        )
         return {
             "trade_date": plan["trade_date"],
             "requested_date": plan.get(
@@ -824,13 +1162,17 @@ def create_api_app(services: ApiServices):
             "strategy_version": plan["strategy_version"],
             "server_time": _now(),
             "data_status": {
-                "state": _data_state(max_age, missing),
+                "state": data_state,
                 "max_quote_age_seconds": max_age,
                 "consumer_lag": None,
                 "reason": (
                     "non_trading_day_fallback"
                     if resolved_from_non_trading_day
-                    else None
+                    else (
+                        "historical_market_data"
+                        if not live_market_data
+                        else None
+                    )
                 ),
             },
             "phase": current_phase,
@@ -1243,6 +1585,18 @@ def create_api_app(services: ApiServices):
     @app.get("/research")
     def research_dashboard():
         return FileResponse(static_root / "research.html")
+
+    @app.get("/stocks")
+    def stocks_dashboard():
+        return FileResponse(static_root / "stocks.html")
+
+    @app.get("/stocks/{symbol}/history")
+    def stock_history_dashboard(symbol: str):
+        return FileResponse(static_root / "stock-history.html")
+
+    @app.get("/stocks/{symbol}")
+    def stock_dashboard(symbol: str):
+        return FileResponse(static_root / "stock.html")
 
     app.mount("/", StaticFiles(directory=static_root), name="static")
     return app

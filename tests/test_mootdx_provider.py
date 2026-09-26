@@ -25,6 +25,94 @@ def bar(day: int, close: float, high: float, amount: float = 500_000_000):
 
 
 class MootdxCalculationTest(unittest.TestCase):
+    def test_all_a_share_universe_keeps_growth_and_star_boards_separate(self):
+        class LowLevelClient:
+            @staticmethod
+            def get_security_list(market, start):
+                if start:
+                    return []
+                return (
+                    [
+                        {"code": "000001", "name": "上证指数", "pre_close": 3900},
+                        {"code": "600001", "name": "沪市主板", "pre_close": 10},
+                        {"code": "688001", "name": "科创样本", "pre_close": 20},
+                        {"code": "900901", "name": "沪市B股", "pre_close": 1},
+                    ]
+                    if market == 1
+                    else [
+                        {"code": "000001", "name": "深市主板", "pre_close": 11},
+                        {"code": "300001", "name": "创业样本", "pre_close": 21},
+                        {"code": "399001", "name": "深证成指", "pre_close": 12000},
+                        {"code": "200001", "name": "深市B股", "pre_close": 2},
+                    ]
+                )
+
+        class Client:
+            client = LowLevelClient()
+
+            @staticmethod
+            def stock_count(_market):
+                return 4
+
+            @staticmethod
+            def close():
+                pass
+
+        provider = MootdxProvider(
+            servers=[("example", 7709)],
+            client_factory=lambda _server: Client(),
+        )
+
+        securities = provider.securities()
+
+        self.assertEqual(
+            [item["symbol"] for item in securities],
+            ["000001", "300001", "600001", "688001"],
+        )
+        self.assertEqual(
+            {item["symbol"]: item["board"] for item in securities},
+            {
+                "000001": "main",
+                "300001": "gem",
+                "600001": "main",
+                "688001": "star",
+            },
+        )
+
+    def test_historical_minutes_receive_stable_market_times(self):
+        class Frame:
+            empty = False
+
+            @staticmethod
+            def to_dict(orient):
+                return [
+                    {"price": 10.1, "vol": 100},
+                    {"price": 10.2, "vol": 200},
+                ]
+
+        class Client:
+            @staticmethod
+            def minutes(**_kwargs):
+                return Frame()
+
+            @staticmethod
+            def close():
+                pass
+
+        provider = MootdxProvider(
+            servers=[("example", 7709)],
+            client_factory=lambda _server: Client(),
+        )
+
+        result = provider.historical_minutes(
+            "600001",
+            date(2026, 9, 24),
+        )
+
+        self.assertEqual(result[0]["time"], "2026-09-24T09:31:00+08:00")
+        self.assertEqual(result[1]["close"], 10.2)
+        self.assertEqual(result[1]["volume"], 200.0)
+
     def test_kline_bars_use_native_period_and_stop_at_selected_date(self):
         class Frame:
             def to_dict(self, orient):

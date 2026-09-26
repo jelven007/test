@@ -71,17 +71,21 @@ class StorageSchemaTest(unittest.TestCase):
         )
 
     def test_clickhouse_schema_contains_history_tables_and_ttls(self):
-        schema = (ROOT / "migrations/clickhouse/001_initial.sql").read_text(
-            encoding="utf-8"
+        schema = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((ROOT / "migrations/clickhouse").glob("*.sql"))
         )
         for table in (
             "market_quote_snapshot",
             "market_bar_1m",
             "market_feature_realtime",
+            "market_history_bar",
+            "market_history_sync",
         ):
             self.assertIn(f"banxia.{table}", schema)
         self.assertIn("INTERVAL 90 DAY DELETE", schema)
         self.assertIn("INTERVAL 5 YEAR DELETE", schema)
+        self.assertIn("ORDER BY (symbol, period, bar_time)", schema)
 
 
 class ComposeLayoutTest(unittest.TestCase):
@@ -194,6 +198,9 @@ class WebAssetTest(unittest.TestCase):
             web / "monitor.html",
             web / "strategy.html",
             web / "research.html",
+            web / "stocks.html",
+            web / "stock.html",
+            web / "stock-history.html",
         ]
         for page in pages:
             html = page.read_text(encoding="utf-8")
@@ -397,7 +404,15 @@ class WebAssetTest(unittest.TestCase):
 
     def test_all_pages_use_compact_bx_brand(self):
         web = ROOT / "src/banxia_strategy/web"
-        for name in ("index.html", "monitor.html", "research.html", "strategy.html"):
+        for name in (
+            "index.html",
+            "monitor.html",
+            "research.html",
+            "strategy.html",
+            "stocks.html",
+            "stock.html",
+            "stock-history.html",
+        ):
             html = (web / name).read_text(encoding="utf-8")
             self.assertIn(
                 '<span class="brand-mark" aria-hidden="true">BX</span>',

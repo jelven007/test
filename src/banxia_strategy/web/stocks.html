@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f6f7f5">
+    <title>沪深股票 · 一进二</title>
+    <link rel="stylesheet" href="/styles.css?v=20260926.1">
+    <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
+    <link rel="stylesheet" href="/market.css?v=20260926.1">
+    <script src="/stocks.js?v=20260926.1" defer></script>
+  </head>
+  <body class="market-body">
+    <header class="topbar market-topbar">
+      <a class="brand" href="/stocks" aria-label="返回股票首页">
+        <span class="brand-mark" aria-hidden="true">BX</span>
+        <strong>一进二</strong>
+      </a>
+      <span class="app-source">mootdx · 沪深 A 股全市场</span>
+    </header>
+    <nav class="primary-nav" aria-label="主导航">
+      <a href="/stocks" aria-current="page">首页</a>
+      <a href="/strategy">策略管理</a>
+      <a href="/">次日计划</a>
+      <a href="/monitor">当日实盘</a>
+      <a href="/research">回测优化</a>
+    </nav>
+
+    <main class="market-main page-main">
+      <header class="page-header">
+        <div class="page-header-copy">
+          <h1>沪深股票</h1>
+          <p>主板、创业板、科创板股票目录与实时盘口。</p>
+          <p class="page-header-meta">共 <code id="stock-total">—</code> 只 · 数据源 mootdx</p>
+        </div>
+      </header>
+
+      <form id="stock-filters" class="stock-filters" role="search">
+        <label>股票搜索
+          <input id="stock-query" class="ui-control" type="search" placeholder="输入代码或名称" autocomplete="off">
+        </label>
+        <label>板块
+          <select id="stock-board" class="ui-control">
+            <option value="all">全部板块</option>
+            <option value="main">沪深主板</option>
+            <option value="gem">创业板</option>
+            <option value="star">科创板</option>
+          </select>
+        </label>
+        <label>市场
+          <select id="stock-market" class="ui-control">
+            <option value="all">沪深全部</option>
+            <option value="sh">上海</option>
+            <option value="sz">深圳</option>
+          </select>
+        </label>
+        <button class="ui-button primary-button" type="submit">查询</button>
+        <button class="ui-button" id="stock-reset" type="button">重置</button>
+      </form>
+
+      <p id="stock-status" class="ui-status" role="status" aria-live="polite">正在读取沪深股票目录…</p>
+      <section class="stock-directory" aria-labelledby="stock-directory-title">
+        <div class="content-heading">
+          <div>
+            <h2 id="stock-directory-title">全市场行情</h2>
+            <p id="stock-range">—</p>
+          </div>
+          <span class="market-time" id="market-time">实时行情读取中</span>
+        </div>
+        <div class="market-table-wrap" tabindex="0" role="region" aria-label="沪深股票实时行情">
+          <table class="data-table stock-table">
+            <thead>
+              <tr>
+                <th>股票</th>
+                <th>板块</th>
+                <th>最新价</th>
+                <th>涨跌幅</th>
+                <th>今开</th>
+                <th>最高 / 最低</th>
+                <th>成交量</th>
+                <th>成交额</th>
+                <th>行情时间</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="stock-rows"></tbody>
+          </table>
+        </div>
+        <footer class="stock-pagination">
+          <button id="previous-page" class="ui-button" type="button">上一页</button>
+          <span id="page-label">第 1 页</span>
+          <button id="next-page" class="ui-button" type="button">下一页</button>
+        </footer>
+      </section>
+    </main>
+  </body>
+</html>

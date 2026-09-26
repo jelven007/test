@@ -722,6 +722,7 @@ def run_api(settings: RuntimeSettings, logger: Any) -> None:
         api_token=settings.api_token,
         kafka_ready=kafka.ready,
         clickhouse_ready=clickhouse.ready,
+        market_history=clickhouse,
         strategy_version=settings.storage.strategy_version,
         config_store=_config_store(settings),
     )

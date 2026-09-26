@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f6f7f5">
+    <title>历史行情 · 一进二</title>
+    <link rel="stylesheet" href="/styles.css?v=20260926.1">
+    <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
+    <link rel="stylesheet" href="/market.css?v=20260926.1">
+    <script src="/stock-history.js?v=20260926.1" defer></script>
+  </head>
+  <body class="market-body history-body">
+    <header class="topbar market-topbar">
+      <a class="brand" href="/stocks" aria-label="返回股票首页">
+        <span class="brand-mark" aria-hidden="true">BX</span>
+        <strong>一进二</strong>
+      </a>
+      <span class="app-source">mootdx · 个股历史行情</span>
+    </header>
+    <nav class="primary-nav" aria-label="主导航">
+      <a href="/stocks" aria-current="page">首页</a>
+      <a href="/strategy">策略管理</a>
+      <a href="/">次日计划</a>
+      <a href="/monitor">当日实盘</a>
+      <a href="/research">回测优化</a>
+    </nav>
+
+    <main class="market-main page-main">
+      <header class="page-header stock-page-header">
+        <div class="page-header-copy">
+          <p class="stock-breadcrumb"><a href="/stocks">沪深股票</a> / <a id="detail-link" href="/stocks">个股资料</a></p>
+          <h1><span id="history-name">读取中</span> <code id="history-code">—</code></h1>
+          <p class="page-header-meta">历史行情独立存储 · 数据源 mootdx · <span id="history-storage">—</span></p>
+        </div>
+        <button id="history-refresh" class="ui-button" type="button">从 mootdx 刷新</button>
+      </header>
+
+      <section class="history-toolbar" aria-label="历史行情周期">
+        <div id="history-periods" class="segmented-control">
+          <button type="button" data-period="minute" aria-pressed="false">分时</button>
+          <button type="button" data-period="day" aria-pressed="true">日 K</button>
+          <button type="button" data-period="week" aria-pressed="false">周 K</button>
+          <button type="button" data-period="month" aria-pressed="false">月 K</button>
+          <button type="button" data-period="year" aria-pressed="false">年 K</button>
+        </div>
+        <label id="minute-date-control" hidden>交易日
+          <select id="minute-date" class="ui-control" aria-label="选择分时交易日"></select>
+        </label>
+        <span id="history-status" class="ui-status" role="status" aria-live="polite">正在读取历史行情…</span>
+      </section>
+
+      <section class="history-summary" aria-label="区间摘要">
+        <dl>
+          <div><dt>区间</dt><dd id="range-label">—</dd></div>
+          <div><dt>最新收盘</dt><dd id="latest-close">—</dd></div>
+          <div><dt>区间涨跌</dt><dd id="range-change">—</dd></div>
+          <div><dt>区间最高</dt><dd id="range-high">—</dd></div>
+          <div><dt>区间最低</dt><dd id="range-low">—</dd></div>
+          <div><dt>累计成交额</dt><dd id="range-amount">—</dd></div>
+        </dl>
+      </section>
+
+      <section class="history-chart-section" aria-labelledby="history-chart-title">
+        <div class="content-heading">
+          <div><h2 id="history-chart-title">价格走势</h2><p id="history-count">—</p></div>
+          <span class="chart-legend">红涨绿跌 · 下方为成交量</span>
+        </div>
+        <div id="history-chart" class="history-chart" aria-live="polite"></div>
+      </section>
+
+      <section class="history-ledger" aria-labelledby="history-ledger-title">
+        <div class="content-heading">
+          <div><h2 id="history-ledger-title">历史明细</h2><p>价格、成交量与成交额均来自 mootdx。</p></div>
+        </div>
+        <div class="market-table-wrap" tabindex="0" role="region" aria-label="股票历史行情明细">
+          <table class="data-table history-table">
+            <thead><tr><th>日期 / 时间</th><th>开盘</th><th>最高</th><th>最低</th><th>收盘</th><th>涨跌幅</th><th>成交量</th><th>成交额</th></tr></thead>
+            <tbody id="history-rows"></tbody>
+          </table>
+        </div>
+        <footer class="stock-pagination">
+          <button id="history-previous" class="ui-button" type="button">上一页</button>
+          <span id="history-page">第 1 页</span>
+          <button id="history-next" class="ui-button" type="button">下一页</button>
+        </footer>
+      </section>
+    </main>
+  </body>
+</html>

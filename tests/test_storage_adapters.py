@@ -11,6 +11,7 @@ from unittest.mock import Mock, call, patch
 
 from banxia_strategy.adapters.clickhouse import (
     BAR_COLUMNS,
+    HISTORY_COLUMNS,
     QUOTE_COLUMNS,
     ClickHouseMarketHistoryStore,
 )
@@ -51,16 +52,91 @@ def event(event_type, payload, identity=None):
 class FakeClickHouseClient:
     def __init__(self):
         self.inserts = []
+        self.queries = []
+        self.query_result = SimpleNamespace(
+            column_names=[],
+            result_rows=[],
+        )
         self.closed = False
 
     def insert(self, table, rows, column_names):
         self.inserts.append((table, rows, column_names))
+
+    def query(self, sql, parameters=None):
+        self.queries.append((" ".join(sql.split()), parameters))
+        return self.query_result
 
     def close(self):
         self.closed = True
 
 
 class ClickHouseAdapterTest(unittest.TestCase):
+    def test_stock_history_bars_are_isolated_by_symbol_and_period(self):
+        client = FakeClickHouseClient()
+        store = ClickHouseMarketHistoryStore(client=client)
+        store.upsert_history_bars(
+            "688001",
+            "day",
+            [
+                {
+                    "time": "2026-09-24T15:00:00+08:00",
+                    "open": 10,
+                    "high": 11,
+                    "low": 9.8,
+                    "close": 10.8,
+                    "volume": 1200,
+                    "amount": 13000,
+                    "raw": {"source": "mootdx"},
+                }
+            ],
+        )
+
+        self.assertEqual(client.inserts[0][0], "banxia.market_history_bar")
+        self.assertEqual(client.inserts[0][2], list(HISTORY_COLUMNS))
+        self.assertEqual(client.inserts[0][1][0][:2], ("688001", "day"))
+
+        client.query_result = SimpleNamespace(
+            column_names=[
+                "trade_date",
+                "bar_time",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "amount",
+                "raw_json",
+                "fetched_at",
+            ],
+            result_rows=[
+                (
+                    date(2026, 9, 24),
+                    STAMP,
+                    10,
+                    11,
+                    9.8,
+                    10.8,
+                    1200,
+                    13000,
+                    '{"source":"mootdx"}',
+                    STAMP,
+                )
+            ],
+        )
+        result = store.get_history_bars(
+            "688001",
+            "day",
+            end_date=date(2026, 9, 24),
+            limit=20,
+        )
+
+        self.assertEqual(result[0]["close"], 10.8)
+        self.assertEqual(result[0]["raw"], {"source": "mootdx"})
+        statement, parameters = client.queries[0]
+        self.assertIn("symbol = {symbol:String}", statement)
+        self.assertIn("period = {period:String}", statement)
+        self.assertEqual(parameters["symbol"], "688001")
+
     def test_quote_and_bar_events_are_mapped_to_schema_columns(self):
         client = FakeClickHouseClient()
         store = ClickHouseMarketHistoryStore(client=client)

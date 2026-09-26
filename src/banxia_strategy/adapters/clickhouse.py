@@ -62,6 +62,22 @@ FEATURE_COLUMNS = (
     "ingest_version",
 )
 
+HISTORY_COLUMNS = (
+    "symbol",
+    "period",
+    "trade_date",
+    "bar_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "amount_cny",
+    "raw_json",
+    "fetched_at",
+    "revision",
+)
+
 
 def _datetime(value: Any) -> datetime:
     if isinstance(value, datetime):
@@ -229,6 +245,167 @@ class ClickHouseMarketHistoryStore:
                 )
             )
         self._insert("banxia.market_feature_realtime", rows, FEATURE_COLUMNS)
+
+    def upsert_history_bars(
+        self,
+        symbol: str,
+        period: str,
+        bars: Iterable[Mapping[str, Any]],
+    ) -> None:
+        fetched_at = datetime.now().astimezone()
+        revision = int(fetched_at.timestamp() * 1000)
+        rows_by_year: dict[int, List[Sequence[Any]]] = {}
+        for item in bars:
+            bar_time = _datetime(item["time"])
+            rows_by_year.setdefault(bar_time.year, []).append(
+                (
+                    symbol,
+                    period,
+                    bar_time.date(),
+                    bar_time,
+                    _decimal(item.get("open")),
+                    _decimal(item.get("high")),
+                    _decimal(item.get("low")),
+                    _decimal(item.get("close")),
+                    _integer(item.get("volume")),
+                    _decimal(item.get("amount")),
+                    json.dumps(
+                        item.get("raw", {}),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    ),
+                    fetched_at,
+                    revision,
+                )
+            )
+        for rows in rows_by_year.values():
+            self._insert(
+                "banxia.market_history_bar",
+                rows,
+                HISTORY_COLUMNS,
+            )
+
+    def get_history_bars(
+        self,
+        symbol: str,
+        period: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        limit: int = 800,
+    ) -> List[Mapping[str, Any]]:
+        clauses = [
+            "symbol = {symbol:String}",
+            "period = {period:String}",
+        ]
+        parameters: dict[str, Any] = {
+            "symbol": symbol,
+            "period": period,
+            "limit": max(1, min(int(limit), 20000)),
+        }
+        if start_date is not None:
+            clauses.append("trade_date >= {start_date:Date}")
+            parameters["start_date"] = start_date
+        if end_date is not None:
+            clauses.append("trade_date <= {end_date:Date}")
+            parameters["end_date"] = end_date
+        result = self.client.query(
+            f"""
+            SELECT
+                trade_date,
+                bar_time,
+                argMax(open, revision) AS open,
+                argMax(high, revision) AS high,
+                argMax(low, revision) AS low,
+                argMax(close, revision) AS close,
+                argMax(volume, revision) AS volume,
+                argMax(amount_cny, revision) AS amount,
+                argMax(raw_json, revision) AS raw_json,
+                max(fetched_at) AS fetched_at
+            FROM banxia.market_history_bar
+            WHERE {" AND ".join(clauses)}
+            GROUP BY trade_date, bar_time
+            ORDER BY bar_time DESC
+            LIMIT {{limit:UInt32}}
+            """,
+            parameters=parameters,
+        )
+        columns = tuple(getattr(result, "column_names", ()))
+        rows = []
+        for values in reversed(getattr(result, "result_rows", ())):
+            item = dict(zip(columns, values))
+            item["date"] = str(item.pop("trade_date"))
+            item["time"] = item.pop("bar_time").isoformat()
+            item["raw"] = json.loads(item.pop("raw_json") or "{}")
+            item["fetched_at"] = item["fetched_at"].isoformat()
+            for key in ("open", "high", "low", "close", "amount"):
+                if item.get(key) is not None:
+                    item[key] = float(item[key])
+            if item.get("volume") is not None:
+                item["volume"] = int(item["volume"])
+            rows.append(item)
+        return rows
+
+    def mark_history_sync(
+        self,
+        symbol: str,
+        period: str,
+        *,
+        row_count: int,
+        completed: bool,
+    ) -> None:
+        fetched_at = datetime.now().astimezone()
+        self._insert(
+            "banxia.market_history_sync",
+            [
+                (
+                    symbol,
+                    period,
+                    max(0, int(row_count)),
+                    int(completed),
+                    fetched_at,
+                    int(fetched_at.timestamp() * 1000),
+                )
+            ],
+            (
+                "symbol",
+                "period",
+                "row_count",
+                "completed",
+                "fetched_at",
+                "revision",
+            ),
+        )
+
+    def get_history_sync(
+        self,
+        symbol: str,
+        period: str,
+    ) -> Optional[Mapping[str, Any]]:
+        result = self.client.query(
+            """
+            SELECT
+                argMax(row_count, revision) AS row_count,
+                argMax(completed, revision) AS completed,
+                max(fetched_at) AS fetched_at
+            FROM banxia.market_history_sync
+            WHERE symbol = {symbol:String}
+              AND period = {period:String}
+            HAVING count() > 0
+            """,
+            parameters={"symbol": symbol, "period": period},
+        )
+        rows = getattr(result, "result_rows", ())
+        if not rows:
+            return None
+        row_count, completed, fetched_at = rows[0]
+        return {
+            "row_count": int(row_count),
+            "completed": bool(completed),
+            "fetched_at": fetched_at.isoformat(),
+        }
 
     def ready(self) -> bool:
         try:

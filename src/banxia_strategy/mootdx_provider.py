@@ -36,6 +36,20 @@ KLINE_FREQUENCIES = {
     "month": 6,
     "year": 11,
 }
+A_SHARE_PREFIXES_BY_MARKET = {
+    1: ("600", "601", "603", "605", "688", "689"),
+    0: ("000", "001", "002", "003", "300", "301"),
+}
+ALL_A_SHARE_PREFIXES = tuple(
+    prefix
+    for prefixes in A_SHARE_PREFIXES_BY_MARKET.values()
+    for prefix in prefixes
+)
+BOARD_PREFIXES = {
+    "main": MAIN_BOARD_PREFIXES,
+    "gem": ("300", "301"),
+    "star": ("688", "689"),
+}
 
 
 def _limit_price(previous_close: float, name: str = "") -> float:
@@ -66,6 +80,36 @@ def _finite_number(value: Any) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _json_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, bytes):
+        return value.decode("gbk", errors="replace")
+    if isinstance(value, (str, bool, int)):
+        return value
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = None
+    else:
+        return number if math.isfinite(number) else None
+    if isinstance(value, dict):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_value(item) for item in value]
+    return str(value)
+
+
+def _board_for(code: str) -> str:
+    if code.startswith(BOARD_PREFIXES["star"]):
+        return "star"
+    if code.startswith(BOARD_PREFIXES["gem"]):
+        return "gem"
+    return "main"
 
 
 def _minute_label(index: int) -> str:
@@ -185,6 +229,7 @@ class MootdxProvider:
         self.servers = tuple(servers or DEFAULT_SERVERS)
         self._client_factory = client_factory
         self._calendar: Optional[List[date]] = None
+        self._securities: Optional[List[Dict[str, Any]]] = None
         self._names: Dict[str, str] = {}
         self._histories: Dict[str, List[Dict[str, Any]]] = {}
         self._limit_pools: Optional[Dict[date, List[Dict[str, Any]]]] = None
@@ -245,6 +290,248 @@ class MootdxProvider:
         self._calendar = sessions
         return sessions
 
+    def _load_securities(self) -> None:
+        if self._securities is not None:
+            return
+
+        def fetch(client: Any) -> List[Dict[str, Any]]:
+            records: List[Dict[str, Any]] = []
+            for market in (1, 0):
+                count = int(client.stock_count(market))
+                for start in range(0, count, 1000):
+                    batch = client.client.get_security_list(
+                        market=market,
+                        start=start,
+                    )
+                    for row in batch or []:
+                        records.append({**row, "market": market})
+            return records
+
+        securities = []
+        for row in self._first_result(fetch):
+            code = str(row.get("code") or "").strip()
+            market = int(row.get("market", 0))
+            if not code.startswith(A_SHARE_PREFIXES_BY_MARKET[market]):
+                continue
+            name = str(row.get("name") or "").replace("\x00", "").strip()
+            if not name:
+                continue
+            securities.append(
+                {
+                    "symbol": code,
+                    "name": name,
+                    "market": "sh" if market == 1 else "sz",
+                    "board": _board_for(code),
+                    "previous_close": _finite_number(row.get("pre_close")),
+                    "volume_unit": int(row.get("volunit") or 100),
+                    "decimal_point": int(row.get("decimal_point") or 2),
+                }
+            )
+        if not securities:
+            raise RuntimeError("mootdx returned no Shanghai/Shenzhen A-share stocks")
+        self._securities = sorted(securities, key=lambda item: item["symbol"])
+
+    def securities(self) -> List[Dict[str, Any]]:
+        self._load_securities()
+        return [dict(item) for item in self._securities or ()]
+
+    def security(self, symbol: str) -> Optional[Dict[str, Any]]:
+        self._validate_symbol(symbol)
+        self._load_securities()
+        return next(
+            (
+                dict(item)
+                for item in self._securities or ()
+                if item["symbol"] == symbol
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _validate_symbol(symbol: str) -> None:
+        if (
+            not isinstance(symbol, str)
+            or len(symbol) != 6
+            or not symbol.isdigit()
+            or not symbol.startswith(ALL_A_SHARE_PREFIXES)
+        ):
+            raise ValueError("股票代码必须是沪深 A 股六位代码")
+
+    def quote_snapshots(
+        self,
+        symbols: Sequence[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        codes = tuple(dict.fromkeys(symbols))
+        if not codes:
+            return {}
+        for symbol in codes:
+            self._validate_symbol(symbol)
+
+        def fetch(client: Any) -> List[Dict[str, Any]]:
+            result: List[Dict[str, Any]] = []
+            for start in range(0, len(codes), 80):
+                frame = client.quotes(symbol=list(codes[start : start + 80]))
+                if frame is not None and not frame.empty:
+                    result.extend(frame.to_dict(orient="records"))
+            return result
+
+        return {
+            str(row["code"]): {
+                str(key): _json_value(value)
+                for key, value in row.items()
+            }
+            for row in self._first_result(fetch)
+        }
+
+    def company_profile(self, symbol: str) -> Dict[str, Any]:
+        self._validate_symbol(symbol)
+
+        def fetch(client: Any) -> Dict[str, Any]:
+            finance = client.finance(symbol=symbol)
+            xdxr = client.xdxr(symbol=symbol)
+            categories = client.F10C(symbol=symbol) or []
+            return {
+                "finance": (
+                    finance.iloc[0].to_dict()
+                    if finance is not None and not finance.empty
+                    else {}
+                ),
+                "corporate_actions": (
+                    xdxr.to_dict(orient="records")
+                    if xdxr is not None and not xdxr.empty
+                    else []
+                ),
+                "sections": [
+                    {
+                        "name": item.get("name"),
+                        "length": item.get("length"),
+                    }
+                    for item in categories
+                    if item.get("name")
+                ],
+            }
+
+        result = self._first_result(fetch)
+        return _json_value(result)
+
+    def company_section(self, symbol: str, section: str) -> str:
+        self._validate_symbol(symbol)
+        if not section or len(section) > 40:
+            raise ValueError("公司资料栏目无效")
+        content = self._first_result(
+            lambda client: client.F10(symbol=symbol, name=section)
+        )
+        if not isinstance(content, str):
+            content = _json_value(content)
+        return str(content)
+
+    def history_bars(
+        self,
+        symbol: str,
+        period: str,
+        *,
+        end_date: Optional[date] = None,
+        max_bars: int = 12000,
+    ) -> List[Dict[str, Any]]:
+        self._validate_symbol(symbol)
+        if period not in KLINE_FREQUENCIES:
+            raise ValueError("K线周期必须是 day、week、month 或 year")
+        if not 1 <= max_bars <= 20000:
+            raise ValueError("历史 K 线数量必须为 1 至 20000")
+
+        def fetch(client: Any) -> List[Dict[str, Any]]:
+            records: List[Dict[str, Any]] = []
+            for start in range(0, max_bars, 800):
+                offset = min(800, max_bars - start)
+                frame = client.bars(
+                    symbol=symbol,
+                    frequency=KLINE_FREQUENCIES[period],
+                    start=start,
+                    offset=offset,
+                )
+                if frame is None or frame.empty:
+                    break
+                batch = frame.to_dict(orient="records")
+                records.extend(batch)
+                if len(batch) < offset:
+                    break
+            return records
+
+        result = []
+        seen = set()
+        for raw in self._first_result(fetch):
+            try:
+                session = _bar_date(raw)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if end_date is not None and session > end_date:
+                continue
+            stamp = session.isoformat()
+            if stamp in seen:
+                continue
+            values = {
+                key: _finite_number(raw.get(key))
+                for key in ("open", "high", "low", "close")
+            }
+            if any(value is None or value <= 0 for value in values.values()):
+                continue
+            seen.add(stamp)
+            result.append(
+                {
+                    "time": f"{stamp}T15:00:00+08:00",
+                    "date": stamp,
+                    **values,
+                    "volume": _finite_number(
+                        raw.get("vol", raw.get("volume"))
+                    ),
+                    "amount": _finite_number(raw.get("amount")),
+                    "raw": {
+                        str(key): _json_value(value)
+                        for key, value in raw.items()
+                    },
+                }
+            )
+        result.sort(key=lambda item: item["time"])
+        return result
+
+    def historical_minutes(
+        self,
+        symbol: str,
+        session: date,
+    ) -> List[Dict[str, Any]]:
+        self._validate_symbol(symbol)
+        frame = self._first_result(
+            lambda client: client.minutes(
+                symbol=symbol,
+                date=session.strftime("%Y%m%d"),
+            )
+        )
+        result = []
+        for index, raw in enumerate(frame.to_dict(orient="records")[:240]):
+            price = _finite_number(raw.get("price"))
+            if price is None or price <= 0:
+                continue
+            label = _minute_label(index)
+            result.append(
+                {
+                    "time": f"{session.isoformat()}T{label}+08:00",
+                    "date": session.isoformat(),
+                    "open": price,
+                    "high": price,
+                    "low": price,
+                    "close": price,
+                    "volume": _finite_number(
+                        raw.get("vol", raw.get("volume"))
+                    ),
+                    "amount": None,
+                    "raw": {
+                        str(key): _json_value(value)
+                        for key, value in raw.items()
+                    },
+                }
+            )
+        return result
+
     def kline_bars(
         self,
         symbol: str,
@@ -255,8 +542,7 @@ class MootdxProvider:
     ) -> List[Dict[str, Any]]:
         if period not in KLINE_FREQUENCIES:
             raise ValueError("K线周期必须是 day、week、month 或 year")
-        if not isinstance(symbol, str) or len(symbol) != 6 or not symbol.isdigit():
-            raise ValueError("股票代码必须为六位数字")
+        self._validate_symbol(symbol)
         if not 1 <= limit <= 240:
             raise ValueError("K线数量必须为 1 至 240")
 
@@ -313,23 +599,11 @@ class MootdxProvider:
     def _load_universe(self) -> None:
         if self._names:
             return
-
-        def fetch(client: Any) -> List[Dict[str, Any]]:
-            records: List[Dict[str, Any]] = []
-            for market in (1, 0):
-                count = int(client.stock_count(market))
-                for start in range(0, count, 1000):
-                    batch = client.client.get_security_list(market=market, start=start)
-                    records.extend(batch or [])
-            return records
-
-        records = self._first_result(fetch)
-        for row in records:
-            code = str(row.get("code") or "").strip()
-            if not code.startswith(MAIN_BOARD_PREFIXES):
-                continue
-            name = str(row.get("name") or "").replace("\x00", "").strip()
-            self._names[code] = name
+        self._load_securities()
+        for row in self._securities or ():
+            code = row["symbol"]
+            if code.startswith(MAIN_BOARD_PREFIXES):
+                self._names[code] = row["name"]
         if not self._names:
             raise RuntimeError("mootdx returned no Shanghai/Shenzhen main-board stocks")
 

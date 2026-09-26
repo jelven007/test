@@ -163,6 +163,100 @@ class FakeHistoryProvider:
 
     def __init__(self):
         self.calls = []
+        self.history_calls = []
+
+    def securities(self):
+        return [
+            {
+                "symbol": "002635",
+                "name": "安洁科技",
+                "market": "sz",
+                "board": "main",
+                "previous_close": 10,
+            },
+            {
+                "symbol": "300750",
+                "name": "宁德时代",
+                "market": "sz",
+                "board": "gem",
+                "previous_close": 300,
+            },
+            {
+                "symbol": "688981",
+                "name": "中芯国际",
+                "market": "sh",
+                "board": "star",
+                "previous_close": 120,
+            },
+        ]
+
+    def security(self, symbol):
+        return next(
+            (item for item in self.securities() if item["symbol"] == symbol),
+            None,
+        )
+
+    def quote_snapshots(self, symbols):
+        return {
+            symbol: {
+                "code": symbol,
+                "price": 10.5,
+                "last_close": 10,
+                "open": 10.2,
+                "high": 10.8,
+                "low": 10.1,
+                "amount": 300000000,
+                "volume": 500000,
+                "servertime": "09:45:00",
+            }
+            for symbol in symbols
+        }
+
+    def company_profile(self, symbol):
+        return {
+            "finance": {"code": symbol, "jinglirun": 100000000},
+            "corporate_actions": [{"year": 2026, "name": "除权除息"}],
+            "sections": [{"name": "公司概况", "length": 100}],
+        }
+
+    def company_section(self, symbol, section):
+        return f"{symbol} {section}资料"
+
+    def history_bars(self, symbol, period, *, end_date, max_bars):
+        self.history_calls.append(
+            (symbol, period, end_date.isoformat(), max_bars)
+        )
+        return [
+            {
+                "date": "2026-09-24",
+                "time": "2026-09-24T15:00:00+08:00",
+                "open": 10,
+                "high": 10.8,
+                "low": 9.9,
+                "close": 10.5,
+                "volume": 500000,
+                "amount": 300000000,
+                "raw": {},
+            }
+        ]
+
+    def historical_minutes(self, symbol, session):
+        self.history_calls.append(
+            (symbol, "minute", session.isoformat(), 240)
+        )
+        return [
+            {
+                "date": session.isoformat(),
+                "time": f"{session.isoformat()}T09:31:00+08:00",
+                "open": 10.1,
+                "high": 10.1,
+                "low": 10.1,
+                "close": 10.1,
+                "volume": 100,
+                "amount": None,
+                "raw": {},
+            }
+        ]
 
     def kline_bars(self, symbol, period, end_date, *, limit):
         if period not in {"day", "week", "month", "year"}:
@@ -179,6 +273,45 @@ class FakeHistoryProvider:
                 "amount": 300000000.0,
             }
         ]
+
+
+class FakeMarketHistory:
+    def __init__(self):
+        self.rows = {}
+        self.writes = []
+        self.sync = {}
+
+    def get_history_bars(
+        self,
+        symbol,
+        period,
+        *,
+        start_date=None,
+        end_date=None,
+        limit=800,
+    ):
+        return list(self.rows.get((symbol, period), ()))[:limit]
+
+    def upsert_history_bars(self, symbol, period, bars):
+        values = list(bars)
+        self.writes.append((symbol, period, values))
+        self.rows[(symbol, period)] = values
+
+    def get_history_sync(self, symbol, period):
+        return self.sync.get((symbol, period))
+
+    def mark_history_sync(
+        self,
+        symbol,
+        period,
+        *,
+        row_count,
+        completed,
+    ):
+        self.sync[(symbol, period)] = {
+            "row_count": row_count,
+            "completed": completed,
+        }
 
 
 def write_report(root: Path):
@@ -366,6 +499,132 @@ class ApiV1Test(unittest.TestCase):
         )
         self.assertEqual(invalid_period.status_code, 400)
         self.assertEqual(missing_stock.status_code, 404)
+
+    def test_stock_directory_detail_company_and_history_use_mootdx(self):
+        directory = self.client.get(
+            "/api/v1/stocks?board=star&market=sh&limit=20"
+        )
+
+        self.assertEqual(directory.status_code, 200)
+        self.assertEqual(directory.json()["total"], 1)
+        self.assertEqual(directory.json()["items"][0]["symbol"], "688981")
+        self.assertEqual(
+            directory.json()["items"][0]["quote"]["change_pct"],
+            5.0,
+        )
+
+        detail = self.client.get("/api/v1/stocks/002635")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()["finance"]["jinglirun"], 100000000)
+        self.assertEqual(
+            detail.json()["sections"][0]["name"],
+            "公司概况",
+        )
+
+        company = self.client.get(
+            "/api/v1/stocks/002635/company",
+            params={"section": "公司概况"},
+        )
+        self.assertEqual(company.status_code, 200)
+        self.assertEqual(
+            company.json()["content"],
+            "002635 公司概况资料",
+        )
+
+        history = self.client.get(
+            "/api/v1/stocks/002635/history?period=day&limit=800"
+        )
+        self.assertEqual(history.status_code, 200)
+        self.assertEqual(history.json()["source"], "mootdx")
+        self.assertEqual(history.json()["items"][0]["close"], 10.5)
+
+    def test_stock_history_is_written_then_served_from_clickhouse(self):
+        store = FakeMarketHistory()
+        services = ApiServices(
+            reports=self.services.reports,
+            repository=self.services.repository,
+            cache=self.services.cache,
+            history_provider=self.services.history_provider,
+            market_history=store,
+        )
+        client = TestClient(create_api_app(services))
+
+        first = client.get(
+            "/api/v1/stocks/002635/history?period=day&limit=800"
+        )
+        second = client.get(
+            "/api/v1/stocks/002635/history?period=day&limit=800"
+        )
+
+        self.assertEqual(first.json()["served_by"], "mootdx")
+        self.assertEqual(second.json()["served_by"], "clickhouse")
+        self.assertEqual(store.writes[0][0:2], ("002635", "day"))
+
+    def test_historical_monitor_reads_clickhouse_without_redis_quotes(self):
+        store = FakeMarketHistory()
+        store.rows[("002635", "day")] = [
+            {
+                "date": "2026-09-23",
+                "time": "2026-09-23T15:00:00+08:00",
+                "close": 10,
+                "open": 9.8,
+                "high": 10.1,
+                "low": 9.7,
+                "volume": 1000,
+                "amount": 10000,
+                "fetched_at": "2026-09-24T16:00:00+08:00",
+            },
+            {
+                "date": "2026-09-24",
+                "time": "2026-09-24T15:00:00+08:00",
+                "close": 10.5,
+                "open": 10.2,
+                "high": 10.8,
+                "low": 10.1,
+                "volume": 2000,
+                "amount": 21000,
+                "fetched_at": "2026-09-24T16:00:00+08:00",
+            },
+        ]
+        store.rows[("002635", "minute")] = [
+            {
+                "date": "2026-09-24",
+                "time": "2026-09-24T09:31:00+08:00",
+                "close": 10.2,
+                "open": 10.2,
+                "high": 10.2,
+                "low": 10.2,
+                "volume": 100,
+                "amount": None,
+            }
+        ]
+        cache = FakeCache()
+        cache.get_latest_quote = Mock(
+            side_effect=AssertionError("historical monitor used Redis")
+        )
+        services = ApiServices(
+            reports=self.services.reports,
+            repository=self.services.repository,
+            cache=cache,
+            history_provider=self.services.history_provider,
+            market_history=store,
+        )
+        client = TestClient(create_api_app(services))
+
+        class LaterDay(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 9, 26, 10, tzinfo=tz)
+
+        with patch("banxia_strategy.api.datetime", LaterDay):
+            payload = client.get(
+                "/api/v1/monitor?trade_date=2026-09-24"
+            ).json()
+
+        self.assertEqual(payload["data_status"]["state"], "historical")
+        self.assertEqual(payload["stocks"][0]["price"], 10.5)
+        self.assertEqual(payload["stocks"][0]["previous_close"], 10)
+        self.assertEqual(len(payload["stocks"][0]["candles"]), 1)
 
     def test_trading_calendar_returns_page_specific_default_dates(self):
         class TradingDay(datetime):

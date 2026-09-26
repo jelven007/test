@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f6f7f5">
+    <title>股票详情 · 一进二</title>
+    <link rel="stylesheet" href="/styles.css?v=20260926.1">
+    <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
+    <link rel="stylesheet" href="/market.css?v=20260926.1">
+    <script src="/stock.js?v=20260926.1" defer></script>
+  </head>
+  <body class="market-body">
+    <header class="topbar market-topbar">
+      <a class="brand" href="/stocks" aria-label="返回股票首页">
+        <span class="brand-mark" aria-hidden="true">BX</span>
+        <strong>一进二</strong>
+      </a>
+      <span class="app-source">mootdx · 个股行情与公司资料</span>
+    </header>
+    <nav class="primary-nav" aria-label="主导航">
+      <a href="/stocks" aria-current="page">首页</a>
+      <a href="/strategy">策略管理</a>
+      <a href="/">次日计划</a>
+      <a href="/monitor">当日实盘</a>
+      <a href="/research">回测优化</a>
+    </nav>
+
+    <main class="market-main page-main">
+      <header class="page-header stock-page-header">
+        <div class="page-header-copy">
+          <p class="stock-breadcrumb"><a href="/stocks">沪深股票</a> / <span id="stock-code">—</span></p>
+          <h1 id="stock-name">读取中</h1>
+          <p class="page-header-meta"><span id="stock-market-label">—</span> · 数据源 mootdx</p>
+        </div>
+        <a id="history-link" class="ui-button primary-button" href="/stocks">历史行情</a>
+      </header>
+
+      <p id="detail-status" class="ui-status" role="status" aria-live="polite">正在读取实时行情与公司资料…</p>
+      <section class="quote-tape" aria-label="实时行情">
+        <div class="quote-primary">
+          <span>最新价</span>
+          <strong id="quote-price">—</strong>
+          <em id="quote-change">—</em>
+        </div>
+        <dl class="quote-metrics">
+          <div><dt>昨收</dt><dd id="quote-close">—</dd></div>
+          <div><dt>今开</dt><dd id="quote-open">—</dd></div>
+          <div><dt>最高</dt><dd id="quote-high">—</dd></div>
+          <div><dt>最低</dt><dd id="quote-low">—</dd></div>
+          <div><dt>成交量</dt><dd id="quote-volume">—</dd></div>
+          <div><dt>成交额</dt><dd id="quote-amount">—</dd></div>
+          <div><dt>外盘</dt><dd id="quote-buy-volume">—</dd></div>
+          <div><dt>内盘</dt><dd id="quote-sell-volume">—</dd></div>
+        </dl>
+        <div class="order-book" aria-label="五档盘口">
+          <strong>五档盘口</strong>
+          <dl id="order-book"></dl>
+        </div>
+      </section>
+
+      <section class="financial-overview" aria-labelledby="financial-title">
+        <div class="content-heading">
+          <div><h2 id="financial-title">财务摘要</h2><p id="finance-date">mootdx 财务快照</p></div>
+        </div>
+        <dl id="financial-metrics" class="financial-metrics"></dl>
+      </section>
+
+      <section class="company-workspace" aria-labelledby="company-title">
+        <aside class="company-index">
+          <div class="content-heading">
+            <div><h2 id="company-title">公司资料</h2><p>F10 全栏目</p></div>
+          </div>
+          <nav id="company-sections" aria-label="公司资料栏目"></nav>
+        </aside>
+        <article class="company-document">
+          <header>
+            <h2 id="company-section-title">公司概况</h2>
+            <span id="company-section-meta">mootdx F10</span>
+          </header>
+          <pre id="company-content">请选择左侧资料栏目。</pre>
+        </article>
+      </section>
+
+      <section class="raw-finance" aria-labelledby="raw-finance-title">
+        <div class="content-heading">
+          <div><h2 id="raw-finance-title">完整财务字段</h2><p>保留 mootdx 返回的全部财务指标。</p></div>
+        </div>
+        <div class="market-table-wrap" tabindex="0" role="region" aria-label="完整财务字段">
+          <table class="data-table field-table">
+            <thead><tr><th>字段</th><th>值</th><th>字段</th><th>值</th></tr></thead>
+            <tbody id="finance-fields"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="corporate-actions" aria-labelledby="actions-title">
+        <div class="content-heading">
+          <div><h2 id="actions-title">除权除息与股本变动</h2><p>mootdx 全量公司行为记录。</p></div>
+        </div>
+        <div class="market-table-wrap" tabindex="0" role="region" aria-label="除权除息与股本变动">
+          <table class="data-table action-table">
+            <thead><tr><th>日期</th><th>类型</th><th>分红</th><th>送转股</th><th>配股</th><th>配股价</th><th>变动前股本</th><th>变动后股本</th></tr></thead>
+            <tbody id="action-rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
