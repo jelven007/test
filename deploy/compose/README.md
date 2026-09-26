@@ -11,7 +11,7 @@
 - Kafka 3.9 单节点 KRaft
 - Flink 1.20 JobManager、TaskManager 和实时特征作业
 - `market-collector`、`market-sink`、`strategy-engine`、`outbox-relay`
-- `projection-worker`、`report-scheduler`、FastAPI 与 Prometheus
+- `projection-worker`、`market-reference-sync`、`report-scheduler`、FastAPI 与 Prometheus
 
 默认实时指标由 Flink 生成。仅在排查 Flink 故障时，使用
 `--profile python-feature-fallback` 启动确定性的 Python 降级 Worker，
@@ -28,6 +28,8 @@ make infra-check
 ```
 
 `report-scheduler` 随常驻服务启动，默认在交易日 16:30 生成初版、23:30 覆盖更新。
+`market-reference-sync` 首次启动时补齐主数据，之后每个工作日 16:20 更新证券目录、
+板块和行业版本。
 非交易日由 mootdx 交易日历校验后跳过。调度器重启后会补跑最近缺失的交易日报；
 报告任务通过 host 网络访问 mootdx，并通过完成标记区分完整持久化和残留文件。
 API 与调度器启动时会幂等预置受保护的初始策略，并提交最近一年次日计划与当日实盘
@@ -92,6 +94,17 @@ Compose 默认将宿主机 `80` 端口映射到 API 容器的 `8765` 端口，�
 
 初始化脚本只在空数据卷或显式初始化容器中运行。修改历史迁移后，不应直接依赖重启容器
 覆盖已有数据库；后续变更必须增加新的有序迁移文件。
+
+已有数据卷升级阶段一主数据结构时，先执行：
+
+```bash
+docker compose \
+  --env-file deploy/compose/.env \
+  -f deploy/compose/docker-compose.yml \
+  exec -T postgres sh -c \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/postgres/011_market_reference.sql
+```
 
 已有数据卷升级后执行一次策略目录引导：
 

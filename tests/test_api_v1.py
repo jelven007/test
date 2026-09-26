@@ -102,6 +102,46 @@ class FakeRepository:
         return self.jobs.get(job_id)
 
 
+class FakeReferenceRepository(FakeRepository):
+    def __init__(self):
+        super().__init__()
+        self.reference_calls = []
+
+    def list_stock_blocks(self):
+        self.reference_calls.append(("blocks",))
+        return [{"blockname": "持久化板块", "count": 1}]
+
+    def list_securities(self, **kwargs):
+        self.reference_calls.append(("securities", kwargs))
+        return {
+            "total": 1,
+            "items": [
+                {
+                    "symbol": "002635",
+                    "name": "安洁科技",
+                    "market": "sz",
+                    "board": "main",
+                    "previous_close": 10,
+                    "volume_unit": 100,
+                    "decimal_point": 2,
+                }
+            ],
+        }
+
+    def get_security(self, symbol):
+        self.reference_calls.append(("security", symbol))
+        if symbol != "002635":
+            return None
+        return self.list_securities()["items"][0]
+
+    def latest_market_reference_snapshot(self):
+        return {
+            "snapshot_id": "snapshot-1",
+            "as_of_date": "2026-09-25",
+            "freshness": "fresh",
+        }
+
+
 class FakeCache:
     def ready(self):
         return True
@@ -569,6 +609,51 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(history.status_code, 200)
         self.assertEqual(history.json()["source"], "mootdx")
         self.assertEqual(history.json()["items"][0]["close"], 10.5)
+
+    def test_stock_directory_and_blocks_prefer_persisted_reference_data(self):
+        repository = FakeReferenceRepository()
+        provider = FakeHistoryProvider()
+        provider.securities = Mock(
+            side_effect=AssertionError("live catalog must not be read")
+        )
+        provider.stock_blocks = Mock(
+            side_effect=AssertionError("live blocks must not be read")
+        )
+        provider.quote_snapshots = Mock(
+            side_effect=AssertionError("live quotes must not be read")
+        )
+        services = ApiServices(
+            reports=self.services.reports,
+            repository=repository,
+            cache=self.services.cache,
+            history_provider=provider,
+        )
+        client = TestClient(create_api_app(services))
+
+        blocks = client.get("/api/v1/stock-blocks")
+        directory = client.get(
+            "/api/v1/stocks?board=main&block=持久化板块&limit=20"
+        )
+        detail = client.get("/api/v1/stocks/002635")
+
+        self.assertEqual(blocks.json()["source"], "postgres")
+        self.assertEqual(
+            blocks.json()["items"][0]["blockname"],
+            "持久化板块",
+        )
+        self.assertEqual(directory.json()["source"], "postgres")
+        self.assertEqual(directory.json()["total"], 1)
+        self.assertEqual(
+            directory.json()["snapshot"]["freshness"],
+            "fresh",
+        )
+        self.assertEqual(detail.json()["source"], "postgres")
+        self.assertEqual(detail.json()["profile_source"], "mootdx")
+        securities_call = next(
+            call for call in repository.reference_calls
+            if call[0] == "securities"
+        )
+        self.assertEqual(securities_call[1]["block"], "持久化板块")
 
     def test_stock_history_is_written_then_served_from_clickhouse(self):
         store = FakeMarketHistory()

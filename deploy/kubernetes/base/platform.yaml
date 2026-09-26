@@ -16,6 +16,7 @@ data:
   BANXIA_REPORT_DIRS: /app/reports
   BANXIA_REPORT_OUTPUT_DIR: /app/reports
   BANXIA_REPORT_SCHEDULE: 16:30,23:30
+  BANXIA_REFERENCE_SYNC_SCHEDULE: "16:20"
   BANXIA_STRATEGY_CONFIG: /app/config/strategy.json
   BANXIA_MONITOR_WATCHLIST: /app/config/monitor_watchlist.json
   BANXIA_COLLECTOR_WAL_PATH: /app/data/wal/market-collector.sqlite3
@@ -27,6 +28,7 @@ data:
   BANXIA_MINIO_ENDPOINT: minio.strategy.svc:9000
   BANXIA_MINIO_SECURE: "true"
   BANXIA_MINIO_REPORT_BUCKET: strategy-reports
+  BANXIA_MINIO_MARKET_BUCKET: market-raw
   BANXIA_STRATEGY_VERSION: v2
   BANXIA_METRICS_PORT: "9100"
 ---
@@ -164,6 +166,35 @@ spec:
             periodSeconds: 15
           resources:
             requests: {cpu: 150m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-reference-sync
+  namespace: banxia
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: banxia-market-reference-sync}
+  template:
+    metadata:
+      labels: {app: banxia-market-reference-sync, component: worker}
+    spec:
+      containers:
+        - name: market-reference-sync
+          image: banxia-strategy:latest
+          args: [market-reference-sync]
+          envFrom:
+            - configMapRef: {name: banxia-runtime}
+            - secretRef: {name: banxia-secrets}
+          ports:
+            - {name: metrics, containerPort: 9100}
+          livenessProbe:
+            tcpSocket: {port: metrics}
+            periodSeconds: 15
+          resources:
+            requests: {cpu: 100m, memory: 192Mi}
             limits: {cpu: "1", memory: 768Mi}
 ---
 apiVersion: apps/v1

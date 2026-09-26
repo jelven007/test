@@ -477,6 +477,11 @@ class FakeCursor:
     def execute(self, sql, params=()):
         self.calls.append((" ".join(sql.split()), params))
 
+    def executemany(self, sql, params):
+        self.calls.append(
+            (" ".join(sql.split()), tuple(params))
+        )
+
     def fetchone(self):
         return self.fetch_results.pop(0)
 
@@ -499,6 +504,84 @@ class FakeConnection:
 
 
 class PostgresAdapterTest(unittest.TestCase):
+    def test_market_reference_publish_stages_versions_in_one_transaction(self):
+        cursor = FakeCursor([None])
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+
+        published = storage.publish_market_reference_snapshot(
+            "00000000-0000-0000-0000-000000000001",
+            source_node="example:7709",
+            source_version="mootdx/0.11.7 tdxpy/1.9.8",
+            content_sha256="a" * 64,
+            raw_object_key="manifests/reference.json",
+            row_count=2,
+            expected_count=1,
+            securities=[
+                {
+                    "market": 1,
+                    "exchange": "sh",
+                    "instrument_type": "stock",
+                    "symbol": "600001",
+                    "board": "main",
+                    "name": "样本股份",
+                    "volume_unit": 100,
+                    "decimal_point": 2,
+                    "previous_close": 10,
+                    "raw": {},
+                }
+            ],
+            memberships=[
+                {
+                    "block_type": "concept",
+                    "source_code": "新能源车",
+                    "block_name": "新能源车",
+                    "symbol": "600001",
+                    "exchange": "sh",
+                    "source_filename": "block_gn.dat",
+                    "raw": {},
+                }
+            ],
+            observed_at=STAMP,
+        )
+
+        self.assertEqual(
+            published,
+            "00000000-0000-0000-0000-000000000001",
+        )
+        statements = "\n".join(statement for statement, _ in cursor.calls)
+        self.assertIn("CREATE TEMP TABLE incoming_security", statements)
+        self.assertIn("CREATE TEMP TABLE incoming_membership", statements)
+        self.assertIn(
+            "UPDATE banxia.source_snapshot SET status = 'published'",
+            statements,
+        )
+        self.assertIn("banxia.source_sync_state", statements)
+
+    def test_market_reference_read_models_map_database_rows(self):
+        cursor = FakeCursor([])
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+        cursor.fetch_results = [
+            (
+                "600001",
+                "样本股份",
+                "sh",
+                "main",
+                10,
+                100,
+                2,
+            )
+        ]
+
+        security = storage.get_security("600001")
+
+        self.assertEqual(security["symbol"], "600001")
+        self.assertEqual(security["market"], "sh")
+        self.assertEqual(security["previous_close"], 10.0)
+
     def test_trading_session_check_uses_persisted_calendar(self):
         cursor = FakeCursor([(True,), (False,)])
         storage = PostgresStorage(
@@ -1008,11 +1091,13 @@ class StorageSettingsTest(unittest.TestCase):
                 "BANXIA_STORAGE_MODE": "required",
                 "BANXIA_WRITER_BATCH_SIZE": "8",
                 "BANXIA_MINIO_SECURE": "true",
+                "BANXIA_MINIO_MARKET_BUCKET": "reference-data",
             }
         )
         self.assertTrue(settings.required)
         self.assertEqual(settings.writer_batch_size, 8)
         self.assertTrue(settings.minio_secure)
+        self.assertEqual(settings.minio_market_bucket, "reference-data")
         with self.assertRaises(ValueError):
             StorageSettings.from_env({"BANXIA_STORAGE_MODE": "silent"})
 

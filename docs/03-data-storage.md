@@ -15,6 +15,11 @@
 | 待发布采集事件 | RocksDB WAL | Kafka | Kafka 确认前的本地持久缓冲 |
 | 原始盘口快照 | ClickHouse | Kafka、S3/MinIO | 高频写入、时间范围查询、长期归档 |
 | 一分钟线 | ClickHouse | S3/MinIO | 按股票和分钟幂等更新 |
+| 证券目录、交易日历和板块关系 | PostgreSQL | S3/MinIO | 当前主数据和时点版本，原始文件内容寻址归档 |
+| 公司财务摘要和除权除息 | PostgreSQL | S3/MinIO | 按观察时间版本化，支持历史研究 |
+| F10 公司资料 | S3/MinIO | PostgreSQL | 正文不可变保存，数据库保存栏目和版本索引 |
+| 多周期历史行情和历史分笔 | ClickHouse | S3/MinIO | 股票、指数和频次使用无冲突 instrument_id |
+| 历史财务报表 | ClickHouse | S3/MinIO、PostgreSQL | 报告期查询、原始财务包和文件清单 |
 | Flink 衍生指标 | ClickHouse | Kafka、Redis | 历史分析与最新值查询 |
 | 策略定义和版本 | PostgreSQL | S3/MinIO | 事务控制和配置快照 |
 | 策略目录和血缘 | PostgreSQL | 无 | 可重命名展示信息、不可变参数、父子关系、唯一激活状态和永久删除 |
@@ -234,6 +239,9 @@ ORDER BY (trade_date, symbol, source_time, event_id)
 market-raw/
   quote/trade_date=YYYY-MM-DD/hour=HH/part-*.parquet
   bar_1m/trade_date=YYYY-MM-DD/part-*.parquet
+  security-catalog/as_of_date=YYYY-MM-DD/<sha256>.json.gz
+  reference/file=<filename>/as_of_date=YYYY-MM-DD/<sha256>.bin
+  manifests/dataset=market_reference/snapshot_id=<uuid>/manifest.json
 
 strategy-reports/
   strategy_version=<version>/trade_date=YYYY-MM-DD/sha256=<content-hash>/
@@ -304,7 +312,13 @@ flink-state/
 
 严重异常必须将策略状态降级为“行情异常”，不得仅记录日志后继续判断。
 
-## 12. 备份与恢复
+## 12. mootdx 非实时数据
+
+证券目录、板块原始文件、行业配置、F10、财务、除权除息、股票和指数多周期 K 线、
+历史分时、历史分笔及历史财务包的表级设计、同步水位和读取改造见
+[mootdx 非实时数据持久化设计](11-mootdx-persistence.md)。
+
+## 13. 备份与恢复
 
 - PostgreSQL：持续 WAL 归档，每日全量备份，支持时间点恢复。
 - ClickHouse：每日增量备份到对象存储，定期验证恢复。

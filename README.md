@@ -29,6 +29,7 @@ mootdx -> SQLite WAL -> Kafka -> Flink / 策略状态机
 - [策略研究](docs/08-strategy-research.md)
 - [多策略管理](docs/09-multi-strategy.md)
 - [Web UI 标准](docs/10-web-ui-standard.md)
+- [mootdx 非实时数据持久化](docs/11-mootdx-persistence.md)
 - [OpenAPI](docs/openapi.yaml) / [AsyncAPI](docs/asyncapi.yaml)
 
 ## 本地基础设施

@@ -343,6 +343,64 @@ def create_api_app(services: ApiServices):
     config_store = services.config_store or StrategyConfigStore(Path("config/strategy.json"))
     history_provider = services.history_provider or MootdxProvider()
     market_history = services.market_history
+    reference_repository = (
+        services.repository
+        if all(
+            callable(getattr(services.repository, name, None))
+            for name in (
+                "list_stock_blocks",
+                "list_securities",
+                "get_security",
+                "latest_market_reference_snapshot",
+            )
+        )
+        else None
+    )
+
+    def reference_metadata() -> dict[str, Any]:
+        if reference_repository is None:
+            return {
+                "source": getattr(history_provider, "source_name", "mootdx"),
+                "snapshot": None,
+            }
+        snapshot = reference_repository.latest_market_reference_snapshot()
+        return {
+            "source": "postgres",
+            "snapshot": snapshot,
+            **(
+                {
+                    key: snapshot.get(key)
+                    for key in (
+                        "source_as_of",
+                        "fetched_at",
+                        "snapshot_id",
+                        "data_state",
+                        "stale_after",
+                    )
+                }
+                if snapshot
+                else {}
+            ),
+        }
+
+    def reference_security(symbol: str):
+        MootdxProvider._validate_symbol(symbol)
+        if reference_repository is not None:
+            return reference_repository.get_security(symbol)
+        return history_provider.security(symbol)
+
+    def reference_quotes(symbols):
+        if reference_repository is None:
+            return history_provider.quote_snapshots(symbols)
+        quotes = {}
+        for symbol in symbols:
+            try:
+                cached = services.cache.get_latest_quote(symbol)
+            except Exception:
+                cached = None
+            if cached:
+                quotes[symbol] = dict(cached.get("payload") or cached)
+        return quotes
 
     def history_items(
         symbol: str,
@@ -411,7 +469,7 @@ def create_api_app(services: ApiServices):
         return fetched[-limit:], getattr(history_provider, "source_name", "mootdx")
 
     def stock_quote(raw: Mapping[str, Any]):
-        previous_close = raw.get("last_close")
+        previous_close = raw.get("last_close", raw.get("previous_close"))
         current = raw.get("price")
         change_pct = None
         if current is not None and previous_close:
@@ -735,14 +793,18 @@ def create_api_app(services: ApiServices):
     @app.get("/api/v1/stock-blocks")
     def stock_blocks():
         try:
-            items = history_provider.stock_blocks()
+            if reference_repository is not None:
+                items = reference_repository.list_stock_blocks()
+            else:
+                items = history_provider.stock_blocks()
+            metadata = reference_metadata()
         except Exception as exc:
             raise HTTPException(
                 status_code=503,
-                detail=f"mootdx 板块数据暂不可用：{exc}",
+                detail=f"板块主数据暂不可用：{exc}",
             ) from exc
         return {
-            "source": getattr(history_provider, "source_name", "mootdx"),
+            **metadata,
             "items": items,
         }
 
@@ -768,42 +830,56 @@ def create_api_app(services: ApiServices):
         if len(blockname) > 40:
             raise HTTPException(status_code=400, detail="股票板块无效")
         try:
-            universe = history_provider.securities()
-            block_symbols = (
-                set(history_provider.stock_block_symbols(blockname))
-                if blockname
-                else None
-            )
             keyword = (q or "").strip().lower()
-            filtered = [
-                item
-                for item in universe
-                if (board == "all" or item["board"] == board)
-                and (market == "all" or item["market"] == market)
-                and (
-                    block_symbols is None
-                    or item["symbol"] in block_symbols
+            if reference_repository is not None:
+                result = reference_repository.list_securities(
+                    query=keyword or None,
+                    board=board,
+                    market=market,
+                    block=blockname or None,
+                    limit=limit,
+                    offset=offset,
                 )
-                and (
-                    not keyword
-                    or keyword in item["symbol"]
-                    or keyword in item["name"].lower()
+                total = result["total"]
+                page = result["items"]
+            else:
+                universe = history_provider.securities()
+                block_symbols = (
+                    set(history_provider.stock_block_symbols(blockname))
+                    if blockname
+                    else None
                 )
-            ]
-            page = filtered[offset : offset + limit]
-            quotes = history_provider.quote_snapshots(
+                filtered = [
+                    item
+                    for item in universe
+                    if (board == "all" or item["board"] == board)
+                    and (market == "all" or item["market"] == market)
+                    and (
+                        block_symbols is None
+                        or item["symbol"] in block_symbols
+                    )
+                    and (
+                        not keyword
+                        or keyword in item["symbol"]
+                        or keyword in item["name"].lower()
+                    )
+                ]
+                total = len(filtered)
+                page = filtered[offset : offset + limit]
+            quotes = reference_quotes(
                 [item["symbol"] for item in page]
             )
+            metadata = reference_metadata()
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(
                 status_code=503,
-                detail=f"mootdx 股票目录暂不可用：{exc}",
+                detail=f"股票主数据暂不可用：{exc}",
             ) from exc
         return {
-            "source": getattr(history_provider, "source_name", "mootdx"),
-            "total": len(filtered),
+            **metadata,
+            "total": total,
             "limit": limit,
             "offset": offset,
             "items": [
@@ -818,11 +894,12 @@ def create_api_app(services: ApiServices):
     @app.get("/api/v1/stocks/{symbol}")
     def stock_detail(symbol: str):
         try:
-            security = history_provider.security(symbol)
+            security = reference_security(symbol)
             if security is None:
                 raise HTTPException(status_code=404, detail="股票不存在")
-            quotes = history_provider.quote_snapshots([symbol])
+            quotes = reference_quotes([symbol])
             profile = history_provider.company_profile(symbol)
+            metadata = reference_metadata()
         except HTTPException:
             raise
         except ValueError as exc:
@@ -834,7 +911,12 @@ def create_api_app(services: ApiServices):
             ) from exc
         return {
             **security,
-            "source": getattr(history_provider, "source_name", "mootdx"),
+            **metadata,
+            "profile_source": getattr(
+                history_provider,
+                "source_name",
+                "mootdx",
+            ),
             "quote": stock_quote(quotes.get(symbol, {})),
             **profile,
         }
@@ -842,7 +924,7 @@ def create_api_app(services: ApiServices):
     @app.get("/api/v1/stocks/{symbol}/company")
     def stock_company_section(symbol: str, section: str):
         try:
-            if history_provider.security(symbol) is None:
+            if reference_security(symbol) is None:
                 raise HTTPException(status_code=404, detail="股票不存在")
             content = history_provider.company_section(symbol, section)
         except HTTPException:
@@ -876,7 +958,7 @@ def create_api_app(services: ApiServices):
         if not 1 <= limit <= 20000:
             raise HTTPException(status_code=400, detail="limit 必须为 1 至 20000")
         try:
-            security = history_provider.security(symbol)
+            security = reference_security(symbol)
             if security is None:
                 raise HTTPException(status_code=404, detail="股票不存在")
             if period == "minute":

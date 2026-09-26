@@ -23,6 +23,7 @@ from .application.market_sink import MarketSinkWorker
 from .application.outbox import OutboxRelay
 from .application.plans import ActivePlan, load_active_plan
 from .application.projection import ProjectionWorker
+from .application.reference_sync import MarketReferenceSync
 from .application.reliable_publish import ReliableEventPublisher
 from .application.report_scheduler import (
     SHANGHAI,
@@ -77,6 +78,18 @@ def _minio(settings: RuntimeSettings) -> MinioObjectAssetStore:
         storage.minio_secret_key,
         bucket=storage.minio_report_bucket,
         secure=storage.minio_secure,
+    )
+
+
+def _market_minio(settings: RuntimeSettings) -> MinioObjectAssetStore:
+    storage = settings.storage
+    return MinioObjectAssetStore(
+        storage.minio_endpoint,
+        storage.minio_access_key,
+        storage.minio_secret_key,
+        bucket=storage.minio_market_bucket,
+        secure=storage.minio_secure,
+        ensure_bucket=True,
     )
 
 
@@ -690,6 +703,69 @@ def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
         logger.info("report scheduler stopped")
 
 
+def run_market_reference_sync(
+    settings: RuntimeSettings,
+    logger: Any,
+) -> None:
+    stop = threading.Event()
+    repository = _postgres(settings)
+    object_store = _market_minio(settings)
+    worker = MarketReferenceSync(
+        repository=repository,
+        object_store=object_store,
+    )
+    schedule = parse_schedule(settings.reference_sync_schedule)
+    retry_after = 0.0
+
+    def request_stop(_signum, _frame):
+        stop.set()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+    logger.info(
+        "market reference sync started",
+        extra={"schedule": ",".join(settings.reference_sync_schedule)},
+    )
+    try:
+        while not stop.is_set():
+            now = datetime.now(SHANGHAI)
+            latest = repository.latest_market_reference_snapshot()
+            bootstrap = latest is None
+            scheduled = (
+                now.weekday() < 5
+                and any(now.time() >= slot for slot in schedule)
+                and (
+                    latest is None
+                    or latest["as_of_date"] != now.date().isoformat()
+                )
+            )
+            if (
+                (bootstrap or scheduled)
+                and now.timestamp() >= retry_after
+            ):
+                try:
+                    result = worker.run(now.date())
+                    retry_after = 0.0
+                    logger.info(
+                        "market reference snapshot published",
+                        extra={
+                            "snapshot_id": result["snapshot_id"],
+                            "as_of_date": result["as_of_date"],
+                            "row_count": result["row_count"],
+                        },
+                    )
+                except Exception:
+                    retry_after = now.timestamp() + 300
+                    logger.exception(
+                        "market reference sync failed; published snapshot retained"
+                    )
+            stop.wait(30.0)
+    finally:
+        object_store.close()
+        repository.close()
+        logger.info("market reference sync stopped")
+
+
 def run_api(settings: RuntimeSettings, logger: Any) -> None:
     try:
         import uvicorn
@@ -749,6 +825,7 @@ RUNNERS = {
     "projection-worker": run_projection_worker,
     "report-worker": run_report_worker,
     "report-scheduler": run_report_scheduler,
+    "market-reference-sync": run_market_reference_sync,
     "api": run_api,
 }
 

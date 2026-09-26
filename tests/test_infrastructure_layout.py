@@ -87,6 +87,22 @@ class StorageSchemaTest(unittest.TestCase):
         self.assertIn("INTERVAL 5 YEAR DELETE", schema)
         self.assertIn("ORDER BY (symbol, period, bar_time)", schema)
 
+    def test_market_reference_schema_versions_security_and_block_membership(self):
+        schema = (
+            ROOT / "migrations/postgres/011_market_reference.sql"
+        ).read_text(encoding="utf-8")
+        for table in (
+            "source_snapshot",
+            "source_sync_state",
+            "security_master",
+            "security_master_version",
+            "market_block",
+            "market_block_membership_version",
+        ):
+            self.assertIn(f"banxia.{table}", schema)
+        self.assertIn("WHERE valid_to IS NULL", schema)
+        self.assertIn("published_snapshot_id", schema)
+
 
 class ComposeLayoutTest(unittest.TestCase):
     def test_compose_declares_required_local_services(self):
@@ -109,6 +125,7 @@ class ComposeLayoutTest(unittest.TestCase):
             "projection-worker",
             "report-worker",
             "report-scheduler",
+            "market-reference-sync",
             "api",
             "prometheus",
         ):
@@ -118,6 +135,8 @@ class ComposeLayoutTest(unittest.TestCase):
         self.assertIn("RESTARTING", compose)
         self.assertIn("RECONCILING", compose)
         self.assertIn("16:30,23:30", compose)
+        self.assertIn("BANXIA_REFERENCE_SYNC_SCHEDULE", compose)
+        self.assertIn("BANXIA_MINIO_MARKET_BUCKET", compose)
         self.assertIn('"${BANXIA_API_PORT:-80}:8765"', compose)
         env_example = (ROOT / "deploy/compose/.env.example").read_text(
             encoding="utf-8"

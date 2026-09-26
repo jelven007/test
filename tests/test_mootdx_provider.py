@@ -5,6 +5,7 @@ from datetime import date
 from unittest.mock import patch
 
 from banxia_strategy.mootdx_provider import (
+    REFERENCE_FILES,
     MootdxProvider,
     _extract_pools,
     _limit_price,
@@ -99,6 +100,74 @@ class MootdxCalculationTest(unittest.TestCase):
                 "600001": "main",
                 "688001": "star",
             },
+        )
+
+    def test_reference_snapshot_fetches_catalog_and_all_files_from_one_node(self):
+        contents = {
+            filename: f"raw:{filename}".encode()
+            for filename in REFERENCE_FILES
+        }
+
+        class LowLevelClient:
+            @staticmethod
+            def get_security_list(market, start):
+                if start:
+                    return []
+                if market == 1:
+                    return [
+                        {"code": "600001", "name": "沪市主板"},
+                        {"code": "000001", "name": "上证指数"},
+                    ]
+                return [
+                    {"code": "000001", "name": "深市主板"},
+                    {"code": "399001", "name": "深证成指"},
+                ]
+
+            @staticmethod
+            def get_block_info_meta(filename):
+                return {"size": len(contents[filename])}
+
+            @staticmethod
+            def get_block_info(filename, start, size):
+                return contents[filename][start : start + size]
+
+        class Client:
+            client = LowLevelClient()
+
+            @staticmethod
+            def stock_count(_market):
+                return 2
+
+            @staticmethod
+            def close():
+                pass
+
+        provider = MootdxProvider(
+            servers=[("example", 7709)],
+            client_factory=lambda _server: Client(),
+        )
+
+        def blocks(_content, filename):
+            return [
+                {
+                    "blockname": f"{filename}-板块",
+                    "code": "600001",
+                    "block_type": 1,
+                }
+            ]
+
+        with patch.object(provider, "_parse_block_records", side_effect=blocks):
+            result = provider.reference_snapshot()
+
+        self.assertEqual(result["source_node"], "example:7709")
+        self.assertEqual(set(result["files"]), set(REFERENCE_FILES))
+        self.assertEqual(
+            [item["symbol"] for item in result["securities"]],
+            ["000001", "600001"],
+        )
+        self.assertEqual(
+            {item["block_type"] for item in result["memberships"]},
+            {"default", "concept", "style", "index"},
         )
 
     def test_historical_minutes_receive_stable_market_times(self):

@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 
 Server = Tuple[str, int]
@@ -50,6 +50,13 @@ BOARD_PREFIXES = {
     "gem": ("300", "301"),
     "star": ("688", "689"),
 }
+REFERENCE_BLOCK_FILES = {
+    "block.dat": "default",
+    "block_gn.dat": "concept",
+    "block_fg.dat": "style",
+    "block_zs.dat": "index",
+}
+REFERENCE_FILES = (*REFERENCE_BLOCK_FILES, "tdxhy.cfg")
 
 
 def _limit_price(previous_close: float, name: str = "") -> float:
@@ -269,6 +276,13 @@ class MootdxProvider:
             pass
 
     def _first_result(self, action: Callable[[Any], Any]) -> Any:
+        result, _server = self._first_result_with_server(action)
+        return result
+
+    def _first_result_with_server(
+        self,
+        action: Callable[[Any], Any],
+    ) -> Tuple[Any, Server]:
         last_error: Optional[Exception] = None
         for server in self.servers:
             client = None
@@ -279,7 +293,7 @@ class MootdxProvider:
                     continue
                 if isinstance(result, (bytes, list, tuple, dict)) and not result:
                     continue
-                return result
+                return result, server
             except Exception as exc:
                 last_error = exc
             finally:
@@ -354,6 +368,34 @@ class MootdxProvider:
         return [dict(item) for item in self._securities or ()]
 
     @staticmethod
+    def _security_catalog_from_client(
+        client: Any,
+    ) -> Tuple[List[Dict[str, Any]], Dict[int, int]]:
+        records: List[Dict[str, Any]] = []
+        counts: Dict[int, int] = {}
+        for market in (1, 0):
+            count = int(client.stock_count(market))
+            counts[market] = count
+            for start in range(0, count, 1000):
+                batch = client.client.get_security_list(
+                    market=market,
+                    start=start,
+                )
+                if hasattr(batch, "to_dict"):
+                    batch = batch.to_dict(orient="records")
+                for row in batch or []:
+                    records.append(
+                        {
+                            **{
+                                str(key): _json_value(value)
+                                for key, value in row.items()
+                            },
+                            "market": market,
+                        }
+                    )
+        return records, counts
+
+    @staticmethod
     def _parse_block_records(content: bytes, filename: str) -> List[Dict[str, Any]]:
         from tdxpy.reader.block_reader import BlockReader, BlockReader_TYPE_FLAT
 
@@ -390,6 +432,165 @@ class MootdxProvider:
             return (self._stock_blocks or {})[blockname]
         except KeyError as exc:
             raise ValueError("股票板块无效") from exc
+
+    def reference_snapshot(self) -> Dict[str, Any]:
+        """Fetch the complete phase-one reference bundle from one TDX node."""
+
+        def fetch(client: Any) -> Dict[str, Any]:
+            raw_securities, expected_counts = self._security_catalog_from_client(
+                client
+            )
+            actual_counts = Counter(
+                int(item["market"]) for item in raw_securities
+            )
+            incomplete = {
+                market: {
+                    "expected": expected,
+                    "actual": actual_counts.get(market, 0),
+                }
+                for market, expected in expected_counts.items()
+                if actual_counts.get(market, 0) != expected
+            }
+            if incomplete:
+                raise RuntimeError(
+                    f"incomplete mootdx security catalog: {incomplete}"
+                )
+            files = {
+                filename: self._download_client_file(client, filename)
+                for filename in REFERENCE_FILES
+            }
+            if any(not content for content in files.values()):
+                missing = [
+                    filename
+                    for filename, content in files.items()
+                    if not content
+                ]
+                raise RuntimeError(
+                    f"mootdx returned empty reference files: {', '.join(missing)}"
+                )
+            return {
+                "raw_securities": raw_securities,
+                "expected_counts": expected_counts,
+                "files": files,
+            }
+
+        payload, server = self._first_result_with_server(fetch)
+        securities = self._normalize_reference_securities(
+            payload["raw_securities"]
+        )
+        symbols = {item["symbol"]: item for item in securities}
+        memberships: List[Dict[str, Any]] = []
+        for filename, block_type in REFERENCE_BLOCK_FILES.items():
+            for row in self._parse_block_records(
+                payload["files"][filename],
+                filename,
+            ):
+                block_name = (
+                    str(row.get("blockname") or "")
+                    .replace("\x00", "")
+                    .strip()
+                )
+                symbol = (
+                    str(row.get("code") or "")
+                    .replace("\x00", "")
+                    .strip()
+                )
+                security = symbols.get(symbol)
+                if not block_name or security is None:
+                    continue
+                memberships.append(
+                    {
+                        "block_type": block_type,
+                        "source_code": block_name,
+                        "block_name": block_name,
+                        "symbol": symbol,
+                        "exchange": security["exchange"],
+                        "source_filename": filename,
+                        "raw": {
+                            str(key): _json_value(value)
+                            for key, value in row.items()
+                        },
+                    }
+                )
+        memberships.extend(
+            self._parse_industry_memberships(
+                payload["files"]["tdxhy.cfg"],
+                symbols,
+            )
+        )
+        if not memberships:
+            raise RuntimeError("mootdx returned no reference memberships")
+        return {
+            "source_node": f"{server[0]}:{server[1]}",
+            "raw_securities": payload["raw_securities"],
+            "expected_counts": payload["expected_counts"],
+            "files": payload["files"],
+            "securities": securities,
+            "memberships": memberships,
+        }
+
+    @staticmethod
+    def _normalize_reference_securities(
+        records: Iterable[Mapping[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        securities: List[Dict[str, Any]] = []
+        for row in records:
+            market = int(row.get("market", 0))
+            code = str(row.get("code") or "").strip()
+            prefixes = A_SHARE_PREFIXES_BY_MARKET.get(market, ())
+            if not code.startswith(prefixes):
+                continue
+            name = str(row.get("name") or "").replace("\x00", "").strip()
+            if not name:
+                continue
+            securities.append(
+                {
+                    "symbol": code,
+                    "name": name,
+                    "market": market,
+                    "exchange": "sh" if market == 1 else "sz",
+                    "instrument_type": "stock",
+                    "board": _board_for(code),
+                    "previous_close": _finite_number(row.get("pre_close")),
+                    "volume_unit": int(row.get("volunit") or 100),
+                    "decimal_point": int(row.get("decimal_point") or 2),
+                    "raw": {
+                        str(key): _json_value(value)
+                        for key, value in row.items()
+                    },
+                }
+            )
+        if not securities:
+            raise RuntimeError("mootdx returned no Shanghai/Shenzhen A-share stocks")
+        return sorted(securities, key=lambda item: item["symbol"])
+
+    @staticmethod
+    def _parse_industry_memberships(
+        content: bytes,
+        securities: Mapping[str, Mapping[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        memberships = []
+        for line in content.decode("gbk", errors="replace").splitlines():
+            parts = line.strip().split("|")
+            if len(parts) < 3:
+                continue
+            symbol = parts[1].strip()
+            industry_code = parts[2].strip()
+            security = securities.get(symbol)
+            if security is None or not industry_code:
+                continue
+            memberships.append(
+                {
+                    "block_type": "industry",
+                    "source_code": industry_code,
+                    "block_name": industry_code,
+                    "symbol": symbol,
+                    "exchange": security["exchange"],
+                    "source_filename": "tdxhy.cfg",
+                    "raw": {"fields": parts, "line": line},
+                }
+            )
+        return memberships
 
     def security(self, symbol: str) -> Optional[Dict[str, Any]]:
         self._validate_symbol(symbol)
@@ -723,25 +924,28 @@ class MootdxProvider:
         )
         self._load_classifications()
 
-    def _download_server_file(self, filename: str) -> bytes:
-        def fetch(client: Any) -> bytes:
-            meta = client.client.get_block_info_meta(filename)
-            size = int((meta or {}).get("size") or 0)
-            if size <= 0:
-                return b""
-            content = bytearray()
-            chunk_size = 0x7530
-            for start in range(0, size, chunk_size):
-                content.extend(
-                    client.client.get_block_info(
-                        filename,
-                        start,
-                        min(chunk_size, size - start),
-                    )
+    @staticmethod
+    def _download_client_file(client: Any, filename: str) -> bytes:
+        meta = client.client.get_block_info_meta(filename)
+        size = int((meta or {}).get("size") or 0)
+        if size <= 0:
+            return b""
+        content = bytearray()
+        chunk_size = 0x7530
+        for start in range(0, size, chunk_size):
+            content.extend(
+                client.client.get_block_info(
+                    filename,
+                    start,
+                    min(chunk_size, size - start),
                 )
-            return bytes(content[:size])
+            )
+        return bytes(content[:size])
 
-        return self._first_result(fetch)
+    def _download_server_file(self, filename: str) -> bytes:
+        return self._first_result(
+            lambda client: self._download_client_file(client, filename)
+        )
 
     def _load_classifications(self) -> None:
         try:

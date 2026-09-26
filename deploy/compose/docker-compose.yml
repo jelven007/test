@@ -12,6 +12,7 @@ x-app-common: &app-common
     BANXIA_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     BANXIA_REPORT_DIRS: /app/scheduled_reports,/app/reports
     BANXIA_REPORT_SCHEDULE: ${BANXIA_REPORT_SCHEDULE:-16:30,23:30}
+    BANXIA_REFERENCE_SYNC_SCHEDULE: ${BANXIA_REFERENCE_SYNC_SCHEDULE:-16:20}
     BANXIA_STRATEGY_CONFIG: /app/config/strategy.json
     BANXIA_MONITOR_WATCHLIST: /app/config/monitor_watchlist.json
     BANXIA_WATCH_DATE: ${BANXIA_WATCH_DATE:-}
@@ -29,6 +30,7 @@ x-app-common: &app-common
     BANXIA_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-banxia-local-secret}
     BANXIA_MINIO_SECURE: "false"
     BANXIA_MINIO_REPORT_BUCKET: strategy-reports
+    BANXIA_MINIO_MARKET_BUCKET: market-raw
     BANXIA_STRATEGY_VERSION: ${BANXIA_STRATEGY_VERSION:-v2}
     BANXIA_CODE_COMMIT: ${BANXIA_CODE_COMMIT:-local}
   volumes:
@@ -372,6 +374,15 @@ services:
       kafka-init:
         condition: service_completed_successfully
 
+  market-reference-sync:
+    <<: *app-common
+    command: ["market-reference-sync"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
   api:
     <<: *app-common
     command: ["api"]
@@ -395,6 +406,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      market-reference-sync:
+        condition: service_started
       strategy-engine:
         condition: service_started
     healthcheck:

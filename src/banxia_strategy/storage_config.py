@@ -45,6 +45,7 @@ class StorageSettings:
     minio_secret_key: str = "banxia-local-secret"
     minio_secure: bool = False
     minio_report_bucket: str = "strategy-reports"
+    minio_market_bucket: str = "market-raw"
     strategy_version: str = "v2"
     code_commit: str = "unknown"
     monitor_snapshot_ttl_seconds: int = 172800
@@ -117,6 +118,10 @@ class StorageSettings:
             minio_report_bucket=environ.get(
                 "BANXIA_MINIO_REPORT_BUCKET",
                 cls.minio_report_bucket,
+            ),
+            minio_market_bucket=environ.get(
+                "BANXIA_MINIO_MARKET_BUCKET",
+                cls.minio_market_bucket,
             ),
             strategy_version=environ.get(
                 "BANXIA_STRATEGY_VERSION",
