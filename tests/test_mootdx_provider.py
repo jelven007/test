@@ -8,6 +8,7 @@ from banxia_strategy.mootdx_provider import (
     REFERENCE_FILES,
     MootdxProvider,
     _extract_pools,
+    _json_value,
     _limit_price,
     _seal_statistics,
     _stock_blocks_from_records,
@@ -27,6 +28,20 @@ def bar(day: int, close: float, high: float, amount: float = 500_000_000):
 
 
 class MootdxCalculationTest(unittest.TestCase):
+    def test_json_values_remove_postgres_incompatible_nul_characters(self):
+        self.assertEqual(
+            _json_value(
+                {
+                    "name\x00": "万 科Ａ\x00",
+                    "nested": [b"\xcd\xf2\xbf\xc6\x00"],
+                }
+            ),
+            {
+                "name": "万 科Ａ",
+                "nested": ["万科"],
+            },
+        )
+
     def test_stock_blocks_are_deduplicated_from_raw_blockname_records(self):
         blocks = _stock_blocks_from_records(
             [

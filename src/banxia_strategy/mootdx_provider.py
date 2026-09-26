@@ -95,8 +95,10 @@ def _json_value(value: Any) -> Any:
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     if isinstance(value, bytes):
-        return value.decode("gbk", errors="replace")
-    if isinstance(value, (str, bool, int)):
+        return value.decode("gbk", errors="replace").replace("\x00", "")
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, (bool, int)):
         return value
     try:
         number = float(value)
@@ -105,7 +107,10 @@ def _json_value(value: Any) -> Any:
     else:
         return number if math.isfinite(number) else None
     if isinstance(value, dict):
-        return {str(key): _json_value(item) for key, item in value.items()}
+        return {
+            str(key).replace("\x00", ""): _json_value(item)
+            for key, item in value.items()
+        }
     if isinstance(value, (list, tuple)):
         return [_json_value(item) for item in value]
     return str(value)
