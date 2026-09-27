@@ -15,6 +15,7 @@ from ..ports.storage import (
     ReportIdentity,
 )
 from .market_reference import MarketReferenceMixin
+from .identity_settings import IdentitySettingsMixin
 from .strategy_catalog import INITIAL_STRATEGY_CODE, StrategyCatalogMixin
 
 
@@ -48,7 +49,11 @@ def _mapping(value: Any) -> Mapping[str, Any]:
     return value
 
 
-class PostgresStorage(MarketReferenceMixin, StrategyCatalogMixin):
+class PostgresStorage(
+    IdentitySettingsMixin,
+    MarketReferenceMixin,
+    StrategyCatalogMixin,
+):
     """Transactional report catalog and decision repository."""
 
     def __init__(

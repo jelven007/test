@@ -20,6 +20,7 @@ storage = [
   "redis>=5,<7",
 ]
 production = [
+  "argon2-cffi>=23.1,<26",
   "clickhouse-connect>=0.8,<0.11",
   "confluent-kafka>=2.6,<3",
   "fastapi>=0.115,<1",

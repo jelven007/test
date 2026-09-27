@@ -22,6 +22,22 @@ def _float(environ: Mapping[str, str], name: str, default: float) -> float:
     return value
 
 
+def _boolean(
+    environ: Mapping[str, str],
+    name: str,
+    default: bool,
+) -> bool:
+    raw = environ.get(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean")
+
+
 def _schedule(
     environ: Mapping[str, str],
     name: str,
@@ -70,6 +86,16 @@ class RuntimeSettings:
     api_host: str = "127.0.0.1"
     api_port: int = 8765
     api_token: Optional[str] = None
+    auth_enabled: bool = True
+    auth_secret: Optional[str] = None
+    auth_session_hours: int = 168
+    auth_cookie_secure: bool = False
+    smtp_host: str = "smtp.126.com"
+    smtp_port: int = 465
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_sender: Optional[str] = None
+    smtp_timeout_seconds: int = 10
     metrics_port: Optional[int] = None
     storage: StorageSettings = field(default_factory=StorageSettings)
 
@@ -152,6 +178,33 @@ class RuntimeSettings:
             api_host=source.get("BANXIA_API_HOST", "127.0.0.1"),
             api_port=_integer(source, "BANXIA_API_PORT", 8765),
             api_token=source.get("BANXIA_API_TOKEN") or None,
+            auth_enabled=_boolean(
+                source,
+                "BANXIA_AUTH_ENABLED",
+                True,
+            ),
+            auth_secret=source.get("BANXIA_AUTH_SECRET") or None,
+            auth_session_hours=_integer(
+                source,
+                "BANXIA_AUTH_SESSION_HOURS",
+                168,
+            ),
+            auth_cookie_secure=_boolean(
+                source,
+                "BANXIA_AUTH_COOKIE_SECURE",
+                source.get("BANXIA_ENVIRONMENT", "local")
+                not in {"local", "local-compose", "test"},
+            ),
+            smtp_host=source.get("BANXIA_SMTP_HOST", "smtp.126.com"),
+            smtp_port=_integer(source, "BANXIA_SMTP_PORT", 465),
+            smtp_username=source.get("BANXIA_SMTP_USERNAME") or None,
+            smtp_password=source.get("BANXIA_SMTP_PASSWORD") or None,
+            smtp_sender=source.get("BANXIA_SMTP_SENDER") or None,
+            smtp_timeout_seconds=_integer(
+                source,
+                "BANXIA_SMTP_TIMEOUT_SECONDS",
+                10,
+            ),
             metrics_port=(
                 _integer(source, "BANXIA_METRICS_PORT", 9100)
                 if source.get("BANXIA_METRICS_PORT")

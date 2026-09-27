@@ -1,6 +1,7 @@
 const byId = (id) => document.getElementById(id);
 const symbol = location.pathname.split("/").filter(Boolean)[1] || "";
 let activeSection = "";
+let currentNewBoard = null;
 
 const boardLabels = {
   main: "沪深主板",
@@ -74,11 +75,60 @@ function tone(value) {
   return Number(value) > 0 ? "up" : Number(value) < 0 ? "down" : "";
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, { cache: "no-store" });
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, { cache: "no-store", ...options });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error?.message || `请求失败 ${response.status}`);
   return payload;
+}
+
+function renderNewBoardOptions(items, selected) {
+  const select = byId("new-board-select");
+  select.replaceChildren();
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "未归类";
+  select.append(empty);
+  for (const item of items) {
+    if (!item.active && item.id !== selected) continue;
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = item.active ? item.name : `${item.name}（已停用）`;
+    select.append(option);
+  }
+  select.value = selected || "";
+}
+
+async function loadNewBoards(selected) {
+  const payload = await fetchJson("/api/v1/settings/new-boards");
+  renderNewBoardOptions(payload.items || [], selected);
+}
+
+async function saveNewBoard() {
+  const button = byId("save-new-board");
+  const saveStatus = byId("new-board-status");
+  const selected = byId("new-board-select").value || null;
+  button.disabled = true;
+  saveStatus.classList.remove("is-error");
+  saveStatus.textContent = "正在保存…";
+  try {
+    const payload = await fetchJson(
+      `/api/v1/stocks/${encodeURIComponent(symbol)}/new-board`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ new_board_id: selected }),
+      },
+    );
+    currentNewBoard = payload.new_board;
+    byId("new-board-current").textContent = currentNewBoard?.name || "未归类";
+    saveStatus.textContent = "已保存";
+  } catch (error) {
+    saveStatus.textContent = error.message;
+    saveStatus.classList.add("is-error");
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function renderOrderBook(quote) {
@@ -233,6 +283,8 @@ function render(payload) {
   byId("stock-name").textContent = payload.name;
   byId("stock-market-label").textContent = `${boardLabels[payload.board]} · ${payload.market.toUpperCase()}`;
   byId("history-link").href = `/stocks/${payload.symbol}/history`;
+  currentNewBoard = payload.new_board;
+  byId("new-board-current").textContent = currentNewBoard?.name || "未归类";
   byId("quote-price").textContent = price(quote.price);
   byId("quote-price").className = tone(quote.change_pct);
   byId("quote-change").textContent = percent(quote.change_pct);
@@ -262,10 +314,15 @@ async function load() {
     return;
   }
   try {
-    render(await fetchJson(`/api/v1/stocks/${encodeURIComponent(symbol)}`));
+    const detail = await fetchJson(
+      `/api/v1/stocks/${encodeURIComponent(symbol)}`,
+    );
+    render(detail);
+    await loadNewBoards(detail.new_board?.id || "");
   } catch (error) {
     byId("detail-status").textContent = error.message;
   }
 }
 
+byId("save-new-board").addEventListener("click", saveNewBoard);
 load();

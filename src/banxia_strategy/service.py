@@ -16,6 +16,7 @@ from .adapters.strategy_catalog import CatalogConfigStore, SharedCollectionConfi
 from .adapters.redis import RedisSnapshotCache
 from .adapters.wal import SQLiteEventWAL
 from .api import ApiServices, create_api_app
+from .auth import AuthenticationManager, SmtpSettings, SmtpVerificationMailer
 from .catalog_bootstrap import ensure_initial_catalog
 from .application.collector import MarketCollector
 from .application.features import FeatureWorker
@@ -790,6 +791,21 @@ def run_api(settings: RuntimeSettings, logger: Any) -> None:
     object_store = _minio(settings)
     kafka = _publisher(settings, "api-readiness")
     clickhouse = _clickhouse(settings)
+    auth_manager = AuthenticationManager(
+        repository,
+        SmtpVerificationMailer(
+            SmtpSettings(
+                host=settings.smtp_host,
+                port=settings.smtp_port,
+                username=settings.smtp_username,
+                password=settings.smtp_password,
+                sender=settings.smtp_sender,
+                timeout_seconds=settings.smtp_timeout_seconds,
+            )
+        ),
+        secret=settings.auth_secret,
+        session_hours=settings.auth_session_hours,
+    )
     services = ApiServices(
         reports=ReportStore(settings.report_dirs),
         repository=repository,
@@ -801,6 +817,9 @@ def run_api(settings: RuntimeSettings, logger: Any) -> None:
         market_history=clickhouse,
         strategy_version=settings.storage.strategy_version,
         config_store=_config_store(settings),
+        auth_enabled=settings.auth_enabled,
+        auth_manager=auth_manager,
+        auth_cookie_secure=settings.auth_cookie_secure,
     )
     app = create_api_app(services)
     logger.info("api starting")

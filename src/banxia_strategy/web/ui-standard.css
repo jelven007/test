@@ -163,6 +163,39 @@ h1 {
   font-size: 10px;
 }
 
+.account-tools {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.account-tools span {
+  max-width: 240px;
+  overflow: hidden;
+  color: var(--muted);
+  font: 10px var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-logout {
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 1px solid var(--line-dark);
+  border-radius: var(--control-radius);
+  background: var(--white);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.account-logout:hover {
+  border-color: var(--ink);
+  background: var(--paper-deep);
+}
+
 .primary-nav {
   position: sticky;
   z-index: 25;

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import math
+import secrets
 import time
 import uuid
 from dataclasses import asdict, dataclass
@@ -14,7 +15,15 @@ from .web_server import ReportStore
 from .strategy_config import ConfigConflict, ConfigError, StrategyConfig, StrategyConfigStore, revision_for
 from .strategy_history import HISTORY_RANGE_DAYS, history_window
 from .adapters.postgres import STRATEGY_CODE
+from .adapters.identity_settings import IdentityConflict, VerificationRejected
 from .adapters.strategy_catalog import CatalogConfigStore
+from .auth import (
+    CSRF_COOKIE,
+    SESSION_COOKIE,
+    AuthenticationRejected,
+    MailDeliveryError,
+    RateLimitExceeded,
+)
 
 
 STRATEGY_LIST_PARAMETER_KEYS = (
@@ -107,6 +116,9 @@ class ApiServices:
     strategy_version: str = "v1"
     config_store: Optional[StrategyConfigStore] = None
     history_provider: Optional[Any] = None
+    auth_enabled: bool = False
+    auth_manager: Optional[Any] = None
+    auth_cookie_secure: bool = False
 
 
 def _now() -> str:
@@ -179,6 +191,7 @@ def create_api_app(services: ApiServices):
             StreamingResponse,
         )
         from fastapi.staticfiles import StaticFiles
+        from pydantic import BaseModel, ConfigDict, Field
         from prometheus_client import (
             CONTENT_TYPE_LATEST,
             CollectorRegistry,
@@ -191,6 +204,38 @@ def create_api_app(services: ApiServices):
         raise RuntimeError(
             "API service requires `pip install -e '.[production]'`"
         ) from exc
+
+    class StrictRequest(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+
+    class EmailCodeRequest(StrictRequest):
+        email: str = Field(min_length=3, max_length=254)
+
+    class RegistrationRequest(StrictRequest):
+        challenge_id: uuid.UUID
+        email: str = Field(min_length=3, max_length=254)
+        code: str = Field(pattern=r"^\d{6}$")
+        password: str = Field(min_length=10, max_length=128)
+
+    class LoginRequest(StrictRequest):
+        email: str = Field(min_length=3, max_length=254)
+        password: str = Field(min_length=1, max_length=128)
+
+    class NewBoardItemRequest(StrictRequest):
+        id: Optional[uuid.UUID] = None
+        name: str = Field(min_length=1, max_length=40)
+        description: str = Field(default="", max_length=200)
+        sort_order: int = Field(default=0, ge=0, le=10000)
+        active: bool = True
+
+    class NewBoardSettingsRequest(StrictRequest):
+        items: list[NewBoardItemRequest] = Field(max_length=100)
+
+    class StockNewBoardRequest(StrictRequest):
+        new_board_id: Optional[uuid.UUID] = None
+
+    if services.auth_enabled and services.auth_manager is None:
+        raise ValueError("auth_manager is required when authentication is enabled")
 
     app = FastAPI(
         title="Banxia Strategy Research API",
@@ -263,19 +308,52 @@ def create_api_app(services: ApiServices):
             details={"errors": exc.errors()},
         )
 
+    def apply_security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=()"
+        )
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'; "
+            "form-action 'self'"
+        )
+        return response
+
     @app.middleware("http")
     async def request_context(request: Request, call_next):
         started = time.perf_counter()
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
         request.state.request_id = request_id
-        if (
-            services.api_token
-            and not request.url.path.startswith("/api/v1/health/")
-            and request.url.path != "/metrics"
-            and request.url.path.startswith("/api/")
-        ):
+        request.state.user = None
+        request.state.session = None
+        path = request.url.path
+        public_api_paths = {
+            "/api/v1/auth/request-code",
+            "/api/v1/auth/register",
+            "/api/v1/auth/login",
+        }
+        is_health = path.startswith("/api/v1/health/") or path == "/metrics"
+        is_public_asset = path.endswith(
+            (".css", ".js", ".ico", ".png", ".jpg", ".jpeg", ".webp")
+        )
+        bearer_authenticated = False
+        if services.api_token and path.startswith("/api/") and not is_health:
             expected = f"Bearer {services.api_token}"
-            if request.headers.get("Authorization") != expected:
+            authorization = request.headers.get("Authorization", "")
+            bearer_authenticated = secrets.compare_digest(
+                authorization,
+                expected,
+            )
+            if not services.auth_enabled and not bearer_authenticated:
                 response = JSONResponse(
                     status_code=401,
                     content={
@@ -288,14 +366,76 @@ def create_api_app(services: ApiServices):
                     },
                 )
                 response.headers["X-Request-ID"] = request_id
-                return response
+                return apply_security_headers(response)
+        if (
+            services.auth_enabled
+            and not bearer_authenticated
+            and not is_health
+            and path != "/login"
+            and path not in public_api_paths
+            and not is_public_asset
+        ):
+            try:
+                session = services.auth_manager.resolve_session(
+                    request.cookies.get(SESSION_COOKIE)
+                )
+            except Exception:
+                session = None
+            if session is None:
+                if path.startswith("/api/"):
+                    response = JSONResponse(
+                        status_code=401,
+                        content={
+                            "error": {
+                                "code": "UNAUTHORIZED",
+                                "message": "请先登录",
+                                "request_id": request_id,
+                                "details": {},
+                            }
+                        },
+                    )
+                    response.headers["X-Request-ID"] = request_id
+                    response.headers["Cache-Control"] = "no-store"
+                    return apply_security_headers(response)
+                next_path = path if path.startswith("/") else "/"
+                return apply_security_headers(RedirectResponse(
+                    f"/login?next={next_path}",
+                    status_code=303,
+                ))
+            request.state.user = {
+                "user_id": session["user_id"],
+                "email": session["email"],
+            }
+            request.state.session = session
+            if request.method not in {"GET", "HEAD", "OPTIONS"}:
+                if not services.auth_manager.verify_csrf(
+                    session,
+                    request.headers.get("X-CSRF-Token"),
+                ):
+                    response = JSONResponse(
+                        status_code=403,
+                        content={
+                            "error": {
+                                "code": "CSRF_REJECTED",
+                                "message": "请求校验失败，请刷新页面后重试",
+                                "request_id": request_id,
+                                "details": {},
+                            }
+                        },
+                    )
+                    response.headers["X-Request-ID"] = request_id
+                    response.headers["Cache-Control"] = "no-store"
+                    return apply_security_headers(response)
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
+        apply_security_headers(response)
         if (
             request.url.path in {
                 "/",
+                "/login",
                 "/plan",
                 "/monitor",
+                "/settings",
                 "/strategy",
                 "/research",
                 "/stocks",
@@ -317,6 +457,145 @@ def create_api_app(services: ApiServices):
         request_duration.labels(request.method, path).observe(
             time.perf_counter() - started
         )
+        return response
+
+    def remote_ip(request: Request) -> str:
+        return request.client.host if request.client else "unknown"
+
+    def authenticated_response(payload: Mapping[str, Any]):
+        response = JSONResponse(
+            {
+                "user": {
+                    "user_id": payload["user_id"],
+                    "email": payload["email"],
+                }
+            }
+        )
+        max_age = int(services.auth_manager.session_hours * 3600)
+        response.set_cookie(
+            SESSION_COOKIE,
+            payload["session_token"],
+            max_age=max_age,
+            httponly=True,
+            secure=services.auth_cookie_secure,
+            samesite="lax",
+            path="/",
+        )
+        response.set_cookie(
+            CSRF_COOKIE,
+            payload["csrf_token"],
+            max_age=max_age,
+            httponly=False,
+            secure=services.auth_cookie_secure,
+            samesite="lax",
+            path="/",
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.post("/api/v1/auth/request-code")
+    def request_registration_code(payload: EmailCodeRequest, request: Request):
+        if not services.auth_enabled:
+            raise HTTPException(status_code=404, detail="用户认证未启用")
+        try:
+            result = services.auth_manager.request_registration_code(
+                email=payload.email,
+                remote_ip=remote_ip(request),
+            )
+        except RateLimitExceeded as exc:
+            response = error_response(
+                request,
+                status_code=429,
+                code="RATE_LIMITED",
+                message=str(exc),
+            )
+            response.headers["Retry-After"] = str(exc.retry_after)
+            return response
+        except IdentityConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except MailDeliveryError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "challenge_id": result["challenge_id"],
+            "email": result["email"],
+            "expires_in": result["expires_in"],
+            "message": "验证码已发送",
+        }
+
+    @app.post("/api/v1/auth/register")
+    def register_account(payload: RegistrationRequest, request: Request):
+        if not services.auth_enabled:
+            raise HTTPException(status_code=404, detail="用户认证未启用")
+        try:
+            result = services.auth_manager.register(
+                challenge_id=str(payload.challenge_id),
+                email=payload.email,
+                code=payload.code,
+                password=payload.password,
+                remote_ip=remote_ip(request),
+                user_agent=request.headers.get("User-Agent", ""),
+            )
+        except RateLimitExceeded as exc:
+            response = error_response(
+                request,
+                status_code=429,
+                code="RATE_LIMITED",
+                message=str(exc),
+            )
+            response.headers["Retry-After"] = str(exc.retry_after)
+            return response
+        except IdentityConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except VerificationRejected as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return authenticated_response(result)
+
+    @app.post("/api/v1/auth/login")
+    def login_account(payload: LoginRequest, request: Request):
+        if not services.auth_enabled:
+            raise HTTPException(status_code=404, detail="用户认证未启用")
+        try:
+            result = services.auth_manager.login(
+                email=payload.email,
+                password=payload.password,
+                remote_ip=remote_ip(request),
+                user_agent=request.headers.get("User-Agent", ""),
+            )
+        except RateLimitExceeded as exc:
+            response = error_response(
+                request,
+                status_code=429,
+                code="RATE_LIMITED",
+                message=str(exc),
+            )
+            response.headers["Retry-After"] = str(exc.retry_after)
+            return response
+        except AuthenticationRejected as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return authenticated_response(result)
+
+    @app.get("/api/v1/auth/me")
+    def current_account(request: Request):
+        if not services.auth_enabled:
+            return {"authenticated": False, "user": None}
+        return {"authenticated": True, "user": request.state.user}
+
+    @app.post("/api/v1/auth/logout")
+    def logout_account(request: Request):
+        if services.auth_enabled:
+            services.auth_manager.logout(
+                request.cookies.get(SESSION_COOKIE)
+            )
+        response = JSONResponse({"authenticated": False})
+        response.delete_cookie(SESSION_COOKIE, path="/")
+        response.delete_cookie(CSRF_COOKIE, path="/")
+        response.headers["Cache-Control"] = "no-store"
         return response
 
     def resolve_trade_date(trade_date: str):
@@ -892,6 +1171,64 @@ def create_api_app(services: ApiServices):
             "items": items,
         }
 
+    @app.get("/api/v1/settings/new-boards")
+    def new_board_settings():
+        reader = getattr(services.repository, "list_new_boards", None)
+        if not callable(reader):
+            raise HTTPException(status_code=503, detail="新板块设置尚未启用")
+        try:
+            return {"items": reader()}
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"无法读取新板块设置：{exc}",
+            ) from exc
+
+    @app.put("/api/v1/settings/new-boards")
+    def save_new_board_settings(
+        payload: NewBoardSettingsRequest,
+        request: Request,
+    ):
+        if request.state.user is None:
+            raise HTTPException(status_code=401, detail="请先登录")
+        names: set[str] = set()
+        items = []
+        for position, item in enumerate(payload.items):
+            name = item.name.strip()
+            description = item.description.strip()
+            normalized_name = name.casefold()
+            if not name:
+                raise HTTPException(status_code=400, detail="新板块名称不能为空")
+            if normalized_name in names:
+                raise HTTPException(status_code=400, detail="新板块名称不能重复")
+            names.add(normalized_name)
+            items.append(
+                {
+                    "id": str(item.id) if item.id else None,
+                    "name": name,
+                    "description": description,
+                    "sort_order": item.sort_order or position,
+                    "active": item.active,
+                }
+            )
+        writer = getattr(services.repository, "replace_new_boards", None)
+        if not callable(writer):
+            raise HTTPException(status_code=503, detail="新板块设置尚未启用")
+        try:
+            return {
+                "items": writer(
+                    items,
+                    user_id=request.state.user["user_id"],
+                )
+            }
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"无法保存新板块设置：{exc}",
+            ) from exc
+
     @app.get("/api/v1/stocks")
     def stocks(
         q: Optional[str] = None,
@@ -1016,6 +1353,37 @@ def create_api_app(services: ApiServices):
             "sort": sort_by or None,
             "direction": direction if sort_by else None,
             "items": items,
+        }
+
+    @app.put("/api/v1/stocks/{symbol}/new-board")
+    def update_stock_new_board(
+        symbol: str,
+        payload: StockNewBoardRequest,
+        request: Request,
+    ):
+        MootdxProvider._validate_symbol(symbol)
+        if request.state.user is None:
+            raise HTTPException(status_code=401, detail="请先登录")
+        writer = getattr(services.repository, "set_security_new_board", None)
+        if not callable(writer):
+            raise HTTPException(status_code=503, detail="新板块设置尚未启用")
+        try:
+            security = writer(
+                symbol,
+                str(payload.new_board_id) if payload.new_board_id else None,
+            )
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"无法保存股票新板块：{exc}",
+            ) from exc
+        return {
+            "symbol": symbol,
+            "new_board": security.get("new_board"),
         }
 
     @app.get("/api/v1/stocks/{symbol}")
@@ -1860,6 +2228,23 @@ def create_api_app(services: ApiServices):
     @app.get("/")
     def stocks_home():
         return FileResponse(static_root / "stocks.html")
+
+    @app.get("/login")
+    def login_page(request: Request):
+        if services.auth_enabled:
+            try:
+                session = services.auth_manager.resolve_session(
+                    request.cookies.get(SESSION_COOKIE)
+                )
+            except Exception:
+                session = None
+            if session is not None:
+                return RedirectResponse("/", status_code=303)
+        return FileResponse(static_root / "login.html")
+
+    @app.get("/settings")
+    def settings_page():
+        return FileResponse(static_root / "settings.html")
 
     @app.get("/plan")
     def dashboard():

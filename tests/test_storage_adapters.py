@@ -619,6 +619,9 @@ class PostgresAdapterTest(unittest.TestCase):
                 10,
                 100,
                 2,
+                "00000000-0000-0000-0000-000000000001",
+                "端侧AI",
+                "端侧模型方向",
             )
         ]
 
@@ -627,6 +630,7 @@ class PostgresAdapterTest(unittest.TestCase):
         self.assertEqual(security["symbol"], "600001")
         self.assertEqual(security["market"], "sh")
         self.assertEqual(security["previous_close"], 10.0)
+        self.assertEqual(security["new_board"]["name"], "端侧AI")
 
     def test_security_version_hash_excludes_daily_fields(self):
         first = {

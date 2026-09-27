@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f6f7f5">
+    <title>登录 · 一进二</title>
+    <link rel="stylesheet" href="/styles.css?v=20260927.1">
+    <link rel="stylesheet" href="/ui-standard.css?v=20260927.1">
+    <link rel="stylesheet" href="/account.css?v=20260927.1">
+    <script src="/login.js?v=20260927.1" defer></script>
+  </head>
+  <body class="auth-body">
+    <main class="auth-shell">
+      <section class="auth-identity" aria-labelledby="auth-title">
+        <a class="brand" href="/">
+          <span class="brand-mark" aria-hidden="true">BX</span>
+          <strong>一进二</strong>
+        </a>
+        <h1 id="auth-title">策略研究工作台</h1>
+        <p>沪深主板行情、候选筛选与盘中观察。</p>
+      </section>
+
+      <section class="auth-panel" aria-label="账号">
+        <div class="auth-tabs" role="tablist">
+          <button id="login-tab" type="button" role="tab" aria-selected="true" aria-controls="login-form">登录</button>
+          <button id="register-tab" type="button" role="tab" aria-selected="false" aria-controls="register-form">注册</button>
+        </div>
+
+        <form id="login-form" class="auth-form" autocomplete="on">
+          <label>邮箱
+            <input id="login-email" type="email" name="email" maxlength="254" autocomplete="email" required>
+          </label>
+          <label>密码
+            <input id="login-password" type="password" name="password" maxlength="128" autocomplete="current-password" required>
+          </label>
+          <button class="auth-submit" type="submit">登录</button>
+        </form>
+
+        <form id="register-form" class="auth-form" autocomplete="on" hidden>
+          <label>邮箱
+            <input id="register-email" type="email" name="email" maxlength="254" autocomplete="email" required>
+          </label>
+          <label>邮箱验证码
+            <span class="verification-row">
+              <input id="register-code" type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+              <button id="send-code" type="button">发送验证码</button>
+            </span>
+          </label>
+          <label>密码
+            <input id="register-password" type="password" name="password" minlength="10" maxlength="128" autocomplete="new-password" required>
+          </label>
+          <button class="auth-submit" type="submit">创建账号</button>
+        </form>
+        <p id="auth-status" class="auth-status" role="status" aria-live="polite"></p>
+      </section>
+    </main>
+  </body>
+</html>

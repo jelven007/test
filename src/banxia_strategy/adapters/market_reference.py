@@ -673,11 +673,15 @@ class MarketReferenceMixin:
                     SELECT DISTINCT
                         security.symbol, security.name, security.exchange,
                         security.board, daily.previous_close,
-                        security.volume_unit, security.decimal_point
+                        security.volume_unit, security.decimal_point,
+                        board_ref.new_board_id, board_ref.name,
+                        board_ref.description
                     FROM banxia.security_master security
                     JOIN banxia.security_master_version version
                       ON version.instrument_id = security.instrument_id
                      AND version.valid_to IS NULL
+                    LEFT JOIN banxia.new_board_reference board_ref
+                      ON board_ref.new_board_id = security.new_board_id
                     LEFT JOIN LATERAL (
                         SELECT snapshot.previous_close
                         FROM banxia.security_daily_snapshot snapshot
@@ -708,6 +712,15 @@ class MarketReferenceMixin:
                     ),
                     "volume_unit": int(row[5]),
                     "decimal_point": int(row[6]),
+                    "new_board": (
+                        {
+                            "id": str(row[7]),
+                            "name": str(row[8]),
+                            "description": str(row[9]),
+                        }
+                        if row[7] is not None
+                        else None
+                    ),
                 }
                 for row in rows
             ],
@@ -721,11 +734,15 @@ class MarketReferenceMixin:
                     SELECT
                         security.symbol, security.name, security.exchange,
                         security.board, daily.previous_close,
-                        security.volume_unit, security.decimal_point
+                        security.volume_unit, security.decimal_point,
+                        board_ref.new_board_id, board_ref.name,
+                        board_ref.description
                     FROM banxia.security_master security
                     JOIN banxia.security_master_version version
                       ON version.instrument_id = security.instrument_id
                      AND version.valid_to IS NULL
+                    LEFT JOIN banxia.new_board_reference board_ref
+                      ON board_ref.new_board_id = security.new_board_id
                     LEFT JOIN LATERAL (
                         SELECT snapshot.previous_close
                         FROM banxia.security_daily_snapshot snapshot
@@ -754,6 +771,15 @@ class MarketReferenceMixin:
             "previous_close": float(row[4]) if row[4] is not None else None,
             "volume_unit": int(row[5]),
             "decimal_point": int(row[6]),
+            "new_board": (
+                {
+                    "id": str(row[7]),
+                    "name": str(row[8]),
+                    "description": str(row[9]),
+                }
+                if row[7] is not None
+                else None
+            ),
         }
 
     def get_latest_security_daily_snapshots(

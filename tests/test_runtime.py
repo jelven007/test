@@ -73,6 +73,22 @@ class RuntimeSettingsTest(unittest.TestCase):
         settings = RuntimeSettings.from_env({"BANXIA_REPORT_DIRS": "reports"})
         self.assertEqual(settings.report_schedule, ("16:30", "23:30"))
 
+    def test_auth_cookie_defaults_to_secure_outside_local_environments(self):
+        production = RuntimeSettings.from_env(
+            {
+                "BANXIA_REPORT_DIRS": "reports",
+                "BANXIA_ENVIRONMENT": "production",
+            }
+        )
+        local = RuntimeSettings.from_env(
+            {
+                "BANXIA_REPORT_DIRS": "reports",
+                "BANXIA_ENVIRONMENT": "local",
+            }
+        )
+        self.assertTrue(production.auth_cookie_secure)
+        self.assertFalse(local.auth_cookie_secure)
+
     def test_invalid_report_schedule_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "BANXIA_REPORT_SCHEDULE"):
             RuntimeSettings.from_env(
