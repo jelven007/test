@@ -29,8 +29,8 @@
         </div>
 
         <form id="login-form" class="auth-form" autocomplete="on">
-          <label>邮箱
-            <input id="login-email" type="email" name="email" maxlength="254" autocomplete="email" required>
+          <label>126 邮箱
+            <input id="login-email" type="email" name="email" maxlength="254" pattern="[^@\s]+@126\.com" placeholder="name@126.com" autocomplete="email" required>
           </label>
           <label>密码
             <input id="login-password" type="password" name="password" maxlength="128" autocomplete="current-password" required>
@@ -39,8 +39,8 @@
         </form>
 
         <form id="register-form" class="auth-form" autocomplete="on" hidden>
-          <label>邮箱
-            <input id="register-email" type="email" name="email" maxlength="254" autocomplete="email" required>
+          <label>126 邮箱
+            <input id="register-email" type="email" name="email" maxlength="254" pattern="[^@\s]+@126\.com" placeholder="name@126.com" autocomplete="email" required>
           </label>
           <label>邮箱验证码
             <span class="verification-row">

@@ -5,12 +5,15 @@ import hmac
 import unittest
 import uuid
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from banxia_strategy.adapters.identity_settings import VerificationRejected
 from banxia_strategy.auth import (
     AuthenticationManager,
     AuthenticationRejected,
     RateLimitExceeded,
+    SmtpSettings,
+    SmtpVerificationMailer,
     normalize_email,
     validate_password,
 )
@@ -178,22 +181,45 @@ class AuthenticationManagerTest(unittest.TestCase):
         self.assertNotIn(digest, self.repository.sessions)
 
     def test_validation_and_rate_limit(self):
-        self.assertEqual(normalize_email(" A@Example.com "), "a@example.com")
+        self.assertEqual(normalize_email(" User@126.com "), "user@126.com")
         with self.assertRaises(ValueError):
             normalize_email("invalid")
+        with self.assertRaisesRegex(ValueError, "仅支持"):
+            normalize_email("user@example.com")
         with self.assertRaises(ValueError):
             validate_password("password")
 
         for _index in range(3):
             self.manager.request_registration_code(
-                email="limited@example.com",
+                email="limited@126.com",
                 remote_ip="192.0.2.1",
             )
         with self.assertRaises(RateLimitExceeded):
             self.manager.request_registration_code(
-                email="limited@example.com",
+                email="limited@126.com",
                 remote_ip="192.0.2.1",
             )
+
+    @patch("banxia_strategy.auth.smtplib.SMTP_SSL")
+    def test_smtp_mailer_sends_to_user_supplied_126_address(self, smtp_ssl):
+        client = smtp_ssl.return_value.__enter__.return_value
+        mailer = SmtpVerificationMailer(
+            SmtpSettings(
+                username="sender@126.com",
+                password="authorization-code",
+            )
+        )
+
+        mailer.send_verification_code("recipient@126.com", "123456")
+
+        self.assertEqual(smtp_ssl.call_args.args[:2], ("smtp.126.com", 465))
+        client.login.assert_called_once_with(
+            "sender@126.com",
+            "authorization-code",
+        )
+        message = client.send_message.call_args.args[0]
+        self.assertEqual(message["To"], "recipient@126.com")
+        self.assertIn("123456", message.get_content())
 
 
 if __name__ == "__main__":
