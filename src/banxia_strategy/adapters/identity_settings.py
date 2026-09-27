@@ -407,3 +407,96 @@ class IdentitySettingsMixin:
         if result is None:
             raise LookupError("股票不存在")
         return result
+
+    def list_watchlist_symbols(self, user_id: str) -> list[str]:
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT security.symbol
+                    FROM banxia.user_watchlist watchlist
+                    JOIN banxia.security_master security
+                      ON security.instrument_id = watchlist.instrument_id
+                    WHERE watchlist.user_id = %s
+                      AND security.instrument_type = 'stock'
+                      AND security.listing_status = 'active'
+                    ORDER BY watchlist.created_at, security.symbol
+                    """,
+                    (user_id,),
+                )
+                rows = cursor.fetchall()
+        return [str(row[0]) for row in rows]
+
+    def add_watchlist_symbols(
+        self,
+        user_id: str,
+        symbols: Sequence[str],
+    ) -> dict[str, Any]:
+        requested = list(dict.fromkeys(symbols))
+        if not requested:
+            return {"symbols": self.list_watchlist_symbols(user_id), "added": 0}
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT symbol
+                    FROM banxia.security_master
+                    WHERE symbol = ANY(%s)
+                      AND instrument_type = 'stock'
+                      AND listing_status = 'active'
+                    """,
+                    (requested,),
+                )
+                available = {str(row[0]) for row in cursor.fetchall()}
+                missing = [
+                    symbol for symbol in requested if symbol not in available
+                ]
+                if missing:
+                    raise ValueError(
+                        f"股票不存在或已退市：{', '.join(missing)}"
+                    )
+                cursor.execute(
+                    """
+                    INSERT INTO banxia.user_watchlist (user_id, instrument_id)
+                    SELECT %s, instrument_id
+                    FROM banxia.security_master
+                    WHERE symbol = ANY(%s)
+                      AND instrument_type = 'stock'
+                      AND listing_status = 'active'
+                    ON CONFLICT (user_id, instrument_id) DO NOTHING
+                    RETURNING instrument_id
+                    """,
+                    (user_id, requested),
+                )
+                added = len(cursor.fetchall())
+        return {"symbols": self.list_watchlist_symbols(user_id), "added": added}
+
+    def remove_watchlist_symbols(
+        self,
+        user_id: str,
+        symbols: Sequence[str],
+    ) -> dict[str, Any]:
+        requested = list(dict.fromkeys(symbols))
+        if not requested:
+            return {
+                "symbols": self.list_watchlist_symbols(user_id),
+                "removed": 0,
+            }
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    DELETE FROM banxia.user_watchlist watchlist
+                    USING banxia.security_master security
+                    WHERE watchlist.user_id = %s
+                      AND watchlist.instrument_id = security.instrument_id
+                      AND security.symbol = ANY(%s)
+                    RETURNING watchlist.instrument_id
+                    """,
+                    (user_id, requested),
+                )
+                removed = len(cursor.fetchall())
+        return {
+            "symbols": self.list_watchlist_symbols(user_id),
+            "removed": removed,
+        }

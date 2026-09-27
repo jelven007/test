@@ -611,6 +611,7 @@ class MarketReferenceMixin:
         board: str = "all",
         market: str = "all",
         block: Optional[str] = None,
+        symbols: Optional[Sequence[str]] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> dict[str, Any]:
@@ -626,6 +627,9 @@ class MarketReferenceMixin:
         if market != "all":
             conditions.append("security.exchange = %s")
             parameters.append(market)
+        if symbols is not None:
+            conditions.append("security.symbol = ANY(%s)")
+            parameters.append(list(symbols))
         if query:
             conditions.append(
                 "(security.symbol ILIKE %s OR security.name ILIKE %s)"

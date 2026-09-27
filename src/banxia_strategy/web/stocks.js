@@ -3,9 +3,12 @@ const pageSize = 50;
 let offset = 0;
 let total = 0;
 let loading = false;
+let savingWatchlist = false;
 let requestedBlock = "";
 let sortBy = "";
 let sortDirection = "asc";
+let currentItems = [];
+const selectedSymbols = new Set();
 
 const boardLabels = {
   main: "沪深主板",
@@ -66,8 +69,8 @@ function cell(text, className) {
   return node;
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, { cache: "no-store" });
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, { cache: "no-store", ...options });
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error?.message || `请求失败 ${response.status}`);
   return payload;
@@ -78,6 +81,7 @@ function queryParameters() {
     q: byId("stock-query").value.trim(),
     board: byId("stock-board").value,
     block: byId("stock-block").value,
+    watchlist: byId("stock-scope").value,
     limit: String(pageSize),
     offset: String(offset),
   });
@@ -94,6 +98,7 @@ function updateBrowserUrl(parameters) {
   if (!visibleParameters.get("q")) visibleParameters.delete("q");
   if (visibleParameters.get("board") === "all") visibleParameters.delete("board");
   if (!visibleParameters.get("block")) visibleParameters.delete("block");
+  if (visibleParameters.get("watchlist") === "all") visibleParameters.delete("watchlist");
   if (visibleParameters.get("offset") === "0") visibleParameters.delete("offset");
   if (!visibleParameters.get("sort")) visibleParameters.delete("direction");
   const query = visibleParameters.toString();
@@ -130,19 +135,40 @@ function updateSortHeaders() {
 function renderRows(items) {
   const root = byId("stock-rows");
   root.replaceChildren();
+  currentItems = items;
   if (!items.length) {
     const row = document.createElement("tr");
     const empty = cell("没有符合条件的股票");
-    empty.colSpan = 11;
+    empty.colSpan = 12;
     empty.className = "waiting-cell";
     row.append(empty);
     root.append(row);
+    updateSelectionControls();
     return;
   }
 
   for (const item of items) {
     const quote = item.quote || {};
     const row = document.createElement("tr");
+    if (item.watchlisted) {
+      selectedSymbols.delete(item.symbol);
+      row.classList.add("is-watchlisted");
+    }
+    const selection = document.createElement("td");
+    selection.className = "selection-column";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.className = "stock-checkbox";
+    checkbox.dataset.symbol = item.symbol;
+    checkbox.checked = selectedSymbols.has(item.symbol);
+    checkbox.disabled = item.watchlisted;
+    checkbox.setAttribute(
+      "aria-label",
+      item.watchlisted
+        ? `${item.name}已在自选股`
+        : `选择${item.name}`,
+    );
+    selection.append(checkbox);
     const identity = document.createElement("td");
     const wrap = document.createElement("div");
     wrap.className = "stock-identity";
@@ -169,9 +195,16 @@ function renderRows(items) {
       link.textContent = label;
       actionWrap.append(link);
     }
+    if (item.watchlisted) {
+      const badge = document.createElement("span");
+      badge.className = "watchlist-state";
+      badge.textContent = "已自选";
+      actionWrap.prepend(badge);
+    }
     actions.append(actionWrap);
 
     row.append(
+      selection,
       identity,
       cell(`${boardLabels[item.board]} · ${item.market.toUpperCase()}`, "board-label"),
       cell(price(quote.price), `quote-number ${tone(quote.change_pct)}`),
@@ -186,6 +219,18 @@ function renderRows(items) {
     );
     root.append(row);
   }
+  updateSelectionControls();
+}
+
+function updateSelectionControls() {
+  const eligible = currentItems.filter((item) => !item.watchlisted);
+  const selectedOnPage = eligible.filter((item) => selectedSymbols.has(item.symbol));
+  const selectPage = byId("select-page");
+  selectPage.checked = eligible.length > 0 && selectedOnPage.length === eligible.length;
+  selectPage.indeterminate = selectedOnPage.length > 0 && selectedOnPage.length < eligible.length;
+  selectPage.disabled = loading || eligible.length === 0;
+  byId("selected-count").textContent = `已选 ${selectedSymbols.size} 只`;
+  byId("add-watchlist").disabled = loading || savingWatchlist || selectedSymbols.size === 0;
 }
 
 function updatePaging() {
@@ -204,6 +249,7 @@ async function loadStocks() {
   loading = true;
   updatePaging();
   byId("stock-status").textContent = "正在读取股票目录与当前页实时行情…";
+  updateSelectionControls();
   try {
     const parameters = queryParameters();
     const payload = await fetchJson(`/api/v1/stocks?${parameters}`);
@@ -228,6 +274,7 @@ async function loadStocks() {
   } finally {
     loading = false;
     updatePaging();
+    updateSelectionControls();
   }
 }
 
@@ -235,6 +282,7 @@ function restoreFilters() {
   const parameters = new URLSearchParams(location.search);
   byId("stock-query").value = parameters.get("q") || "";
   byId("stock-board").value = parameters.get("board") || "all";
+  byId("stock-scope").value = parameters.get("watchlist") === "only" ? "only" : "all";
   requestedBlock = parameters.get("block") || "";
   const requestedSort = parameters.get("sort") || "";
   sortBy = Object.hasOwn(sortLabels, requestedSort) ? requestedSort : "";
@@ -265,6 +313,30 @@ function disableBlockFilter() {
   select.disabled = true;
 }
 
+async function addSelectedToWatchlist() {
+  if (!selectedSymbols.size || savingWatchlist) return;
+  savingWatchlist = true;
+  updateSelectionControls();
+  byId("stock-status").textContent = `正在添加 ${selectedSymbols.size} 只股票到自选…`;
+  try {
+    const payload = await fetchJson("/api/v1/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: [...selectedSymbols] }),
+    });
+    selectedSymbols.clear();
+    await loadStocks();
+    byId("stock-status").textContent = payload.added
+      ? `已添加 ${payload.added} 只股票到自选，共 ${payload.count} 只`
+      : `所选股票已在自选中，共 ${payload.count} 只`;
+  } catch (error) {
+    byId("stock-status").textContent = error.message;
+  } finally {
+    savingWatchlist = false;
+    updateSelectionControls();
+  }
+}
+
 byId("stock-filters").addEventListener("submit", (event) => {
   event.preventDefault();
   offset = 0;
@@ -275,6 +347,7 @@ byId("stock-reset").addEventListener("click", () => {
   byId("stock-query").value = "";
   byId("stock-board").value = "all";
   byId("stock-block").value = "";
+  byId("stock-scope").value = "all";
   sortBy = "";
   sortDirection = "asc";
   offset = 0;
@@ -305,6 +378,25 @@ byId("next-page").addEventListener("click", () => {
     loadStocks();
   }
 });
+
+byId("select-page").addEventListener("change", (event) => {
+  for (const item of currentItems) {
+    if (item.watchlisted) continue;
+    if (event.target.checked) selectedSymbols.add(item.symbol);
+    else selectedSymbols.delete(item.symbol);
+  }
+  renderRows(currentItems);
+});
+
+byId("stock-rows").addEventListener("change", (event) => {
+  if (!event.target.classList.contains("stock-checkbox")) return;
+  const symbol = event.target.dataset.symbol;
+  if (event.target.checked) selectedSymbols.add(symbol);
+  else selectedSymbols.delete(symbol);
+  updateSelectionControls();
+});
+
+byId("add-watchlist").addEventListener("click", addSelectedToWatchlist);
 
 async function initialize() {
   restoreFilters();

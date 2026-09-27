@@ -24,6 +24,7 @@ class FakeRepository:
         self.items = []
         self.saved_by = None
         self.stock_board = None
+        self.watchlists = {}
 
     def ready(self):
         return True
@@ -51,6 +52,27 @@ class FakeRepository:
             None,
         )
         return {"symbol": symbol, "new_board": board}
+
+    def list_watchlist_symbols(self, user_id):
+        return sorted(self.watchlists.get(user_id, set()))
+
+    def add_watchlist_symbols(self, user_id, symbols):
+        watchlist = self.watchlists.setdefault(user_id, set())
+        before = len(watchlist)
+        watchlist.update(symbols)
+        return {
+            "symbols": sorted(watchlist),
+            "added": len(watchlist) - before,
+        }
+
+    def remove_watchlist_symbols(self, user_id, symbols):
+        watchlist = self.watchlists.setdefault(user_id, set())
+        before = len(watchlist)
+        watchlist.difference_update(symbols)
+        return {
+            "symbols": sorted(watchlist),
+            "removed": before - len(watchlist),
+        }
 
 
 class FakeAuthManager:
@@ -191,6 +213,47 @@ class AuthenticationApiTest(unittest.TestCase):
         )
         self.assertEqual(assigned.status_code, 200)
         self.assertEqual(assigned.json()["new_board"]["id"], BOARD_ID)
+
+    def test_watchlist_batch_add_is_idempotent_and_removable(self):
+        self.login()
+        headers = {"X-CSRF-Token": "csrf-token"}
+
+        denied = self.client.post(
+            "/api/v1/watchlist",
+            json={"symbols": ["600001"]},
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        added = self.client.post(
+            "/api/v1/watchlist",
+            headers=headers,
+            json={"symbols": ["600001", "000001", "600001"]},
+        )
+        self.assertEqual(added.status_code, 200)
+        self.assertEqual(added.json()["added"], 2)
+        self.assertEqual(added.json()["count"], 2)
+
+        repeated = self.client.post(
+            "/api/v1/watchlist",
+            headers=headers,
+            json={"symbols": ["600001"]},
+        )
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(repeated.json()["added"], 0)
+        self.assertEqual(
+            self.client.get("/api/v1/watchlist").json()["symbols"],
+            ["000001", "600001"],
+        )
+
+        removed = self.client.request(
+            "DELETE",
+            "/api/v1/watchlist",
+            headers=headers,
+            json={"symbols": ["000001"]},
+        )
+        self.assertEqual(removed.status_code, 200)
+        self.assertEqual(removed.json()["removed"], 1)
+        self.assertEqual(removed.json()["symbols"], ["600001"])
 
 
 if __name__ == "__main__":

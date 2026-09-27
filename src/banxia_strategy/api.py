@@ -103,6 +103,16 @@ def _sort_stock_items(
     return [item for item, _value in (*available, *missing)]
 
 
+def _validate_watchlist_symbols(symbols: list[str]) -> list[str]:
+    normalized = list(dict.fromkeys(symbol.strip() for symbol in symbols))
+    for symbol in normalized:
+        try:
+            MootdxProvider._validate_symbol(symbol)
+        except ValueError as exc:
+            raise ValueError(f"股票代码无效：{symbol or '空值'}") from exc
+    return normalized
+
+
 @dataclass
 class ApiServices:
     reports: ReportStore
@@ -233,6 +243,9 @@ def create_api_app(services: ApiServices):
 
     class StockNewBoardRequest(StrictRequest):
         new_board_id: Optional[uuid.UUID] = None
+
+    class WatchlistRequest(StrictRequest):
+        symbols: list[str] = Field(min_length=1, max_length=100)
 
     if services.auth_enabled and services.auth_manager is None:
         raise ValueError("auth_manager is required when authentication is enabled")
@@ -1231,10 +1244,12 @@ def create_api_app(services: ApiServices):
 
     @app.get("/api/v1/stocks")
     def stocks(
+        request: Request,
         q: Optional[str] = None,
         board: str = "all",
         market: str = "all",
         block: Optional[str] = None,
+        watchlist: str = "all",
         sort: Optional[str] = None,
         direction: str = "asc",
         limit: int = 50,
@@ -1244,6 +1259,8 @@ def create_api_app(services: ApiServices):
             raise HTTPException(status_code=400, detail="股票板块无效")
         if market not in {"all", "sh", "sz"}:
             raise HTTPException(status_code=400, detail="交易市场无效")
+        if watchlist not in {"all", "only"}:
+            raise HTTPException(status_code=400, detail="自选股筛选条件无效")
         if not 1 <= limit <= 100 or offset < 0:
             raise HTTPException(
                 status_code=400,
@@ -1259,12 +1276,29 @@ def create_api_app(services: ApiServices):
             raise HTTPException(status_code=400, detail="股票排序方向无效")
         try:
             keyword = (q or "").strip().lower()
+            watchlist_symbols: list[str] = []
+            watchlist_reader = getattr(
+                services.repository,
+                "list_watchlist_symbols",
+                None,
+            )
+            if request.state.user is not None and callable(watchlist_reader):
+                watchlist_symbols = watchlist_reader(
+                    request.state.user["user_id"]
+                )
+            elif watchlist == "only":
+                raise HTTPException(
+                    status_code=503,
+                    detail="自选股功能尚未启用",
+                )
+            watchlist_set = set(watchlist_symbols)
             if reference_repository is not None:
                 result = reference_repository.list_securities(
                     query=keyword or None,
                     board=board,
                     market=market,
                     block=blockname or None,
+                    symbols=watchlist_symbols if watchlist == "only" else None,
                     limit=100_000 if sort_by else limit,
                     offset=0 if sort_by else offset,
                 )
@@ -1282,6 +1316,10 @@ def create_api_app(services: ApiServices):
                     for item in universe
                     if (board == "all" or item["board"] == board)
                     and (market == "all" or item["market"] == market)
+                    and (
+                        watchlist == "all"
+                        or item["symbol"] in watchlist_set
+                    )
                     and (
                         block_symbols is None
                         or item["symbol"] in block_symbols
@@ -1306,6 +1344,7 @@ def create_api_app(services: ApiServices):
                 enriched = [
                     {
                         **item,
+                        "watchlisted": item["symbol"] in watchlist_set,
                         "quote": stock_quote(
                             quotes.get(item["symbol"], {})
                         ),
@@ -1331,6 +1370,7 @@ def create_api_app(services: ApiServices):
                 items = [
                     {
                         **item,
+                        "watchlisted": item["symbol"] in watchlist_set,
                         "quote": stock_quote(
                             quotes.get(item["symbol"], {})
                         ),
@@ -1338,6 +1378,8 @@ def create_api_app(services: ApiServices):
                     for item in page
                 ]
             metadata = reference_metadata()
+        except HTTPException:
+            raise
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
@@ -1353,6 +1395,82 @@ def create_api_app(services: ApiServices):
             "sort": sort_by or None,
             "direction": direction if sort_by else None,
             "items": items,
+        }
+
+    @app.get("/api/v1/watchlist")
+    def watchlist(request: Request):
+        if request.state.user is None:
+            raise HTTPException(status_code=401, detail="请先登录")
+        reader = getattr(
+            services.repository,
+            "list_watchlist_symbols",
+            None,
+        )
+        if not callable(reader):
+            raise HTTPException(status_code=503, detail="自选股功能尚未启用")
+        try:
+            symbols = reader(request.state.user["user_id"])
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"无法读取自选股：{exc}",
+            ) from exc
+        return {"symbols": symbols, "count": len(symbols)}
+
+    @app.post("/api/v1/watchlist")
+    def add_to_watchlist(payload: WatchlistRequest, request: Request):
+        if request.state.user is None:
+            raise HTTPException(status_code=401, detail="请先登录")
+        try:
+            symbols = _validate_watchlist_symbols(payload.symbols)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        writer = getattr(
+            services.repository,
+            "add_watchlist_symbols",
+            None,
+        )
+        if not callable(writer):
+            raise HTTPException(status_code=503, detail="自选股功能尚未启用")
+        try:
+            result = writer(request.state.user["user_id"], symbols)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"无法添加自选股：{exc}",
+            ) from exc
+        return {
+            **result,
+            "count": len(result["symbols"]),
+        }
+
+    @app.delete("/api/v1/watchlist")
+    def remove_from_watchlist(payload: WatchlistRequest, request: Request):
+        if request.state.user is None:
+            raise HTTPException(status_code=401, detail="请先登录")
+        try:
+            symbols = _validate_watchlist_symbols(payload.symbols)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        writer = getattr(
+            services.repository,
+            "remove_watchlist_symbols",
+            None,
+        )
+        if not callable(writer):
+            raise HTTPException(status_code=503, detail="自选股功能尚未启用")
+        try:
+            result = writer(request.state.user["user_id"], symbols)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"无法移除自选股：{exc}",
+            ) from exc
+        return {
+            **result,
+            "count": len(result["symbols"]),
         }
 
     @app.put("/api/v1/stocks/{symbol}/new-board")

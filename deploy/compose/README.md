@@ -128,6 +128,17 @@ docker compose \
   < migrations/postgres/013_identity_and_new_boards.sql
 ```
 
+再应用按用户持久化的自选股表：
+
+```bash
+docker compose \
+  --env-file deploy/compose/.env \
+  -f deploy/compose/docker-compose.yml \
+  exec -T postgres sh -c \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/postgres/014_user_watchlist.sql
+```
+
 API 默认启用邮箱认证。发送注册验证码前，在
 `deploy/compose/.env` 配置 `BANXIA_SMTP_USERNAME`、
 `BANXIA_SMTP_PASSWORD`（126 邮箱 SMTP 授权码）和

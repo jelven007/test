@@ -64,6 +64,10 @@
   width: 96px;
 }
 
+.stock-filters label:nth-child(4) {
+  width: 104px;
+}
+
 .stock-filters .ui-control {
   width: 100%;
 }
@@ -87,6 +91,26 @@
 .chart-legend {
   color: var(--muted);
   font: 10px var(--mono);
+}
+
+.stock-directory-tools {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.watchlist-batch {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+
+.watchlist-batch .ui-button {
+  min-height: 34px;
+  padding-block: 6px;
 }
 
 .market-table-wrap {
@@ -159,8 +183,24 @@
   white-space: nowrap;
 }
 
-.stock-table td:first-child {
+.stock-table td:nth-child(2) {
   min-width: 150px;
+}
+
+.stock-table .selection-column {
+  width: 44px;
+  min-width: 44px;
+  padding-inline: 12px;
+  text-align: center;
+}
+
+.stock-table .selection-column input {
+  display: block;
+  margin: 0 auto;
+}
+
+.stock-table tr.is-watchlisted {
+  background: rgb(18 96 68 / 3%);
 }
 
 .stock-identity {
@@ -204,7 +244,13 @@
 
 .stock-actions {
   display: flex;
+  align-items: center;
   gap: 12px;
+}
+
+.watchlist-state {
+  color: var(--green);
+  font: 600 10px var(--mono);
 }
 
 .stock-actions a {
@@ -225,6 +271,20 @@
   gap: 14px;
   color: var(--muted);
   font: 11px var(--mono);
+}
+
+@media (max-width: 720px) {
+  .stock-directory-tools {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .watchlist-batch {
+    width: 100%;
+    justify-content: space-between;
+  }
 }
 
 .stock-classification {

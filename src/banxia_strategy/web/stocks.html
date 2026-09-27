@@ -8,9 +8,9 @@
     <title>沪深股票 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260926.1">
     <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
-    <link rel="stylesheet" href="/market.css?v=20260926.2">
+    <link rel="stylesheet" href="/market.css?v=20260927.3">
     <script src="/auth.js?v=20260927.1" defer></script>
-    <script src="/stocks.js?v=20260926.4" defer></script>
+    <script src="/stocks.js?v=20260927.1" defer></script>
   </head>
   <body class="market-body">
     <header class="topbar market-topbar">
@@ -55,6 +55,12 @@
             <option value="">全部板块</option>
           </select>
         </label>
+        <label>范围
+          <select id="stock-scope" class="ui-control">
+            <option value="all">全部股票</option>
+            <option value="only">我的自选</option>
+          </select>
+        </label>
         <button class="ui-button primary-button" type="submit">查询</button>
         <button class="ui-button" id="stock-reset" type="button">重置</button>
       </form>
@@ -66,12 +72,21 @@
             <h2 id="stock-directory-title">全市场行情</h2>
             <p id="stock-range">—</p>
           </div>
-          <span class="market-time" id="market-time">实时行情读取中</span>
+          <div class="stock-directory-tools">
+            <span class="market-time" id="market-time">实时行情读取中</span>
+            <div class="watchlist-batch" aria-label="自选股批量操作">
+              <span id="selected-count">已选 0 只</span>
+              <button id="add-watchlist" class="ui-button primary-button" type="button" disabled>加入自选</button>
+            </div>
+          </div>
         </div>
         <div class="market-table-wrap" tabindex="0" role="region" aria-label="沪深股票实时行情">
           <table class="data-table stock-table">
             <thead>
               <tr>
+                <th class="selection-column" scope="col">
+                  <input id="select-page" type="checkbox" aria-label="选择当前页可加入自选的股票">
+                </th>
                 <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="symbol">股票<span aria-hidden="true">↕</span></button></th>
                 <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="board">大盘<span aria-hidden="true">↕</span></button></th>
                 <th scope="col" aria-sort="none"><button class="sort-button" type="button" data-sort="price">最新价<span aria-hidden="true">↕</span></button></th>

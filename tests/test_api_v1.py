@@ -1135,7 +1135,8 @@ class ApiV1Test(unittest.TestCase):
     def test_web_assets_are_not_served_from_stale_browser_cache(self):
         home = self.client.get("/")
         self.assertEqual(home.headers["Cache-Control"], "no-store")
-        self.assertIn("/market.css?v=20260926.2", home.text)
+        self.assertIn("/market.css?v=20260927.3", home.text)
+        self.assertIn("/stocks.js?v=20260927.1", home.text)
 
         dashboard = self.client.get("/plan")
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store")
