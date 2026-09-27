@@ -132,7 +132,7 @@ API 默认启用邮箱认证。发送注册验证码前，在
 `deploy/compose/.env` 配置 `BANXIA_SMTP_USERNAME`、
 `BANXIA_SMTP_PASSWORD`（126 邮箱 SMTP 授权码）和
 `BANXIA_SMTP_SENDER`。这三个变量是系统发件邮箱配置；验证码收件地址
-直接使用注册页面中用户输入的 `@126.com` 邮箱，一期不接受其他邮箱域名。
+直接使用注册页面中用户输入的合法邮箱，不限制收件邮箱域名。
 公网 HTTPS 部署还应设置
 `BANXIA_AUTH_COOKIE_SECURE=true`。
 

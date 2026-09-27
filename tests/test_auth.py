@@ -181,27 +181,28 @@ class AuthenticationManagerTest(unittest.TestCase):
         self.assertNotIn(digest, self.repository.sessions)
 
     def test_validation_and_rate_limit(self):
-        self.assertEqual(normalize_email(" User@126.com "), "user@126.com")
+        self.assertEqual(
+            normalize_email(" User@Example.com "),
+            "user@example.com",
+        )
         with self.assertRaises(ValueError):
             normalize_email("invalid")
-        with self.assertRaisesRegex(ValueError, "仅支持"):
-            normalize_email("user@example.com")
         with self.assertRaises(ValueError):
             validate_password("password")
 
         for _index in range(3):
             self.manager.request_registration_code(
-                email="limited@126.com",
+                email="limited@example.com",
                 remote_ip="192.0.2.1",
             )
         with self.assertRaises(RateLimitExceeded):
             self.manager.request_registration_code(
-                email="limited@126.com",
+                email="limited@example.com",
                 remote_ip="192.0.2.1",
             )
 
     @patch("banxia_strategy.auth.smtplib.SMTP_SSL")
-    def test_smtp_mailer_sends_to_user_supplied_126_address(self, smtp_ssl):
+    def test_126_smtp_sends_to_user_supplied_address(self, smtp_ssl):
         client = smtp_ssl.return_value.__enter__.return_value
         mailer = SmtpVerificationMailer(
             SmtpSettings(
@@ -210,7 +211,7 @@ class AuthenticationManagerTest(unittest.TestCase):
             )
         )
 
-        mailer.send_verification_code("recipient@126.com", "123456")
+        mailer.send_verification_code("recipient@example.com", "123456")
 
         self.assertEqual(smtp_ssl.call_args.args[:2], ("smtp.126.com", 465))
         client.login.assert_called_once_with(
@@ -218,7 +219,7 @@ class AuthenticationManagerTest(unittest.TestCase):
             "authorization-code",
         )
         message = client.send_message.call_args.args[0]
-        self.assertEqual(message["To"], "recipient@126.com")
+        self.assertEqual(message["To"], "recipient@example.com")
         self.assertIn("123456", message.get_content())
 
 

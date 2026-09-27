@@ -49,8 +49,6 @@ def normalize_email(value: str) -> str:
     local, domain = email.rsplit("@", 1)
     if len(local) > 64 or ".." in local or domain.startswith("-"):
         raise ValueError("邮箱格式无效")
-    if domain != "126.com":
-        raise ValueError("一期仅支持 @126.com 邮箱")
     return email
 
 
