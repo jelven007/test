@@ -1136,7 +1136,13 @@ class ApiV1Test(unittest.TestCase):
         home = self.client.get("/")
         self.assertEqual(home.headers["Cache-Control"], "no-store")
         self.assertIn("/market.css?v=20260927.3", home.text)
-        self.assertIn("/stocks.js?v=20260927.1", home.text)
+        self.assertIn("/stocks.js?v=20260927.2", home.text)
+
+        stock = self.client.get("/stocks/002635")
+        self.assertIn("/stock.js?v=20260927.2", stock.text)
+
+        history = self.client.get("/stocks/002635/history")
+        self.assertIn("/stock-history.js?v=20260927.2", history.text)
 
         dashboard = self.client.get("/plan")
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store")

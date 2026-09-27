@@ -8,6 +8,7 @@ let requestedBlock = "";
 let sortBy = "";
 let sortDirection = "asc";
 let currentItems = [];
+let currentListPath = "/";
 const selectedSymbols = new Set();
 
 const boardLabels = {
@@ -92,7 +93,7 @@ function queryParameters() {
   return parameters;
 }
 
-function updateBrowserUrl(parameters) {
+function visibleQueryParameters(parameters) {
   const visibleParameters = new URLSearchParams(parameters);
   visibleParameters.delete("limit");
   if (!visibleParameters.get("q")) visibleParameters.delete("q");
@@ -101,8 +102,22 @@ function updateBrowserUrl(parameters) {
   if (visibleParameters.get("watchlist") === "all") visibleParameters.delete("watchlist");
   if (visibleParameters.get("offset") === "0") visibleParameters.delete("offset");
   if (!visibleParameters.get("sort")) visibleParameters.delete("direction");
-  const query = visibleParameters.toString();
-  history.replaceState(null, "", query ? `${location.pathname}?${query}` : location.pathname);
+  return visibleParameters;
+}
+
+function listPath(parameters) {
+  const query = visibleQueryParameters(parameters).toString();
+  return query ? `${location.pathname}?${query}` : location.pathname;
+}
+
+function stockPath(symbol, suffix = "") {
+  const parameters = new URLSearchParams({ return_to: currentListPath });
+  return `/stocks/${encodeURIComponent(symbol)}${suffix}?${parameters}`;
+}
+
+function updateBrowserUrl(parameters) {
+  currentListPath = listPath(parameters);
+  history.replaceState(null, "", currentListPath);
 }
 
 function updateSortHeaders() {
@@ -173,7 +188,7 @@ function renderRows(items) {
     const wrap = document.createElement("div");
     wrap.className = "stock-identity";
     const name = document.createElement("a");
-    name.href = `/stocks/${encodeURIComponent(item.symbol)}`;
+    name.href = stockPath(item.symbol);
     name.textContent = item.name;
     const code = document.createElement("a");
     code.href = name.href;
@@ -187,8 +202,8 @@ function renderRows(items) {
     const actionWrap = document.createElement("div");
     actionWrap.className = "stock-actions";
     for (const [label, href] of [
-      ["详情", `/stocks/${item.symbol}`],
-      ["历史行情", `/stocks/${item.symbol}/history`],
+      ["详情", stockPath(item.symbol)],
+      ["历史行情", stockPath(item.symbol, "/history")],
     ]) {
       const link = document.createElement("a");
       link.href = href;
@@ -252,6 +267,7 @@ async function loadStocks() {
   updateSelectionControls();
   try {
     const parameters = queryParameters();
+    currentListPath = listPath(parameters);
     const payload = await fetchJson(`/api/v1/stocks?${parameters}`);
     total = payload.total;
     renderRows(payload.items);

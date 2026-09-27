@@ -3,6 +3,21 @@ const symbol = location.pathname.split("/").filter(Boolean)[1] || "";
 let activeSection = "";
 let currentNewBoard = null;
 
+function safeReturnPath() {
+  const value = new URLSearchParams(location.search).get("return_to");
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
+  const parsed = new URL(value, location.origin);
+  if (parsed.origin !== location.origin) return "/";
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
+
+const stockListPath = safeReturnPath();
+
+function withReturnPath(path) {
+  const parameters = new URLSearchParams({ return_to: stockListPath });
+  return `${path}?${parameters}`;
+}
+
 const boardLabels = {
   main: "沪深主板",
   gem: "创业板",
@@ -282,7 +297,9 @@ function render(payload) {
   byId("stock-code").textContent = payload.symbol;
   byId("stock-name").textContent = payload.name;
   byId("stock-market-label").textContent = `${boardLabels[payload.board]} · ${payload.market.toUpperCase()}`;
-  byId("history-link").href = `/stocks/${payload.symbol}/history`;
+  byId("history-link").href = withReturnPath(
+    `/stocks/${payload.symbol}/history`,
+  );
   currentNewBoard = payload.new_board;
   byId("new-board-current").textContent = currentNewBoard?.name || "未归类";
   byId("quote-price").textContent = price(quote.price);
@@ -324,5 +341,6 @@ async function load() {
   }
 }
 
+byId("stock-list-link").href = stockListPath;
 byId("save-new-board").addEventListener("click", saveNewBoard);
 load();

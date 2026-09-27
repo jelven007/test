@@ -1,10 +1,26 @@
 const byId = (id) => document.getElementById(id);
 const symbol = location.pathname.split("/").filter(Boolean)[1] || "";
+const pageParameters = new URLSearchParams(location.search);
 const pageSize = 100;
-let period = new URLSearchParams(location.search).get("period") || "day";
+let period = pageParameters.get("period") || "day";
 let items = [];
 let page = 0;
 let loading = false;
+
+function safeReturnPath() {
+  const value = pageParameters.get("return_to");
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
+  const parsed = new URL(value, location.origin);
+  if (parsed.origin !== location.origin) return "/";
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+}
+
+const stockListPath = safeReturnPath();
+
+function withReturnPath(path) {
+  const parameters = new URLSearchParams({ return_to: stockListPath });
+  return `${path}?${parameters}`;
+}
 
 const periodLabels = {
   minute: "分时",
@@ -313,6 +329,7 @@ async function loadHistory(refresh = false) {
     renderChart(items);
     renderRows();
     const locationParameters = new URLSearchParams({ period });
+    locationParameters.set("return_to", stockListPath);
     if (period === "minute") {
       locationParameters.set("trade_date", byId("minute-date").value);
     }
@@ -335,7 +352,8 @@ async function initialize() {
     return;
   }
   byId("history-code").textContent = symbol;
-  byId("detail-link").href = `/stocks/${symbol}`;
+  byId("stock-list-link").href = stockListPath;
+  byId("detail-link").href = withReturnPath(`/stocks/${symbol}`);
   try {
     const [directory, calendar] = await Promise.all([
       fetchJson(`/api/v1/stocks?q=${encodeURIComponent(symbol)}&limit=1`),
@@ -350,7 +368,7 @@ async function initialize() {
       option.textContent = value;
       dateSelect.append(option);
     }
-    const requestedDate = new URLSearchParams(location.search).get("trade_date");
+    const requestedDate = pageParameters.get("trade_date");
     dateSelect.value = calendar.sessions.includes(requestedDate)
       ? requestedDate
       : calendar.defaults.monitor;
