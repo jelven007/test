@@ -283,6 +283,19 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('data-period="year"', research_html)
         self.assertIn("成功标准：当日存在符合计划约束的严格可买窗口", research_html)
 
+    def test_plan_and_monitor_mount_account_in_dashboard_meta(self):
+        web = ROOT / "src/banxia_strategy/web"
+        for name in ("index.html", "monitor.html"):
+            html = (web / name).read_text(encoding="utf-8")
+            self.assertIn('class="dashboard-meta"', html, name)
+            self.assertIn("data-account-slot", html, name)
+            self.assertIn("/auth.js?v=20260927.2", html, name)
+
+        auth = (web / "auth.js").read_text(encoding="utf-8")
+        self.assertIn('querySelector("[data-account-slot]")', auth)
+        standard = (web / "ui-standard.css").read_text(encoding="utf-8")
+        self.assertIn(".dashboard-meta .account-logout", standard)
+
     def test_primary_page_headers_stay_compact_and_single_row(self):
         web = ROOT / "src/banxia_strategy/web"
         strategy_html = (web / "strategy.html").read_text(encoding="utf-8")

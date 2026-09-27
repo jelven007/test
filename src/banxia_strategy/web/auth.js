@@ -73,7 +73,8 @@
         }
       });
       account.append(email, logout);
-      topbar.append(account);
+      const accountSlot = topbar.querySelector("[data-account-slot]");
+      (accountSlot || topbar).append(account);
     } catch (_error) {
       // Authentication redirects are handled by the shared fetch wrapper.
     }
