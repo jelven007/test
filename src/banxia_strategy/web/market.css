@@ -68,6 +68,19 @@
   width: 104px;
 }
 
+.stock-filters .stock-plan-filter {
+  width: 142px;
+}
+
+.stock-plan-toggle {
+  display: flex;
+  min-height: var(--control-height);
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
 .stock-filters .ui-control {
   width: 100%;
 }

@@ -491,10 +491,9 @@ class WebAssetTest(unittest.TestCase):
         self.assertNotIn("grid-template-columns: 1fr 1fr;", css)
         self.assertIn('<select id="stock-block"', html)
         self.assertIn('<option value="">全部板块</option>', html)
-        self.assertIn(
-            '<option value="plan">次日计划入选</option>',
-            html,
-        )
+        self.assertIn('id="stock-plan-only" type="checkbox"', html)
+        self.assertIn("次日计划中的股票", html)
+        self.assertIn(".stock-plan-toggle {", css)
         self.assertNotIn('id="stock-market"', html)
         for sort_key in (
             "symbol",
@@ -513,7 +512,11 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('parameters.set("sort", sortBy)', script)
         self.assertIn('header.setAttribute(\n      "aria-sort"', script)
         self.assertIn(
-            '["all", "only", "plan"].includes(requestedScope)',
+            'byId("stock-plan-only").checked = requestedScope === "plan"',
+            script,
+        )
+        self.assertIn(
+            'byId("stock-plan-only").checked\n      ? "plan"',
             script,
         )
         self.assertIn("payload.plan_scope?.trade_date", script)

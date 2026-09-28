@@ -8,9 +8,9 @@
     <title>沪深股票 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260926.1">
     <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
-    <link rel="stylesheet" href="/market.css?v=20260927.3">
+    <link rel="stylesheet" href="/market.css?v=20260928.1">
     <script src="/auth.js?v=20260927.1" defer></script>
-    <script src="/stocks.js?v=20260928.1" defer></script>
+    <script src="/stocks.js?v=20260928.2" defer></script>
   </head>
   <body class="market-body">
     <header class="topbar market-topbar">
@@ -58,9 +58,14 @@
         <label>范围
           <select id="stock-scope" class="ui-control">
             <option value="all">全部股票</option>
-            <option value="plan">次日计划入选</option>
             <option value="only">我的自选</option>
           </select>
+        </label>
+        <label class="stock-plan-filter">计划筛选
+          <span class="stock-plan-toggle">
+            <input id="stock-plan-only" type="checkbox">
+            次日计划中的股票
+          </span>
         </label>
         <button class="ui-button primary-button" type="submit">查询</button>
         <button class="ui-button" id="stock-reset" type="button">重置</button>

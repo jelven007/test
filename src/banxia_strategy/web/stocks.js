@@ -82,7 +82,9 @@ function queryParameters() {
     q: byId("stock-query").value.trim(),
     board: byId("stock-board").value,
     block: byId("stock-block").value,
-    watchlist: byId("stock-scope").value,
+    watchlist: byId("stock-plan-only").checked
+      ? "plan"
+      : byId("stock-scope").value,
     limit: String(pageSize),
     offset: String(offset),
   });
@@ -302,9 +304,8 @@ function restoreFilters() {
   byId("stock-query").value = parameters.get("q") || "";
   byId("stock-board").value = parameters.get("board") || "all";
   const requestedScope = parameters.get("watchlist") || "all";
-  byId("stock-scope").value = ["all", "only", "plan"].includes(requestedScope)
-    ? requestedScope
-    : "all";
+  byId("stock-scope").value = requestedScope === "only" ? "only" : "all";
+  byId("stock-plan-only").checked = requestedScope === "plan";
   requestedBlock = parameters.get("block") || "";
   const requestedSort = parameters.get("sort") || "";
   sortBy = Object.hasOwn(sortLabels, requestedSort) ? requestedSort : "";
@@ -370,11 +371,20 @@ byId("stock-reset").addEventListener("click", () => {
   byId("stock-board").value = "all";
   byId("stock-block").value = "";
   byId("stock-scope").value = "all";
+  byId("stock-plan-only").checked = false;
   sortBy = "";
   sortDirection = "asc";
   offset = 0;
   updateSortHeaders();
   loadStocks();
+});
+
+byId("stock-scope").addEventListener("change", () => {
+  byId("stock-plan-only").checked = false;
+});
+
+byId("stock-plan-only").addEventListener("change", (event) => {
+  if (event.target.checked) byId("stock-scope").value = "all";
 });
 
 document.querySelectorAll(".sort-button").forEach((button) => {
