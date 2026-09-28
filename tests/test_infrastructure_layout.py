@@ -491,6 +491,10 @@ class WebAssetTest(unittest.TestCase):
         self.assertNotIn("grid-template-columns: 1fr 1fr;", css)
         self.assertIn('<select id="stock-block"', html)
         self.assertIn('<option value="">全部板块</option>', html)
+        self.assertIn(
+            '<option value="plan">次日计划入选</option>',
+            html,
+        )
         self.assertNotIn('id="stock-market"', html)
         for sort_key in (
             "symbol",
@@ -508,6 +512,11 @@ class WebAssetTest(unittest.TestCase):
         self.assertEqual(html.count('aria-sort="none"'), 10)
         self.assertIn('parameters.set("sort", sortBy)', script)
         self.assertIn('header.setAttribute(\n      "aria-sort"', script)
+        self.assertIn(
+            '["all", "only", "plan"].includes(requestedScope)',
+            script,
+        )
+        self.assertIn("payload.plan_scope?.trade_date", script)
         self.assertIn("sortBy = key;", script)
         self.assertIn('fetchJson("/api/v1/stock-blocks")', script)
         self.assertIn('block: byId("stock-block").value', script)

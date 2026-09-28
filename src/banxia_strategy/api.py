@@ -1259,8 +1259,8 @@ def create_api_app(services: ApiServices):
             raise HTTPException(status_code=400, detail="股票板块无效")
         if market not in {"all", "sh", "sz"}:
             raise HTTPException(status_code=400, detail="交易市场无效")
-        if watchlist not in {"all", "only"}:
-            raise HTTPException(status_code=400, detail="自选股筛选条件无效")
+        if watchlist not in {"all", "only", "plan"}:
+            raise HTTPException(status_code=400, detail="股票范围筛选条件无效")
         if not 1 <= limit <= 100 or offset < 0:
             raise HTTPException(
                 status_code=400,
@@ -1292,13 +1292,42 @@ def create_api_app(services: ApiServices):
                     detail="自选股功能尚未启用",
                 )
             watchlist_set = set(watchlist_symbols)
+            plan_scope = None
+            scope_symbols = None
+            if watchlist == "only":
+                scope_symbols = watchlist_symbols
+            elif watchlist == "plan":
+                plan = active_plan()
+                scope_symbols = list(
+                    dict.fromkeys(
+                        str(
+                            candidate.get("symbol")
+                            or candidate.get("code")
+                            or ""
+                        ).strip()
+                        for candidate in plan.get("candidates", [])
+                        if candidate.get("symbol") or candidate.get("code")
+                    )
+                )
+                plan_scope = {
+                    "plan_id": plan.get("plan_id") or "",
+                    "reference_date": plan.get("reference_date"),
+                    "trade_date": plan.get("trade_date"),
+                    "strategy_version": plan.get("strategy_version") or "",
+                    "candidate_count": len(scope_symbols),
+                }
+            scope_set = (
+                set(scope_symbols)
+                if scope_symbols is not None
+                else None
+            )
             if reference_repository is not None:
                 result = reference_repository.list_securities(
                     query=keyword or None,
                     board=board,
                     market=market,
                     block=blockname or None,
-                    symbols=watchlist_symbols if watchlist == "only" else None,
+                    symbols=scope_symbols,
                     limit=100_000 if sort_by else limit,
                     offset=0 if sort_by else offset,
                 )
@@ -1317,8 +1346,8 @@ def create_api_app(services: ApiServices):
                     if (board == "all" or item["board"] == board)
                     and (market == "all" or item["market"] == market)
                     and (
-                        watchlist == "all"
-                        or item["symbol"] in watchlist_set
+                        scope_set is None
+                        or item["symbol"] in scope_set
                     )
                     and (
                         block_symbols is None
@@ -1394,6 +1423,7 @@ def create_api_app(services: ApiServices):
             "offset": offset,
             "sort": sort_by or None,
             "direction": direction if sort_by else None,
+            "plan_scope": plan_scope,
             "items": items,
         }
 

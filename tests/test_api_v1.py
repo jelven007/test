@@ -627,6 +627,29 @@ class ApiV1Test(unittest.TestCase):
             "002635",
         )
 
+        plan_directory = self.client.get(
+            "/api/v1/stocks?watchlist=plan&limit=20"
+        )
+        self.assertEqual(plan_directory.status_code, 200)
+        self.assertEqual(plan_directory.json()["total"], 1)
+        self.assertEqual(
+            plan_directory.json()["items"][0]["symbol"],
+            "002635",
+        )
+        self.assertFalse(
+            plan_directory.json()["items"][0]["watchlisted"]
+        )
+        self.assertEqual(
+            plan_directory.json()["plan_scope"],
+            {
+                "plan_id": "plan",
+                "reference_date": "2026-09-23",
+                "trade_date": "2026-09-24",
+                "strategy_version": "v1",
+                "candidate_count": 1,
+            },
+        )
+
         detail = self.client.get("/api/v1/stocks/002635")
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["finance"]["jinglirun"], 100000000)
@@ -740,6 +763,9 @@ class ApiV1Test(unittest.TestCase):
         directory = client.get(
             "/api/v1/stocks?board=main&block=持久化板块&limit=20"
         )
+        plan_directory = client.get(
+            "/api/v1/stocks?watchlist=plan&limit=20"
+        )
         detail = client.get("/api/v1/stocks/002635")
 
         self.assertEqual(blocks.json()["source"], "postgres")
@@ -753,6 +779,8 @@ class ApiV1Test(unittest.TestCase):
             directory.json()["snapshot"]["freshness"],
             "fresh",
         )
+        self.assertEqual(plan_directory.status_code, 200)
+        self.assertEqual(plan_directory.json()["total"], 1)
         self.assertEqual(detail.json()["source"], "postgres")
         self.assertEqual(detail.json()["profile_source"], "mootdx")
         securities_call = next(
@@ -760,6 +788,12 @@ class ApiV1Test(unittest.TestCase):
             if call[0] == "securities"
         )
         self.assertEqual(securities_call[1]["block"], "持久化板块")
+        plan_call = next(
+            call for call in repository.reference_calls
+            if call[0] == "securities"
+            and call[1]["symbols"] == ["002635"]
+        )
+        self.assertIsNone(plan_call[1]["block"])
 
     def test_stock_directory_falls_back_to_daily_snapshot_without_cache(self):
         repository = FakeReferenceRepository()
@@ -1136,7 +1170,7 @@ class ApiV1Test(unittest.TestCase):
         home = self.client.get("/")
         self.assertEqual(home.headers["Cache-Control"], "no-store")
         self.assertIn("/market.css?v=20260927.3", home.text)
-        self.assertIn("/stocks.js?v=20260927.2", home.text)
+        self.assertIn("/stocks.js?v=20260928.1", home.text)
 
         stock = self.client.get("/stocks/002635")
         self.assertIn("/stock.js?v=20260927.2", stock.text)

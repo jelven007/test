@@ -282,7 +282,10 @@ async function loadStocks() {
     const sorting = sortBy
       ? ` · ${sortLabels[sortBy]}${sortDirection === "asc" ? "升序" : "降序"}`
       : "";
-    byId("stock-status").textContent = `已读取 ${payload.items.length} 只股票 · ${payload.source}${sorting}`;
+    const planScope = payload.plan_scope?.trade_date
+      ? ` · 次日计划执行日 ${payload.plan_scope.trade_date}`
+      : "";
+    byId("stock-status").textContent = `已读取 ${payload.items.length} 只股票 · ${payload.source}${planScope}${sorting}`;
     updateBrowserUrl(parameters);
   } catch (error) {
     byId("stock-status").textContent = error.message;
@@ -298,7 +301,10 @@ function restoreFilters() {
   const parameters = new URLSearchParams(location.search);
   byId("stock-query").value = parameters.get("q") || "";
   byId("stock-board").value = parameters.get("board") || "all";
-  byId("stock-scope").value = parameters.get("watchlist") === "only" ? "only" : "all";
+  const requestedScope = parameters.get("watchlist") || "all";
+  byId("stock-scope").value = ["all", "only", "plan"].includes(requestedScope)
+    ? requestedScope
+    : "all";
   requestedBlock = parameters.get("block") || "";
   const requestedSort = parameters.get("sort") || "";
   sortBy = Object.hasOwn(sortLabels, requestedSort) ? requestedSort : "";
