@@ -207,7 +207,7 @@ class FakeCache:
                 "plan_id": plan_id,
                 "symbol": symbol,
                 "state": "watch",
-                "label": "观察",
+                "label": "watch",
                 "reason_code": "watch",
                 "reason": "等待确认",
                 "irreversible": False,
@@ -559,6 +559,10 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(monitor["plan_id"], "plan")
         self.assertEqual(monitor["stocks"][0]["symbol"], "002635")
         self.assertEqual(monitor["stocks"][0]["decision"]["state"], "watch")
+        self.assertEqual(
+            monitor["stocks"][0]["decision"]["label"],
+            "观察 · 不提前买",
+        )
         self.assertEqual(
             monitor["stocks"][0]["feature"]["minute_volume_ratio"],
             2.5,

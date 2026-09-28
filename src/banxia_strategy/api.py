@@ -9,7 +9,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
-from .domain.intraday import PHASE_LABELS, SHANGHAI, phase_at
+from .domain.intraday import DECISION_LABELS, PHASE_LABELS, SHANGHAI, phase_at
 from .mootdx_provider import MootdxProvider
 from .web_server import ReportStore
 from .strategy_config import ConfigConflict, ConfigError, StrategyConfig, StrategyConfigStore, revision_for
@@ -111,6 +111,13 @@ def _validate_watchlist_symbols(symbols: list[str]) -> list[str]:
         except ValueError as exc:
             raise ValueError(f"股票代码无效：{symbol or '空值'}") from exc
     return normalized
+
+
+def _decision_label(decision: Mapping[str, Any], state: str) -> str:
+    label = str(decision.get("label") or "").strip()
+    if label and label != state:
+        return label
+    return DECISION_LABELS.get(state, "等待实时决策")
 
 
 @dataclass
@@ -1931,7 +1938,10 @@ def create_api_app(services: ApiServices):
                     "plan": candidate.get("plan", {}),
                     "decision": {
                         "state": decision.get("state", "unavailable"),
-                        "label": decision.get("label", "等待实时决策"),
+                        "label": _decision_label(
+                            decision,
+                            decision.get("state", "unavailable"),
+                        ),
                         "reason_code": decision.get(
                             "reason_code",
                             "PROJECTION_UNAVAILABLE",

@@ -42,6 +42,28 @@ class DecisionState(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
+DECISION_LABELS = {
+    DecisionState.EXPIRED.value: "计划日期不匹配",
+    DecisionState.INELIGIBLE.value: "不参与 · 静态门槛未通过",
+    DecisionState.PRE.value: "等待竞价",
+    DecisionState.STALE.value: "行情待同步",
+    DecisionState.NO_QUOTE.value: "暂无有效报价",
+    DecisionState.REFERENCE_CHANGED.value: "昨收基准变化",
+    DecisionState.MISSING_RULES.value: "入场参数缺失",
+    DecisionState.AUCTION.value: "等待开盘确认",
+    DecisionState.NO_OPEN.value: "等待有效开盘价",
+    DecisionState.REJECT_OPEN.value: "放弃 · 开盘超限",
+    DecisionState.REJECT_LOW.value: "放弃 · 跌破昨收",
+    DecisionState.OUTSIDE_OPEN.value: "不参与 · 竞价未通过",
+    DecisionState.WINDOW_CLOSED.value: "不追 · 入场窗口结束",
+    DecisionState.SEALED.value: "封板快照 · 待核验",
+    DecisionState.AT_LIMIT.value: "触板 · 等待封稳",
+    DecisionState.NEAR_LIMIT.value: "临近二板 · 等待确认",
+    DecisionState.WATCH.value: "观察 · 不提前买",
+    DecisionState.UNAVAILABLE.value: "行情读取失败",
+}
+
+
 IRREVERSIBLE_STATES = frozenset(
     {
         DecisionState.EXPIRED.value,
