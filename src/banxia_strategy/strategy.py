@@ -11,6 +11,11 @@ from typing import Any, Dict, Iterable, List, Optional, Protocol, Sequence
 from zoneinfo import ZoneInfo
 
 from .strategy_config import StrategyConfig
+from .strategy_archetypes import (
+    accepts_candidate,
+    archetype_for,
+    setup_bonus,
+)
 
 
 class MarketDataProvider(Protocol):
@@ -96,6 +101,18 @@ COLUMN_ALIASES: Dict[str, Sequence[str]] = {
     "break_count": ("炸板次数", "开板次数"),
     "board_count": ("连板数",),
     "industry": ("所属行业", "行业"),
+    "open": ("开盘价", "_open"),
+    "high": ("最高价", "_high"),
+    "low": ("最低价", "_low"),
+    "previous_high": ("前一日最高价", "_previous_high"),
+    "position_20d": ("20日位置", "_position_20d"),
+    "return_20d_pct": ("20日涨幅", "_return_20d_pct"),
+    "previous_board_count": ("前期连板数", "_previous_board_count"),
+    "days_since_limit_up": ("距涨停日", "_days_since_limit_up"),
+    "is_bearish": ("收阴", "_is_bearish"),
+    "reversal_confirmed": ("反包确认", "_reversal_confirmed"),
+    "trend_confirmed": ("趋势确认", "_trend_confirmed"),
+    "repair_confirmed": ("修复确认", "_repair_confirmed"),
 }
 
 
@@ -179,7 +196,23 @@ def _normalize(row: Dict[str, Any]) -> Dict[str, Any]:
         first_seal_minutes=_time_minutes(data["first_seal_time"]),
         last_seal_minutes=_time_minutes(data["last_seal_time"]),
         break_count=_integer(data["break_count"]),
-        board_count=max(1, _integer(data["board_count"], 1)),
+        board_count=max(0, _integer(data["board_count"], 1)),
+        open=_number(data["open"]),
+        high=_number(data["high"]),
+        low=_number(data["low"]),
+        previous_high=_number(data["previous_high"]),
+        position_20d=_number(data["position_20d"], 1.0),
+        return_20d_pct=_number(data["return_20d_pct"]),
+        previous_board_count=max(0, _integer(data["previous_board_count"])),
+        days_since_limit_up=(
+            _integer(data["days_since_limit_up"])
+            if data["days_since_limit_up"] not in (None, "")
+            else None
+        ),
+        is_bearish=bool(data["is_bearish"]),
+        reversal_confirmed=bool(data["reversal_confirmed"]),
+        trend_confirmed=bool(data["trend_confirmed"]),
+        repair_confirmed=bool(data["repair_confirmed"]),
     )
     return data
 
@@ -238,7 +271,19 @@ class StrategyEngine:
 
         market = self._market_state(today_rows, broken_rows, broken_data_available)
         industry_stats = self._industry_stats(pools)
-        raw_candidates = self._build_candidates(today_rows, industry_stats, market)
+        strategy_pool = getattr(self.provider, "strategy_pool", None)
+        if callable(strategy_pool):
+            candidate_rows = [
+                _normalize(row)
+                for row in strategy_pool(as_of, self.config.strategy_archetype)
+            ]
+        else:
+            candidate_rows = today_rows
+        raw_candidates = self._build_candidates(
+            candidate_rows,
+            industry_stats,
+            market,
+        )
         selected = self._select(raw_candidates)
         for index, candidate in enumerate(selected, start=1):
             candidate.rank = index
@@ -265,7 +310,7 @@ class StrategyEngine:
             candidates=selected,
             rejected_count=max(
                 0,
-                sum(1 for row in today_rows if row["board_count"] == 1) - len(selected),
+                len(candidate_rows) - len(selected),
             ),
             disclaimer=(
                 "本报告仅用于量化研究和次日观察，不构成投资建议。所有入场均为条件触发，"
@@ -341,8 +386,6 @@ class StrategyEngine:
 
     def _passes_filters(self, row: Dict[str, Any]) -> bool:
         cfg = self.config
-        if row["board_count"] != 1:
-            return False
         if not row["code"] or not row["name"]:
             return False
         if cfg.exclude_st and ("ST" in row["name"].upper() or "退" in row["name"]):
@@ -370,10 +413,17 @@ class StrategyEngine:
         market: Dict[str, Any],
     ) -> List[Candidate]:
         cfg = self.config
+        profile = archetype_for(cfg.strategy_archetype)
         eligible = [
             row
             for row in rows
             if self._passes_filters(row)
+            and accepts_candidate(
+                cfg.strategy_archetype,
+                row,
+                industry_stats.get(row["industry"], {}),
+                market,
+            )
             and int(
                 industry_stats.get(row["industry"], {}).get("today_count", 0)
             )
@@ -455,21 +505,32 @@ class StrategyEngine:
             if not row["seal_amount_data_available"]:
                 penalty += self.config.missing_seal_amount_penalty
             score = round(
-                board_quality + liquidity + theme + leadership + market_component - penalty,
+                board_quality
+                + liquidity
+                + theme
+                + leadership
+                + market_component
+                + setup_bonus(cfg.strategy_archetype, row)
+                - penalty,
                 1,
             )
 
-            if max_board >= cfg.catchup_board_count:
-                strategy = "龙头补涨"
-            elif today_count >= 2 and int(stats.get("previous_count", 0)) == 0:
-                strategy = "新题材切换"
-            else:
-                strategy = "一进二试错"
+            strategy = profile.setup_label
 
             reasons = [
+                f"策略原型：{profile.name}",
                 f"{row['industry']}涨停{today_count}只，近{self.config.lookback_sessions}日活跃{active_days}日",
-                f"首封{_format_time(row['first_seal_time'])}，炸板{row['break_count']}次",
             ]
+            if row["board_count"] > 0:
+                reasons.append(
+                    f"当前{row['board_count']}板，首封{_format_time(row['first_seal_time'])}，"
+                    f"炸板{row['break_count']}次"
+                )
+            else:
+                reasons.append(
+                    f"距最近涨停{row['days_since_limit_up'] if row['days_since_limit_up'] is not None else '-'}日，"
+                    f"20日涨幅{row['return_20d_pct']:.1f}%"
+                )
             if row["seal_amount_data_available"]:
                 reasons.append(
                     f"封单/成交额{seal_ratio:.1%}，换手{row['turnover']:.1f}%"
@@ -485,18 +546,24 @@ class StrategyEngine:
             if momentum > cfg.expansion_momentum:
                 reasons.append("板块涨停家数较近期均值扩张")
 
-            entry_trigger = (
-                f"次日竞价涨幅位于{self.config.entry_open_min_pct:.1f}%～"
-                f"{self.config.entry_open_max_pct:g}%；9:25人工按竞价强弱重排，"
-                f"同题材至少{cfg.minimum_sector_sample_size}个有效样本，上涨比例不低于{cfg.minimum_sector_rise_ratio:.0%}；"
-                f"仅在{cfg.entry_cutoff_time}前放量封二板或炸板不超过{cfg.manual_max_intraday_breaks}次后快速回封并封稳时观察（量能及回封过程需人工核验）"
-            )
+            entry_trigger = self._entry_trigger(profile.entry_mode)
+            mode_invalidation = {
+                "reclaim_open": f"{cfg.entry_cutoff_time}前未放量站回开盘价与昨收",
+                "breakout": f"{cfg.entry_cutoff_time}前未放量突破计划关键价",
+                "momentum_breakout": (
+                    f"{cfg.entry_cutoff_time}前涨幅未达到5%或分钟量比不足1.5倍"
+                ),
+                "board_reseal": (
+                    f"盘中炸板超过{cfg.manual_max_intraday_breaks}次或"
+                    f"{cfg.entry_cutoff_time}前未封稳"
+                ),
+            }[profile.entry_mode]
             invalidation = (
                 f"竞价低于{cfg.reject_open_min_pct:g}%或高于{cfg.reject_open_max_pct:g}%、"
                 f"竞价不在{cfg.entry_open_min_pct:g}%～{cfg.entry_open_max_pct:g}%合格区间、"
                 f"板块上涨比例低于{cfg.minimum_sector_rise_ratio:.0%}、"
                 + ("当日跌破昨日收盘价、" if cfg.reject_below_previous_close else "")
-                + f"盘中炸板超过{cfg.manual_max_intraday_breaks}次或{cfg.entry_cutoff_time}前未封稳则放弃"
+                + f"{mode_invalidation}则放弃"
             )
             exit_plan = (
                 f"单票不超过{self.config.position_limit_pct}%；成本回撤"
@@ -504,6 +571,18 @@ class StrategyEngine:
                 "A股T+1，当日新买仓位不能当日卖出，最早下一交易日按可成交情况退出；"
                 "次日无溢价或板块退潮优先退出，跳空和跌停可能导致损失超过预警阈值"
             )
+            plan = {
+                **cfg.entry_rules(),
+                "strategy_archetype": cfg.strategy_archetype,
+                "entry_mode": profile.entry_mode,
+                "minimum_minute_volume_ratio": 1.5,
+            }
+            if profile.entry_mode == "breakout":
+                plan["trigger_price"] = (
+                    row["high"] or row["previous_high"] or row["latest_price"]
+                )
+            elif profile.entry_mode == "momentum_breakout":
+                plan["trigger_change_pct"] = 5.0
             result.append(
                 Candidate(
                     rank=0,
@@ -529,10 +608,34 @@ class StrategyEngine:
                     invalidation=invalidation,
                     exit_plan=exit_plan,
                     position_limit_pct=self.config.position_limit_pct,
-                    plan=cfg.entry_rules(),
+                    plan=plan,
                 )
             )
         return result
+
+    def _entry_trigger(self, entry_mode: str) -> str:
+        cfg = self.config
+        prefix = (
+            f"次日竞价涨幅位于{cfg.entry_open_min_pct:.1f}%～"
+            f"{cfg.entry_open_max_pct:g}%；同题材至少"
+            f"{cfg.minimum_sector_sample_size}个有效样本，上涨比例不低于"
+            f"{cfg.minimum_sector_rise_ratio:.0%}；"
+        )
+        if entry_mode == "reclaim_open":
+            condition = "放量重新站上开盘价并保持在昨收之上"
+        elif entry_mode == "breakout":
+            condition = "放量突破计划关键价"
+        elif entry_mode == "momentum_breakout":
+            condition = "分钟量比达到1.5倍且涨幅达到5%"
+        else:
+            condition = (
+                f"放量封板或炸板不超过{cfg.manual_max_intraday_breaks}次后"
+                "快速回封并封稳"
+            )
+        return (
+            f"{prefix}仅在{cfg.entry_cutoff_time}前{condition}时观察；"
+            "量能、板块和实际成交机会需人工核验"
+        )
 
     def _select(self, candidates: List[Candidate]) -> List[Candidate]:
         candidates.sort(key=lambda item: (-item.score, item.first_seal_time, item.code))

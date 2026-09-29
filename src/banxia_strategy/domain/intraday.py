@@ -38,6 +38,7 @@ class DecisionState(str, Enum):
     SEALED = "sealed"
     AT_LIMIT = "at_limit"
     NEAR_LIMIT = "near_limit"
+    TRIGGERED = "triggered"
     WATCH = "watch"
     UNAVAILABLE = "unavailable"
 
@@ -59,6 +60,7 @@ DECISION_LABELS = {
     DecisionState.SEALED.value: "封板快照 · 待核验",
     DecisionState.AT_LIMIT.value: "触板 · 等待封稳",
     DecisionState.NEAR_LIMIT.value: "临近二板 · 等待确认",
+    DecisionState.TRIGGERED.value: "条件满足 · 待人工确认",
     DecisionState.WATCH.value: "观察 · 不提前买",
     DecisionState.UNAVAILABLE.value: "行情读取失败",
 }
@@ -235,6 +237,47 @@ def evaluate(
             "不追 · 入场窗口结束",
             f"已到{cutoff}或之后，按原计划不新增一进二仓位。",
             "muted",
+        )
+    entry_mode = str(plan.get("entry_mode") or "board_reseal")
+    if entry_mode != "board_reseal":
+        volume_ratio = quote.get("minute_volume_ratio")
+        minimum_ratio = float(plan.get("minimum_minute_volume_ratio", 1.5))
+        if volume_ratio is None:
+            return advice(
+                DecisionState.WATCH,
+                "观察 · 等待量能",
+                "分钟量比样本不足，尚不能确认放量条件。",
+            )
+        if entry_mode == "reclaim_open":
+            trigger_price = max(float(quote["open"]), float(plan["previous_close"]))
+            condition = quote["price"] >= trigger_price
+            description = f"重新站上开盘与昨收参考价 {trigger_price:.2f}"
+        elif entry_mode == "breakout":
+            trigger_price = float(plan.get("trigger_price") or plan["previous_close"])
+            condition = quote["price"] >= trigger_price
+            description = f"突破计划关键价 {trigger_price:.2f}"
+        elif entry_mode == "momentum_breakout":
+            trigger_pct = float(plan.get("trigger_change_pct", 5.0))
+            condition = quote["change_pct"] is not None and quote["change_pct"] >= trigger_pct
+            description = f"涨幅达到 {trigger_pct:g}%"
+        else:
+            return advice(
+                DecisionState.MISSING_RULES,
+                "入场模式无效",
+                "计划中的入场确认模式无法识别，暂停判断。",
+                "risk",
+            )
+        if condition and float(volume_ratio) >= minimum_ratio:
+            return advice(
+                DecisionState.TRIGGERED,
+                "条件满足 · 待人工确认",
+                f"{description}且分钟量比 {float(volume_ratio):.2f} 倍；仍需人工核验板块与成交条件。",
+                "focus",
+            )
+        return advice(
+            DecisionState.WATCH,
+            "观察 · 等待确认",
+            f"等待{description}且分钟量比不低于 {minimum_ratio:g} 倍。",
         )
     limit = plan["limit_price"]
     if quote["price"] >= limit - 0.001:

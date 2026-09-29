@@ -68,6 +68,36 @@ def _cutoff_index(value: str) -> int:
     return max(0, min(240, hour * 60 + minute - (9 * 60 + 31)))
 
 
+def _minute_volume_ratio(volumes: Sequence[Any], index: int) -> Optional[float]:
+    current = volumes[index]
+    history = [
+        float(value)
+        for value in volumes[max(0, index - 5):index]
+        if _finite_positive(value)
+    ]
+    if not _finite_positive(current) or not history:
+        return None
+    return float(current) / (sum(history) / len(history))
+
+
+def _non_board_target(
+    entry_mode: str,
+    plan: Mapping[str, Any],
+    reference: float,
+    opening: float,
+) -> tuple[float, str]:
+    if entry_mode == "reclaim_open":
+        target = max(reference, opening)
+        return target, "站回开盘价与昨收"
+    if entry_mode == "breakout":
+        target = float(plan.get("trigger_price") or reference)
+        return target, "突破计划关键价"
+    if entry_mode == "momentum_breakout":
+        trigger_pct = float(plan.get("trigger_change_pct", 5.0))
+        return reference * (1 + trigger_pct / 100), f"涨幅达到 {trigger_pct:g}%"
+    raise ValueError(f"unsupported entry mode: {entry_mode}")
+
+
 def classify_candidate(
     candidate: Mapping[str, Any],
     trade_date: str,
@@ -78,6 +108,7 @@ def classify_candidate(
     symbol = str(candidate["code"])
     reference = float(candidate["latest_price"])
     plan = candidate["plan"]
+    entry_mode = str(plan.get("entry_mode") or "board_reseal")
     result = {
         "trade_date": trade_date,
         "symbol": symbol,
@@ -86,6 +117,7 @@ def classify_candidate(
         "rank": candidate.get("rank"),
         "score": candidate.get("score"),
         "reference_close": reference,
+        "entry_mode": entry_mode,
         "status": "missing",
         "reason_code": "missing_daily",
         "reason": "次日日线缺失或无效",
@@ -135,6 +167,71 @@ def classify_candidate(
     cutoff = _cutoff_index(str(plan.get("entry_cutoff_time", "10:00")))
     window_prices = prices[:cutoff]
     window_volumes = volumes[:cutoff]
+    if entry_mode != "board_reseal":
+        target_price, target_label = _non_board_target(
+            entry_mode,
+            plan,
+            reference,
+            float(bar["open"]),
+        )
+        minimum_ratio = float(plan.get("minimum_minute_volume_ratio", 1.5))
+        confirmation = next(
+            (
+                index
+                for index in range(1, len(window_prices))
+                if _finite_positive(window_prices[index])
+                and _finite_positive(window_prices[index - 1])
+                and float(window_prices[index - 1]) < target_price - 0.001
+                and float(window_prices[index]) >= target_price - 0.001
+                and (_minute_volume_ratio(window_volumes, index) or 0) >= minimum_ratio
+            ),
+            None,
+        )
+        result["target_price"] = round(target_price, 4)
+        if confirmation is None:
+            result.update(
+                reason_code="no_volume_confirmation",
+                reason=(
+                    f"{plan.get('entry_cutoff_time', '10:00')}前未同时确认"
+                    f"{target_label}和 {minimum_ratio:g} 倍分钟量比"
+                ),
+            )
+            return result
+        breach = next(
+            (
+                index
+                for index, price in enumerate(window_prices[: confirmation + 1])
+                if _finite_positive(price) and float(price) < reference - 0.001
+            ),
+            None,
+        )
+        if breach is not None and plan.get("reject_below_previous_close", True):
+            result.update(
+                reason_code="breached_reference",
+                reason=f"{_minute_label(breach)} 已跌破昨收，按计划永久放弃",
+            )
+            return result
+        confirmation_time = _minute_label(confirmation)
+        close_target_met = float(bar["close"]) >= target_price - 0.001
+        result.update(
+            reason_code="success" if close_target_met else "buyable_but_failed",
+            reason=(
+                f"{target_label}后收盘仍在目标价之上"
+                if close_target_met
+                else f"已确认{target_label}，但收盘跌回目标价之下"
+            ),
+            first_touch_time=confirmation_time,
+            buy_window_time=confirmation_time,
+            confirmation_time=confirmation_time,
+            minute_volume_ratio=round(
+                float(_minute_volume_ratio(window_volumes, confirmation) or 0),
+                4,
+            ),
+            buyable=True,
+            success=close_target_met,
+        )
+        return result
+
     touch_indices = [
         index for index, price in enumerate(window_prices)
         if _at_price_limit(price, limit_price)

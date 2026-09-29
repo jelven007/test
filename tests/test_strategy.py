@@ -102,7 +102,7 @@ class StrategyEngineTest(unittest.TestCase):
         self.assertEqual([item.code for item in report.candidates], ["600001"])
         candidate = report.candidates[0]
         self.assertEqual(candidate.rank, 1)
-        self.assertEqual(candidate.strategy, "龙头补涨")
+        self.assertEqual(candidate.strategy, "一进二弱转强")
         self.assertEqual(candidate.industry_max_board, 4)
         self.assertGreater(candidate.score, 60)
         self.assertNotIn("300001", [item.code for item in report.candidates])

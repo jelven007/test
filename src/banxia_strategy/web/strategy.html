@@ -7,10 +7,10 @@
     <meta name="theme-color" content="#f6f7f5">
     <title>策略管理 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260926.1">
-    <link rel="stylesheet" href="/strategy.css?v=20260926.1">
+    <link rel="stylesheet" href="/strategy.css?v=20260929.1">
     <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
     <script src="/auth.js?v=20260927.1" defer></script>
-    <script src="/strategy.js?v=20260926.1" defer></script>
+    <script src="/strategy.js?v=20260929.1" defer></script>
   </head>
   <body class="settings-body">
     <header class="topbar settings-topbar">
@@ -37,7 +37,7 @@
       <div id="settings-errors" class="notice is-error" role="alert" hidden></div>
       <section id="strategy-list-view" aria-labelledby="strategy-list-title">
         <div class="strategy-list-heading">
-          <div><h2 id="strategy-list-title">全部策略</h2><p>初始策略可调整参数并另存；其他策略仅支持查询、改名、激活、停用或删除。</p></div>
+          <div><h2 id="strategy-list-title">全部策略</h2><p>十类初始策略可调整参数并另存；参数副本继承原型且保持只读。</p></div>
           <form id="strategy-query-form" class="strategy-query" role="search">
             <label>关键词<input id="strategy-query" class="ui-control" type="search" placeholder="名称或编码"></label>
             <label>状态<select id="strategy-status-filter" class="ui-control"><option value="all">全部</option><option value="active">激活</option><option value="inactive">未激活</option></select></label>
@@ -47,7 +47,7 @@
         </div>
         <div class="strategy-table-wrap" tabindex="0" role="region" aria-label="策略关键参数">
           <table class="strategy-table data-table">
-            <thead><tr><th>策略名称</th><th>状态</th><th>历史数据</th><th>最低评分</th><th>成交额</th><th>换手率</th><th>流通市值</th><th>题材涨停</th><th>入场截止</th><th>来源</th></tr></thead>
+            <thead><tr><th>策略名称</th><th>原型 / 阶段</th><th>状态</th><th>历史数据</th><th>最低评分</th><th>成交额</th><th>换手率</th><th>流通市值</th><th>题材涨停</th><th>入场截止</th><th>来源</th></tr></thead>
             <tbody id="strategy-list"></tbody>
           </table>
         </div>
@@ -64,6 +64,13 @@
             <button type="button" class="ui-button" id="toggle-strategy">激活</button>
             <button type="button" class="ui-button danger-button" id="archive-strategy">删除</button>
           </div>
+        </section>
+        <section class="archetype-summary" aria-labelledby="archetype-name">
+          <div><span>策略原型</span><strong id="archetype-name">读取中</strong></div>
+          <div><span>研究阶段</span><strong id="archetype-stage">—</strong></div>
+          <div><span>证据等级</span><strong id="archetype-evidence">—</strong></div>
+          <div><span>盘中确认</span><strong id="archetype-entry">—</strong></div>
+          <p id="archetype-description"></p>
         </section>
         <div class="catalog-tabs segmented-control" role="group" aria-label="策略内容">
           <button type="button" id="records-tab" aria-pressed="true">交易日记录</button>

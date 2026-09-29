@@ -77,6 +77,38 @@ class ResearchLabelsTest(unittest.TestCase):
         self.assertIsNone(summarize([pending, missing])["accuracy_pct"])
         self.assertIsNone(summarize([])["accuracy_pct"])
 
+    def test_non_board_label_uses_its_target_instead_of_limit_up_close(self):
+        item = candidate()
+        item["plan"] = {
+            **item["plan"],
+            "entry_mode": "breakout",
+            "trigger_price": 10.5,
+        }
+        prices = [10.2] * 240
+        prices[5] = 10.6
+        snapshot = {
+            "requested_end": "2026-09-24",
+            "histories": {
+                "600001": [{
+                    "datetime": "2026-09-24",
+                    "open": 10.2,
+                    "high": 10.8,
+                    "low": 10.0,
+                    "close": 10.6,
+                    "vol": 100,
+                }],
+            },
+            "minutes": {"2026-09-24:600001": prices},
+        }
+        row = label_candidate(item, "2026-09-24", snapshot)
+        self.assertFalse(row["closed_limit_up"])
+        self.assertTrue(row["target_hit"])
+        self.assertEqual(
+            row["entry_verification"],
+            "price_confirmed_volume_unverified",
+        )
+        self.assertEqual(summarize([row])["accuracy_pct"], 100)
+
     def test_periods_use_weighted_counts_and_execution_date(self):
         days = []
         for stamp, rows in [

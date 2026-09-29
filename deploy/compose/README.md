@@ -32,8 +32,9 @@ make infra-check
 板块、行业版本和全市场每日行情快照。
 非交易日由 mootdx 交易日历校验后跳过。调度器重启后会补跑最近缺失的交易日报；
 报告任务通过 host 网络访问 mootdx，并通过完成标记区分完整持久化和残留文件。
-API 与调度器启动时会幂等预置受保护的初始策略，并提交最近一年次日计划与当日实盘
-历史生成任务；调度器使用 mootdx 处理任务，相同策略和日期区间不会重复入队。
+API 与调度器启动时会幂等预置十条受保护的初始策略；仅主策略自动提交最近一年次日计划
+与当日实盘历史生成任务，避免首次启动同时触发十份全市场回放。调度器使用 mootdx
+处理任务，相同策略和日期区间不会重复入队。
 调度和页面刷新都在 Worker 开始时读取 PostgreSQL 中当前唯一激活策略。使用完整策略目录前，
 数据库必须已应用 `004_strategy_research.sql`、`005_multi_strategy.sql` 和
 `006_immutable_active_strategy.sql`；新数据卷会按文件名顺序自动执行全部迁移。
@@ -137,6 +138,17 @@ docker compose \
   exec -T postgres sh -c \
   'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   < migrations/postgres/014_user_watchlist.sql
+```
+
+最后应用策略原型和盘中触发状态迁移：
+
+```bash
+docker compose \
+  --env-file deploy/compose/.env \
+  -f deploy/compose/docker-compose.yml \
+  exec -T postgres sh -c \
+  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < migrations/postgres/015_strategy_archetypes.sql
 ```
 
 API 默认启用邮箱认证。发送注册验证码前，在

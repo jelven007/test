@@ -22,6 +22,7 @@ from banxia_strategy.contracts.topics import MARKET_QUOTE_SNAPSHOT
 from banxia_strategy.domain.events import EventEnvelope
 from banxia_strategy.ports.messaging import ConsumedEvent
 from banxia_strategy.strategy import StrategyEngine
+from banxia_strategy.strategy_archetypes import STRATEGY_ARCHETYPES
 from banxia_strategy.strategy_config import ConfigConflict, ConfigError, StrategyConfig, StrategyConfigStore
 from banxia_strategy.web_server import ReportStore
 from test_api_v1 import FakeCache
@@ -191,9 +192,20 @@ class MultiStrategyTest(unittest.TestCase):
 
         initial = self.repository.ensure_initial_strategy({"max_per_industry": 2})
         initial = self.repository.ensure_initial_strategy({})
+        seeded = self.repository.ensure_initial_strategies({})
         self.assertEqual(initial["code"], "banxia-first-board-second-board")
         self.assertEqual(initial["config"], asdict(StrategyConfig()))
         self.assertEqual(initial["config"]["max_per_industry"], 5)
+        self.assertEqual(
+            {item["code"] for item in seeded},
+            {item.code for item in STRATEGY_ARCHETYPES},
+        )
+        self.assertEqual(len(seeded), 10)
+        for item, profile in zip(seeded, STRATEGY_ARCHETYPES):
+            self.assertEqual(
+                item["config"]["strategy_archetype"],
+                profile.key,
+            )
         self.connection.execute("SET LOCAL banxia.allow_initial_strategy_upgrade = 'off'")
         with self.assertRaises(psycopg.errors.RaiseException):
             with self.connection.transaction():

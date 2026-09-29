@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS banxia.decision_state (
             'sealed',
             'at_limit',
             'near_limit',
+            'triggered',
             'watch',
             'unavailable'
         )

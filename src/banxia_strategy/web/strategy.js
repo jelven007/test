@@ -75,6 +75,7 @@ function renderStrategyList() {
     const status = node("span", item.enabled ? "激活" : "未激活", `status-badge${item.enabled ? " is-active" : ""}`);
     row.append(
       nameCell,
+      node("td", `${item.archetype.name} · ${item.archetype.stage}`, "strategy-archetype"),
       node("td"),
       node("td", item.history_generation ? (historyStatuses[item.history_generation.status] || item.history_generation.status) : "尚未生成"),
       node("td", String(parameters.minimum_score)),
@@ -85,13 +86,13 @@ function renderStrategyList() {
       node("td", parameters.entry_cutoff_time),
       node("td", item.is_initial ? "初始策略" : parent?.name || (item.parent_strategy_id ? "已删除策略" : "历史策略"), "strategy-origin"),
     );
-    row.children[1].append(status);
+    row.children[2].append(status);
     body.append(row);
   }
   if (!strategies.length) {
     const row = node("tr");
     const cell = node("td", "暂无策略。");
-    cell.colSpan = 10;
+    cell.colSpan = 11;
     row.append(cell);
     body.append(row);
   }
@@ -158,6 +159,16 @@ async function loadCatalog() {
   document.querySelector("#strategy-lineage").textContent = item.is_initial
     ? "初始策略"
     : `来源：${parent?.name || (item.parent_strategy_id ? "已删除策略" : "历史导入")}`;
+  document.querySelector("#archetype-name").textContent = item.archetype.name;
+  document.querySelector("#archetype-stage").textContent = item.archetype.stage;
+  document.querySelector("#archetype-evidence").textContent = item.archetype.evidence_level;
+  document.querySelector("#archetype-entry").textContent = {
+    board_reseal: "涨停 / 回封确认",
+    reclaim_open: "站回开盘价确认",
+    breakout: "放量突破关键价",
+    momentum_breakout: "竞价爆量半路",
+  }[item.archetype.entry_mode] || item.archetype.entry_mode;
+  document.querySelector("#archetype-description").textContent = item.archetype.description;
   document.querySelector("#toggle-strategy").textContent = item?.enabled ? "停用" : "激活";
   document.querySelector("#plan-link").href = `/plan?strategy_id=${strategyId}`;
   document.querySelector("#parameters-tab").title = item.permissions.edit_parameters
@@ -272,7 +283,7 @@ function display(value, field) {
 }
 
 function read(field) {
-  if (field.kind === "fixed") return model.config[field.key];
+  if (field.kind === "fixed" || field.kind === "archetype") return model.config[field.key];
   const input = document.getElementById(field.key);
   if (field.kind === "boolean") return input.checked;
   if (field.kind === "number") {
@@ -376,8 +387,11 @@ function render(payload) {
       const label = node("label", field.label);
       label.htmlFor = field.key;
       container.append(label);
-      if (field.kind === "fixed") {
-        const output = node("output", typeof model.config[field.key] === "boolean" ? "已启用 · 固定约束" : model.config[field.key]);
+      if (field.kind === "fixed" || field.kind === "archetype") {
+        const value = model.config[field.key];
+        const output = node("output", field.kind === "archetype"
+          ? field.options?.[value] || value
+          : typeof value === "boolean" ? "已启用 · 固定约束" : value);
         output.id = field.key;
         container.append(output);
       } else {
@@ -398,7 +412,7 @@ function render(payload) {
         wrap.append(input, node("span", field.kind === "boolean" ? "启用此条件" : field.unit));
         container.append(wrap);
       }
-      const defaultText = field.kind === "fixed" ? "数据源与交易制度保持一致。" :
+      const defaultText = field.kind === "fixed" || field.kind === "archetype" ? "创建参数副本时保持不变。" :
         `默认 ${field.kind === "boolean" ? (model.defaults[field.key] ? "开启" : "关闭") : `${display(model.defaults[field.key], field)}${field.unit ? ` ${field.unit}` : ""}`}`;
       const note = node("small", `${defaultText}${field.note ? ` · ${field.note}` : ""}`, "setting-note");
       note.id = `${field.key}-note`;

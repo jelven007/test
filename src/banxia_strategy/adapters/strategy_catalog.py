@@ -7,9 +7,13 @@ from dataclasses import asdict, replace
 from datetime import date
 
 from ..strategy_config import ConfigConflict, StrategyConfig, StrategyConfigStore
-
-
-INITIAL_STRATEGY_CODE = "banxia-first-board-second-board"
+from ..strategy_archetypes import (
+    INITIAL_STRATEGY_CODE,
+    RUNTIME_CONFIG_KEYS,
+    STRATEGY_ARCHETYPES,
+    initial_strategy_config,
+    is_initial_strategy_code,
+)
 
 
 class CatalogConfigStore(StrategyConfigStore):
@@ -43,69 +47,81 @@ class SharedCollectionConfig:
 
 class StrategyCatalogMixin:
     def ensure_initial_strategy(self, config, *, name="首板晋级二板策略"):
-        """Ensure the protected initial strategy exists and is visible."""
-        values = asdict(StrategyConfig.from_mapping(config))
+        """Backward-compatible entry point returning the primary seed."""
+        return self.ensure_initial_strategies(config, primary_name=name)[0]
+
+    def ensure_initial_strategies(self, config, *, primary_name=None):
+        """Idempotently create or restore every protected system strategy."""
+        current = asdict(StrategyConfig.from_mapping(config))
+        defaults = asdict(StrategyConfig())
+        shared_runtime = {
+            key: current[key]
+            for key in RUNTIME_CONFIG_KEYS
+        }
+        strategy_ids = []
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext('banxia-initial-strategy'))"
+                    "SELECT pg_advisory_xact_lock(hashtext('banxia-initial-strategies'))"
                 )
-                cursor.execute(
-                    """SELECT strategy_id,archived FROM banxia.strategy_definition
-                    WHERE code=%s FOR UPDATE""",
-                    (INITIAL_STRATEGY_CODE,),
-                )
-                row = cursor.fetchone()
-                if row is None:
-                    cursor.execute(
-                        """SELECT EXISTS(
-                            SELECT 1 FROM banxia.strategy_definition
-                            WHERE enabled AND NOT archived
-                        )"""
+                cursor.execute("""SELECT EXISTS(
+                    SELECT 1 FROM banxia.strategy_definition
+                    WHERE enabled AND NOT archived
+                )""")
+                has_active = bool(cursor.fetchone()[0])
+                for index, profile in enumerate(STRATEGY_ARCHETYPES):
+                    profile_base = current if index == 0 else {
+                        **defaults,
+                        **shared_runtime,
+                    }
+                    values = asdict(StrategyConfig.from_mapping(
+                        initial_strategy_config(profile, profile_base)
+                    ))
+                    display_name = (
+                        primary_name
+                        if index == 0 and primary_name
+                        else profile.name
                     )
-                    has_active = bool(cursor.fetchone()[0])
                     cursor.execute(
-                        """INSERT INTO banxia.strategy_definition
-                        (strategy_id,code,name,description,current_config,enabled,archived)
-                        VALUES (%s,%s,%s,%s,%s::jsonb,%s,false)
-                        RETURNING strategy_id""",
-                        (
-                            str(uuid.uuid5(
-                                uuid.UUID("4b6067a1-05ca-4eaf-9c59-ed125f79cb45"),
-                                f"strategy:{INITIAL_STRATEGY_CODE}",
-                            )),
-                            INITIAL_STRATEGY_CODE,
-                            name,
-                            "基于 mootdx 的沪深主板一进二条件筛选与当日实盘",
-                            json.dumps(values),
-                            not has_active,
-                        ),
+                        """SELECT strategy_id,archived FROM banxia.strategy_definition
+                        WHERE code=%s FOR UPDATE""",
+                        (profile.code,),
                     )
-                    strategy_id = str(cursor.fetchone()[0])
-                else:
-                    strategy_id = str(row[0])
-                    cursor.execute("SET LOCAL banxia.allow_initial_strategy_upgrade = 'on'")
-                    cursor.execute(
-                        """UPDATE banxia.strategy_definition
-                        SET current_config=%s::jsonb
-                        WHERE strategy_id=%s AND current_config IS DISTINCT FROM %s::jsonb""",
-                        (json.dumps(values), strategy_id, json.dumps(values)),
-                    )
-                    if row[1]:
+                    row = cursor.fetchone()
+                    if row is None:
                         cursor.execute(
-                            """SELECT EXISTS(
-                                SELECT 1 FROM banxia.strategy_definition
-                                WHERE enabled AND NOT archived AND strategy_id<>%s
-                            )""",
-                            (strategy_id,),
+                            """INSERT INTO banxia.strategy_definition
+                            (strategy_id,code,name,description,current_config,enabled,archived)
+                            VALUES (%s,%s,%s,%s,%s::jsonb,%s,false)
+                            RETURNING strategy_id""",
+                            (
+                                str(uuid.uuid5(
+                                    uuid.UUID("4b6067a1-05ca-4eaf-9c59-ed125f79cb45"),
+                                    f"strategy:{profile.code}",
+                                )),
+                                profile.code,
+                                display_name,
+                                profile.description,
+                                json.dumps(values),
+                                index == 0 and not has_active,
+                            ),
                         )
-                        has_active = bool(cursor.fetchone()[0])
+                        strategy_id = str(cursor.fetchone()[0])
+                        has_active = has_active or index == 0
+                    else:
+                        strategy_id = str(row[0])
+                        cursor.execute(
+                            "SET LOCAL banxia.allow_initial_strategy_upgrade = 'on'"
+                        )
                         cursor.execute(
                             """UPDATE banxia.strategy_definition
-                            SET archived=false,enabled=%s WHERE strategy_id=%s""",
-                            (not has_active, strategy_id),
+                            SET current_config=%s::jsonb,archived=false
+                            WHERE strategy_id=%s
+                              AND (current_config IS DISTINCT FROM %s::jsonb OR archived)""",
+                            (json.dumps(values), strategy_id, json.dumps(values)),
                         )
-        return self.get_strategy(strategy_id)
+                    strategy_ids.append(strategy_id)
+        return [self.get_strategy(strategy_id) for strategy_id in strategy_ids]
 
     def list_strategies(self):
         with self.connection_factory() as connection:
@@ -230,7 +246,7 @@ class StrategyCatalogMixin:
                 strategy = cursor.fetchone()
                 if strategy is None:
                     raise ValueError("策略不存在")
-                if strategy[1] == INITIAL_STRATEGY_CODE:
+                if is_initial_strategy_code(strategy[1]):
                     raise PermissionError("初始策略不可删除")
 
                 cursor.execute(

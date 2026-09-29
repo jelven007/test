@@ -36,7 +36,14 @@ def rate(numerator, denominator):
 def summarize(rows):
     observed = [row for row in rows if row["status"] == "observed"]
     qualified = [row for row in observed if row["auction_qualified"]]
-    successes = sum(row["closed_limit_up"] for row in observed)
+    successes = sum(
+        bool(row.get("target_hit", row.get("closed_limit_up")))
+        for row in observed
+    )
+    touches = sum(
+        bool(row.get("touched_target", row.get("touched_limit_up")))
+        for row in observed
+    )
     n = len(observed)
     # Wilson interval exposes the uncertainty of very small candidate sets.
     interval = None
@@ -50,11 +57,20 @@ def summarize(rows):
         "pending_count": sum(row["status"] == "pending" for row in rows),
         "missing_count": sum(row["status"] == "missing" for row in rows),
         "hit_count": successes, "accuracy_pct": rate(successes, n),
-        "touch_count": sum(row["touched_limit_up"] for row in observed),
-        "touch_rate_pct": rate(sum(row["touched_limit_up"] for row in observed), n),
+        "touch_count": touches,
+        "touch_rate_pct": rate(touches, n),
         "auction_count": len(qualified),
-        "auction_hit_count": sum(row["closed_limit_up"] for row in qualified),
-        "auction_accuracy_pct": rate(sum(row["closed_limit_up"] for row in qualified), len(qualified)),
+        "auction_hit_count": sum(
+            bool(row.get("target_hit", row.get("closed_limit_up")))
+            for row in qualified
+        ),
+        "auction_accuracy_pct": rate(
+            sum(
+                bool(row.get("target_hit", row.get("closed_limit_up")))
+                for row in qualified
+            ),
+            len(qualified),
+        ),
         "coverage_pct": rate(n, len(rows)),
         "accuracy_interval_95_pct": interval,
         "execution_accuracy_pct": None,
@@ -63,11 +79,15 @@ def summarize(rows):
 
 def label_candidate(candidate, next_session, snapshot):
     ref = candidate["latest_price"]
+    rules = candidate["plan"]
+    entry_mode = str(rules.get("entry_mode") or "board_reseal")
     row = {
         "symbol": candidate["code"], "name": candidate["name"],
         "score": candidate["score"], "industry": candidate["industry"],
         "reference_close": ref, "plan_date": next_session,
+        "entry_mode": entry_mode,
         "status": "pending", "closed_limit_up": None, "touched_limit_up": None,
+        "target_hit": None, "touched_target": None,
         "auction_qualified": None, "entry_verification": "unverified",
     }
     if not next_session or next_session > snapshot["requested_end"]:
@@ -81,26 +101,81 @@ def label_candidate(candidate, next_session, snapshot):
         return row
     limit_price = _limit_price(ref, candidate["name"])
     open_pct = 100 * (bar["open"] / ref - 1)
-    rules = candidate["plan"]
     auction = rules["open_min_pct"] <= round(open_pct, 6) <= rules["open_max_pct"]
     prices = snapshot.get("minutes", {}).get(f"{next_session}:{candidate['code']}", [])
     full_minutes = len(prices) == 240
     touch_time = next((_minute_label(i) for i, price in enumerate(prices)
                        if _at_price_limit(price, limit_price)), None) if full_minutes else None
+    if entry_mode == "reclaim_open":
+        target_price = max(ref, float(bar["open"]))
+        target_label = "站回开盘价与昨收"
+    elif entry_mode == "breakout":
+        target_price = float(rules.get("trigger_price") or ref)
+        target_label = "突破计划关键价"
+    elif entry_mode == "momentum_breakout":
+        trigger_pct = float(rules.get("trigger_change_pct", 5.0))
+        target_price = ref * (1 + trigger_pct / 100)
+        target_label = f"涨幅达到 {trigger_pct:g}%"
+    else:
+        target_price = limit_price
+        target_label = "收盘封住涨停"
+    cutoff = int(
+        max(
+            0,
+            min(
+                240,
+                int(rules["entry_cutoff_time"][:2]) * 60
+                + int(rules["entry_cutoff_time"][3:5])
+                - (9 * 60 + 31),
+            ),
+        )
+    )
+    early_target = next(
+        (
+            _minute_label(index)
+            for index, price in enumerate(prices[:cutoff])
+            if isinstance(price, (int, float))
+            and math.isfinite(price)
+            and price >= target_price - 0.001
+        ),
+        None,
+    ) if full_minutes else None
+    target_hit = (
+        _at_price_limit(bar["close"], limit_price)
+        if entry_mode == "board_reseal"
+        else float(bar["close"]) >= target_price - 0.001
+    )
+    touched_target = (
+        _at_price_limit(bar["high"], limit_price)
+        if entry_mode == "board_reseal"
+        else float(bar["high"]) >= target_price - 0.001
+    )
     row.update(
-        status="observed", reason="日线收盘验证完成；实际入场需额外盘口及板块证据",
+        status="observed",
+        reason=(
+            f"日线已验证“{target_label}”结果；实际入场仍需分钟量能、"
+            "板块和成交条件"
+        ),
         open=bar["open"], high=bar["high"], low=bar["low"], close=bar["close"],
         limit_price=limit_price, open_change_pct=round(open_pct, 3),
         close_change_pct=round(100*(bar["close"]/ref-1), 3),
         closed_limit_up=_at_price_limit(bar["close"], limit_price),
         touched_limit_up=_at_price_limit(bar["high"], limit_price),
+        target_price=round(target_price, 4),
+        target_hit=target_hit,
+        touched_target=touched_target,
         auction_qualified=auction, daily_below_reference=bar["low"] < ref,
-        minute_data_complete=full_minutes, first_minute_touch=touch_time,
-        early_touch_proxy=(touch_time < rules["entry_cutoff_time"] + ":00" if touch_time else False)
-        if full_minutes else None,
+        minute_data_complete=full_minutes,
+        first_minute_touch=touch_time,
+        first_target_time=early_target,
+        early_touch_proxy=bool(early_target) if full_minutes else None,
     )
     if not auction:
         row["entry_verification"] = "auction_outside"
+    elif entry_mode != "board_reseal" and early_target:
+        row["entry_verification"] = "price_confirmed_volume_unverified"
+    elif entry_mode != "board_reseal" and full_minutes:
+        row["entry_verification"] = "price_not_confirmed"
     return row
 
 

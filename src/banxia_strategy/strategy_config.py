@@ -12,8 +12,11 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Mapping
 
+from .strategy_archetypes import ARCHETYPE_LABELS
+
 
 GROUPS = [
+    {"id": "identity", "title": "策略原型", "description": "原型决定候选宇宙和盘中确认方式；另存参数版本时保持不变。"},
     {"id": "selection", "title": "候选筛选", "description": "收盘后筛选首板，按综合评分和同题材上限选出次日候选。"},
     {"id": "scoring", "title": "个股评分", "description": "各项满分相加后扣分；调整权重时请同步检查最低入选分。"},
     {"id": "market", "title": "市场环境", "description": "涨停广度、炸板率和连板高度加权归一为百分制。"},
@@ -35,6 +38,13 @@ def param(default, label, group, low=None, high=None, unit="", scale=1, kind=Non
 
 @dataclass(frozen=True)
 class StrategyConfig:
+    strategy_archetype: str = param(
+        "first_board_second_board",
+        "策略原型",
+        "identity",
+        kind="archetype",
+        note="系统初始策略的原型固定；参数副本继承来源原型。",
+    )
     lookback_sessions: int = param(5, "回看交易日", "selection", 1, 60, "日")
     max_candidates: int = param(8, "候选数量上限", "selection", 1, 100, "只")
     max_per_industry: int = param(5, "同题材数量上限", "selection", 1, 100, "只")
@@ -139,6 +149,8 @@ class StrategyConfig:
                 errors[key] = f"{meta['label']}：类型或取值范围不正确"
             elif meta["kind"] == "fixed" and value != default:
                 errors[key] = "当前策略的固定约束不可修改"
+            elif meta["kind"] == "archetype" and value not in ARCHETYPE_LABELS:
+                errors[key] = "策略原型无效"
             elif meta["kind"] in {"time", "schedule"}:
                 times = value.split(",") if meta["kind"] == "schedule" else [value]
                 if not times or any(not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", t) for t in times):
@@ -237,6 +249,7 @@ class StrategyConfigStore:
             "revision": revision_for(values), "groups": GROUPS,
             "fields": [
                 {"key": item.name, **dict(item.metadata),
+                 **({"options": ARCHETYPE_LABELS} if item.metadata["kind"] == "archetype" else {}),
                  "integer": isinstance(item.default, int) and not isinstance(item.default, bool)}
                 for item in fields(StrategyConfig)
             ],

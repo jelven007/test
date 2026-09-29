@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from banxia_strategy.adapters.postgres import STRATEGY_CODE
 from banxia_strategy.adapters.strategy_catalog import CatalogConfigStore
 from banxia_strategy.api import ApiServices, create_api_app
+from banxia_strategy.strategy_archetypes import STRATEGY_ARCHETYPES
 from banxia_strategy.strategy_config import StrategyConfig
 from banxia_strategy.web_server import ReportStore
 
@@ -1270,6 +1271,25 @@ class ApiV1Test(unittest.TestCase):
         ):
             response = client.patch(f"/api/v1/strategies/{strategy_id}", json=payload)
             self.assertEqual(response.status_code, 422)
+
+    def test_all_built_in_strategy_codes_have_initial_permissions(self):
+        for profile in STRATEGY_ARCHETYPES:
+            with self.subTest(profile=profile.key):
+                repository = FakeStrategyRepository(code=profile.code)
+                repository.item["config"] = {
+                    **repository.item["config"],
+                    "strategy_archetype": profile.key,
+                }
+                client = TestClient(create_api_app(ApiServices(
+                    reports=self.services.reports,
+                    repository=repository,
+                    cache=FakeCache(),
+                )))
+                item = client.get("/api/v1/strategies").json()["items"][0]
+                self.assertTrue(item["is_initial"])
+                self.assertEqual(item["archetype"]["key"], profile.key)
+                self.assertFalse(item["permissions"]["delete"])
+                self.assertTrue(item["permissions"]["save_as"])
 
     def test_strategy_save_as_requires_initial_parameter_change_and_queues_history(self):
         repository = FakeStrategyRepository()

@@ -411,6 +411,7 @@ components:
             - sealed
             - at_limit
             - near_limit
+            - triggered
             - watch
             - unavailable
         reason_code:

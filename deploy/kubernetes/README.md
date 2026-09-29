@@ -8,9 +8,10 @@ names in `base/platform.yaml`.
 
 The API serves `/strategy`, `/`, `/monitor`, and `/research` from the same image.
 Report CronJobs resolve the single active immutable strategy when execution
-starts. The target PostgreSQL database must include migrations `004` through
-`006` for research storage, strategy-day records, immutable lineage, and the
-single-active-strategy constraint.
+starts. The target PostgreSQL database must include all migrations through
+`015_strategy_archetypes.sql` for research storage, strategy-day records,
+immutable lineage, the single-active-strategy constraint, and archetype
+decision states.
 
 Before applying:
 

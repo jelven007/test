@@ -14,9 +14,13 @@ from .mootdx_provider import MootdxProvider
 from .web_server import ReportStore
 from .strategy_config import ConfigConflict, ConfigError, StrategyConfig, StrategyConfigStore, revision_for
 from .strategy_history import HISTORY_RANGE_DAYS, history_window
-from .adapters.postgres import STRATEGY_CODE
 from .adapters.identity_settings import IdentityConflict, VerificationRejected
 from .adapters.strategy_catalog import CatalogConfigStore
+from .strategy_archetypes import (
+    archetype_for,
+    is_initial_strategy_code,
+    profile_metadata,
+)
 from .auth import (
     CSRF_COOKIE,
     SESSION_COOKIE,
@@ -892,9 +896,11 @@ def create_api_app(services: ApiServices):
     def catalog_response(item):
         result = dict(item)
         payload = selected_store(result["strategy_id"]).payload()
-        is_initial = result["code"] == STRATEGY_CODE
+        archetype = payload["config"]["strategy_archetype"]
+        is_initial = is_initial_strategy_code(result["code"])
         result["revision"] = payload["revision"]
         result["is_initial"] = is_initial
+        result["archetype"] = profile_metadata(archetype)
         result["permissions"] = {
             "edit_parameters": is_initial,
             "save_as": is_initial,
@@ -933,6 +939,9 @@ def create_api_app(services: ApiServices):
                 item for item in items
                 if keyword in item["name"].casefold()
                 or keyword in item["code"].casefold()
+                or keyword in archetype_for(
+                    StrategyConfig.from_mapping(item.get("config") or {}).strategy_archetype
+                ).name.casefold()
             ]
         if status != "all":
             enabled = status == "active"
@@ -967,7 +976,7 @@ def create_api_app(services: ApiServices):
             if not parent_id:
                 raise ValueError("必须指定来源策略")
             parent = require_strategy(parent_id)
-            if parent["code"] != STRATEGY_CODE:
+            if not is_initial_strategy_code(parent["code"]):
                 raise ValueError("只有初始策略支持修改参数并另存")
             parent_payload = selected_store(parent_id).payload()
             if payload.get("revision") != parent_payload["revision"]:
@@ -976,6 +985,11 @@ def create_api_app(services: ApiServices):
                 raise ValueError("另存策略必须提交修改后的完整参数")
             config = payload["config"]
             validated = asdict(StrategyConfig.from_mapping(config))
+            if (
+                validated["strategy_archetype"]
+                != parent_payload["config"]["strategy_archetype"]
+            ):
+                raise ValueError("另存策略不能改变来源策略原型")
             changes = {
                 key: {"from": parent_payload["config"].get(key), "to": value}
                 for key, value in validated.items()
@@ -1024,7 +1038,7 @@ def create_api_app(services: ApiServices):
     @app.delete("/api/v1/strategies/{strategy_id}", status_code=204)
     def delete_strategy(strategy_id: str):
         strategy = require_strategy(strategy_id)
-        if strategy["code"] == STRATEGY_CODE:
+        if is_initial_strategy_code(strategy["code"]):
             raise HTTPException(status_code=409, detail="初始策略不可删除")
 
         def cleanup(manifest):

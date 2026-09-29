@@ -103,22 +103,26 @@ class StrategyEventProcessor:
             "quote_time": source_time.isoformat(),
             "fresh": -5 <= age <= plan.get("quote_max_age_seconds", 180),
         }
+        feature = self.features.get(symbol, {})
+        if feature.get("trade_date") and str(feature["trade_date"]) != str(candidate["plan_date"]):
+            feature = {}
+        feature_attributes = feature.get("attributes", {})
+        quote["minute_volume_ratio"] = feature.get(
+            "minute_volume_ratio",
+            feature_attributes.get("minute_volume_ratio"),
+        )
         proposed = evaluate(
             quote,
             plan,
             collected_at,
             str(candidate["plan_date"]),
         )
-        feature = self.features.get(symbol, {})
-        if feature.get("trade_date") and str(feature["trade_date"]) != str(candidate["plan_date"]):
-            feature = {}
-        feature_attributes = feature.get("attributes", {})
         sector_sample_size = feature_attributes.get("sector_sample_size")
         sector_rise_ratio = feature.get("sector_rise_ratio")
         minimum_sample = plan.get("minimum_sector_sample_size", self.minimum_sector_sample_size)
         minimum_ratio = plan.get("minimum_sector_rise_ratio", self.minimum_sector_rise_ratio)
         if (
-            proposed["state"] in {"watch", "near_limit", "at_limit", "sealed"}
+            proposed["state"] in {"watch", "near_limit", "at_limit", "sealed", "triggered"}
             and sector_sample_size is not None
             and int(sector_sample_size) >= minimum_sample
             and sector_rise_ratio is not None
@@ -134,7 +138,7 @@ class StrategyEventProcessor:
                 "tone": "muted",
             }
         elif (
-            proposed["state"] in {"watch", "near_limit", "at_limit", "sealed"}
+            proposed["state"] in {"watch", "near_limit", "at_limit", "sealed", "triggered"}
             and "minimum_sector_sample_size" in plan
             and (sector_sample_size is None or int(sector_sample_size) < minimum_sample or sector_rise_ratio is None)
         ):

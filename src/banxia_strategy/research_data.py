@@ -8,7 +8,12 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from .mootdx_provider import MootdxProvider, _bar_date, _extract_pools
+from .mootdx_provider import (
+    MootdxProvider,
+    _bar_date,
+    _extract_pools,
+    _strategy_rows_from_history,
+)
 
 
 def write_json(path: Path, value):
@@ -139,6 +144,10 @@ class DatedResearchProvider:
         provider._industry_codes = snapshot["industry_codes"]
         provider._assign_themes(reference)
         self.pools = provider._limit_pools
+        self.histories = snapshot.get("histories", {})
+        self.names = snapshot.get("names", {})
+        self.concepts = snapshot.get("concepts", {})
+        self.industry_codes = snapshot.get("industry_codes", {})
 
     def trading_dates(self):
         return [date.fromisoformat(value) for value in self.snapshot["calendar"]]
@@ -152,6 +161,19 @@ class DatedResearchProvider:
         if session > self.reference:
             raise ValueError("replay cannot read future failures")
         return copy.deepcopy(self.snapshot["broken"].get(str(session), []))
+
+    def strategy_pool(self, session, archetype):
+        if session > self.reference:
+            raise ValueError("replay cannot read a future strategy universe")
+        return copy.deepcopy(_strategy_rows_from_history(
+            self.histories,
+            self.names,
+            self.pools,
+            self.concepts,
+            self.industry_codes,
+            session,
+            archetype,
+        ))
 
 
 def snapshot_hash(path):

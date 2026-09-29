@@ -223,6 +223,161 @@ def _extract_pools(
     return dict(limit_pools), dict(broken_pools)
 
 
+LIMIT_POOL_ARCHETYPES = frozenset(
+    {
+        "first_board_second_board",
+        "mainline_leader_relay",
+        "low_position_first_board",
+        "divergence_reseal",
+        "theme_catchup",
+        "auction_volume_breakout",
+    }
+)
+
+
+def _strategy_rows_from_history(
+    histories: Mapping[str, Sequence[Mapping[str, Any]]],
+    names: Mapping[str, str],
+    limit_pools: Mapping[date, Sequence[Mapping[str, Any]]],
+    concepts: Mapping[str, Sequence[str]],
+    industry_codes: Mapping[str, str],
+    session: date,
+    archetype: str,
+) -> List[Dict[str, Any]]:
+    """Build a point-in-time candidate universe without reading future bars."""
+    current_limit_rows = {
+        str(row.get("代码") or ""): dict(row)
+        for row in limit_pools.get(session, ())
+    }
+    concept_counts: Counter[str] = Counter()
+    for code in current_limit_rows:
+        concept_counts.update(concepts.get(code, ()))
+
+    rows: List[Dict[str, Any]] = []
+    for code, raw_bars in histories.items():
+        bars = sorted(
+            (dict(bar) for bar in raw_bars if _bar_date(dict(bar)) <= session),
+            key=_bar_date,
+        )
+        if len(bars) < 2 or _bar_date(bars[-1]) != session:
+            continue
+        current = bars[-1]
+        previous = bars[-2]
+        close = float(current.get("close") or 0)
+        previous_close = float(previous.get("close") or 0)
+        if close <= 0 or previous_close <= 0:
+            continue
+
+        window = bars[-20:]
+        closes = [float(bar.get("close") or 0) for bar in window]
+        highs = [float(bar.get("high") or 0) for bar in window]
+        lows = [float(bar.get("low") or 0) for bar in window]
+        if not closes or min(closes) <= 0:
+            continue
+        positive_lows = [value for value in lows if value > 0]
+        positive_highs = [value for value in highs if value > 0]
+        if not positive_lows or not positive_highs:
+            continue
+        low_20d = min(positive_lows)
+        high_20d = max(positive_highs)
+        span = max(high_20d - low_20d, 1e-9)
+        position_20d = (close - low_20d) / span
+        return_20d = 100 * (close / closes[0] - 1)
+        ma5 = sum(closes[-5:]) / min(5, len(closes))
+        ma10 = sum(closes[-10:]) / min(10, len(closes))
+
+        flags = [False] * len(bars)
+        for index in range(1, len(bars)):
+            prior_close = float(bars[index - 1].get("close") or 0)
+            flags[index] = (
+                prior_close > 0
+                and _at_price_limit(
+                    bars[index].get("close"),
+                    _limit_price(prior_close, names.get(code, "")),
+                )
+            )
+        previous_board_count = 0
+        cursor = len(flags) - 2
+        while cursor >= 0 and flags[cursor]:
+            previous_board_count += 1
+            cursor -= 1
+        days_since_limit = next(
+            (
+                offset
+                for offset in range(1, min(6, len(flags)))
+                if flags[-1 - offset]
+            ),
+            None,
+        )
+
+        code_concepts = concepts.get(code, ())
+        industry = (
+            max(
+                code_concepts,
+                key=lambda item: (
+                    concept_counts.get(item, 0),
+                    -len(item),
+                    item,
+                ),
+            )
+            if code_concepts
+            else industry_codes.get(code, "其他")
+        )
+        base = {
+            "代码": code,
+            "名称": names.get(code, ""),
+            "最新价": close,
+            "成交额": float(current.get("amount") or 0),
+            "流通市值": 0.0,
+            "换手率": 0.0,
+            "封板资金": 0.0,
+            "_seal_amount_available": False,
+            "首次封板时间": None,
+            "最后封板时间": None,
+            "炸板次数": 0,
+            "连板数": 0,
+            "所属行业": industry,
+            "_volume_hands": float(
+                current.get("vol", current.get("volume")) or 0
+            ),
+            "_open": float(current.get("open") or 0),
+            "_high": float(current.get("high") or 0),
+            "_low": float(current.get("low") or 0),
+            "_previous_high": float(previous.get("high") or 0),
+            "_position_20d": round(position_20d, 6),
+            "_return_20d_pct": round(return_20d, 4),
+            "_previous_board_count": previous_board_count,
+            "_days_since_limit_up": days_since_limit,
+            "_is_bearish": close < float(current.get("open") or close),
+            "_reversal_confirmed": (
+                days_since_limit is not None
+                and close > float(current.get("open") or close)
+                and close >= float(previous.get("high") or close)
+            ),
+            "_trend_confirmed": (
+                len(closes) >= 10
+                and ma5 > ma10
+                and close >= high_20d * 0.95
+                and 5.0 <= return_20d <= 35.0
+            ),
+            "_repair_confirmed": (
+                days_since_limit is not None
+                and close > float(current.get("open") or close)
+                and close >= previous_close
+                and -20.0 <= 100 * (close / high_20d - 1) <= -2.0
+            ),
+        }
+        limit_row = current_limit_rows.get(code)
+        if limit_row is not None:
+            base.update(limit_row)
+        if archetype in LIMIT_POOL_ARCHETYPES:
+            if limit_row is not None:
+                rows.append(base)
+        elif limit_row is None and float(base["成交额"]) >= 200_000_000:
+            rows.append(base)
+    return rows
+
+
 class MootdxProvider:
     """Build limit-up pools from raw TongdaXin data exposed by mootdx."""
 
@@ -1086,6 +1241,61 @@ class MootdxProvider:
                 self._close(client)
         return details
 
+    def _finance_worker(
+        self,
+        server: Server,
+        codes: Sequence[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        client = None
+        result: Dict[str, Dict[str, Any]] = {}
+        try:
+            client = self._client(server)
+            for code in codes:
+                try:
+                    finance = client.finance(symbol=code)
+                    if finance is not None and not finance.empty:
+                        result[code] = finance.iloc[0].to_dict()
+                except Exception:
+                    continue
+        finally:
+            if client is not None:
+                self._close(client)
+        return result
+
+    def _enrich_finance_rows(
+        self,
+        rows: List[Dict[str, Any]],
+    ) -> None:
+        if not rows:
+            return
+        codes = [str(row["代码"]) for row in rows]
+        server_count = min(self.workers, len(self.servers), len(codes))
+        servers = self.servers[:server_count]
+        partitions = [codes[index::server_count] for index in range(server_count)]
+        finance: Dict[str, Dict[str, Any]] = {}
+        with ThreadPoolExecutor(max_workers=server_count) as executor:
+            futures = [
+                executor.submit(self._finance_worker, server, partition)
+                for server, partition in zip(servers, partitions)
+            ]
+            for future in futures:
+                try:
+                    finance.update(future.result())
+                except Exception:
+                    continue
+        for row in rows:
+            detail = finance.get(str(row["代码"]), {})
+            float_shares = float(detail.get("liutongguben") or 0)
+            if float_shares <= 0:
+                continue
+            row["流通市值"] = float_shares * float(row["最新价"])
+            row["换手率"] = (
+                float(row.get("_volume_hands") or 0)
+                * 100
+                / float_shares
+                * 100
+            )
+
     def _enrich_session(self, session: date) -> None:
         if session in self._enriched_sessions:
             return
@@ -1169,3 +1379,29 @@ class MootdxProvider:
         self._load_histories()
         assert self._broken_pools is not None
         return [dict(row) for row in self._broken_pools.get(session, [])]
+
+    def strategy_pool(
+        self,
+        session: date,
+        archetype: str,
+    ) -> List[Dict[str, Any]]:
+        self._load_histories()
+        assert self._limit_pools is not None
+        self._assign_themes(session)
+        rows = _strategy_rows_from_history(
+            self._histories,
+            self._names,
+            self._limit_pools,
+            self._concepts,
+            self._industry_codes,
+            session,
+            archetype,
+        )
+        if archetype not in LIMIT_POOL_ARCHETYPES:
+            rows.sort(
+                key=lambda row: float(row.get("成交额") or 0),
+                reverse=True,
+            )
+            rows = rows[:160]
+            self._enrich_finance_rows(rows)
+        return [dict(row) for row in rows]

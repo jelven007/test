@@ -16,7 +16,13 @@ from .web_server import ReportStore
 
 def ensure_initial_catalog(repository, config_path, *, today: Optional[date] = None):
     current = StrategyConfigStore(config_path).payload()["config"]
-    initial = repository.ensure_initial_strategy(current)
+    ensure_all = getattr(repository, "ensure_initial_strategies", None)
+    strategies = (
+        ensure_all(current)
+        if ensure_all is not None
+        else [repository.ensure_initial_strategy(current)]
+    )
+    initial = strategies[0]
     start, end = history_window("1y", today=today)
     job = repository.enqueue_strategy_history(
         initial["strategy_id"],

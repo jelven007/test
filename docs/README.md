@@ -35,6 +35,7 @@
 | [多策略管理](09-multi-strategy.md) | 参数不可变策略、可修改名称、激活约束、血缘和交易日记录 |
 | [Web UI 标准](10-web-ui-standard.md) | 四个页面的共享设计令牌、组件和响应式规则 |
 | [mootdx 非实时数据持久化](11-mootdx-persistence.md) | 证券、板块、公司资料、历史行情和财务包的全量持久化设计 |
+| [游资策略原型库 PRD](12-yu-zi-strategy-library-prd.md) | 十类高影响力短线策略原型、统一回测口径、准入门槛和产品需求 |
 
 ## 规范优先级
 

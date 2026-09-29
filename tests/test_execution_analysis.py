@@ -88,6 +88,54 @@ class ExecutionClassificationTest(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["reason_code"], "buyable_but_failed")
 
+    def test_non_board_modes_use_price_crossing_and_minute_volume(self):
+        cases = {
+            "reclaim_open": {},
+            "breakout": {"trigger_price": 10.5},
+            "momentum_breakout": {"trigger_change_pct": 5.0},
+        }
+        for entry_mode, extra in cases.items():
+            with self.subTest(entry_mode=entry_mode):
+                item = candidate()
+                item["plan"] = {
+                    **item["plan"],
+                    **extra,
+                    "entry_mode": entry_mode,
+                    "minimum_minute_volume_ratio": 1.5,
+                }
+                data = minutes({
+                    **{index: 10.1 for index in range(5)},
+                    5: 10.6,
+                })
+                data["volumes"][5] = 200
+                result = classify_candidate(
+                    item,
+                    "2026-09-24",
+                    {"open": 10.2, "high": 11.0, "low": 10.0, "close": 10.6},
+                    data,
+                )
+                self.assertTrue(result["buyable"])
+                self.assertTrue(result["success"])
+                self.assertEqual(result["confirmation_time"], "09:36:00")
+                self.assertEqual(result["minute_volume_ratio"], 2)
+
+    def test_non_board_mode_without_volume_confirmation_is_not_buyable(self):
+        item = candidate()
+        item["plan"] = {
+            **item["plan"],
+            "entry_mode": "breakout",
+            "trigger_price": 10.5,
+            "minimum_minute_volume_ratio": 1.5,
+        }
+        result = classify_candidate(
+            item,
+            "2026-09-24",
+            {"open": 10.2, "high": 11.0, "low": 10.0, "close": 10.6},
+            minutes({5: 10.6}),
+        )
+        self.assertFalse(result["buyable"])
+        self.assertEqual(result["reason_code"], "no_volume_confirmation")
+
 
 class ExecutionAggregationTest(unittest.TestCase):
     def test_periods_use_verified_candidates_as_weighted_denominator(self):

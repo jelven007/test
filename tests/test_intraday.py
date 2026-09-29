@@ -132,6 +132,51 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(q["minute_volume_ratio"], 2)
         self.assertEqual(plan_for({**candidate(), "latest_price": 23})["auction_low"], 23.12)
 
+    def test_non_board_entry_modes_require_price_and_volume_confirmation(self):
+        quote = {
+            "price": 10.6,
+            "open": 10.2,
+            "high": 10.6,
+            "low": 10.0,
+            "previous_close": 10.0,
+            "change_pct": 6.0,
+            "open_change_pct": 2.0,
+            "minute_volume_ratio": 2.0,
+            "fresh": True,
+            "bid": 10.59,
+            "ask": 10.6,
+            "bid_volume": 100,
+        }
+        base = {
+            **self.plan,
+            "previous_close": 10.0,
+            "limit_price": 11.0,
+            "minimum_minute_volume_ratio": 1.5,
+        }
+        plans = {
+            "reclaim_open": base,
+            "breakout": {**base, "trigger_price": 10.5},
+            "momentum_breakout": {**base, "trigger_change_pct": 5.0},
+        }
+        for entry_mode, plan in plans.items():
+            with self.subTest(entry_mode=entry_mode):
+                result = evaluate(
+                    quote,
+                    {**plan, "entry_mode": entry_mode},
+                    self.now,
+                    "2026-09-24",
+                )
+                self.assertEqual(result["state"], "triggered")
+
+        waiting = evaluate(
+            quote,
+            {**plans["breakout"], "entry_mode": "breakout",
+             "minimum_minute_volume_ratio": 3.0},
+            self.now,
+            "2026-09-24",
+        )
+        self.assertEqual(waiting["state"], "watch")
+
     def test_quote_time_keeps_millisecond_precision(self):
         q = normalize_quote(
             {**raw_quote(), "servertime": "9:45:00.125"}, bars(), self.now, self.plan

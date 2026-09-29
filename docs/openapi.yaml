@@ -831,6 +831,7 @@ components:
         - sealed
         - at_limit
         - near_limit
+        - triggered
         - watch
         - unavailable
     Decision:
@@ -1320,7 +1321,7 @@ components:
           nullable: true
     Strategy:
       type: object
-      required: [strategy_id, code, name, enabled, archived, is_initial, permissions, key_parameters, revision]
+      required: [strategy_id, code, name, enabled, archived, is_initial, archetype, permissions, key_parameters, revision]
       properties:
         strategy_id:
           type: string
@@ -1337,6 +1338,26 @@ components:
           type: boolean
         is_initial:
           type: boolean
+        archetype:
+          type: object
+          required: [key, name, description, stage, evidence_level, entry_mode, setup_label]
+          properties:
+            key:
+              type: string
+            name:
+              type: string
+            description:
+              type: string
+            stage:
+              type: string
+              enum: [P0, P1, P2]
+            evidence_level:
+              type: string
+            entry_mode:
+              type: string
+              enum: [board_reseal, reclaim_open, breakout, momentum_breakout]
+            setup_label:
+              type: string
         permissions:
           type: object
           required: [edit_parameters, save_as, delete]
