@@ -4,8 +4,13 @@ const refreshButton = byId("refresh-button");
 const sourceStatus = document.querySelector(".source-status");
 let latest = null;
 let selected = null;
+let connected = false;
 let inFlight = false;
 let refreshing = false;
+let serverOffset = 0;
+let lastPageSync = 0;
+let eventSource = null;
+let reconnectTimer = null;
 let selectedPeriod = "minute";
 let chartRenderVersion = 0;
 let displayedChartKey = null;
@@ -453,26 +458,20 @@ function render(data) {
   write("revision", clock(data.revision));
   byId("monitor-error").hidden = !data.error;
   write("monitor-error", data.error);
-  write("connection", data.error ? "数据不可用 · 暂停判断" : "行情快照已加载");
+  write("connection", data.error ? "数据不可用 · 暂停判断" : "事件流已连接");
   byId("connection").dataset.error = String(Boolean(data.error));
   sourceStatus.className = `source-status ${data.error ? "error" : "ready"}`;
   reportDateInput.value = data.requested_date || data.plan_date;
   renderRows(data);
   renderDetail(data.stocks.find((stock) => stock.code === selected));
   renderEvents(data.events);
-  write(
-    "countdown",
-    data.requested_date && data.server_time
-      && data.requested_date < data.server_time.slice(0, 10)
-      ? "历史收盘快照 · mootdx 已验证"
-      : "行情快照 · 手动刷新",
-  );
 }
 function markDisconnected(message) {
+  connected = false;
   sourceStatus.className = "source-status error";
   byId("monitor-error").hidden = false;
-  write("monitor-error", `${message}；旧报价仅供核对，请手动刷新。`);
-  write("connection", "读取失败 · 暂停判断");
+  write("monitor-error", `${message}；页面将自动重连，旧报价仅供核对。`);
+  write("connection", "连接中断 · 暂停判断");
   byId("connection").dataset.error = "true";
 }
 async function sync({ userInitiated = false } = {}) {
@@ -500,6 +499,9 @@ async function sync({ userInitiated = false } = {}) {
     if (!eventsResponse.ok) throw new Error(events.error?.message || `事件请求失败 ${eventsResponse.status}`);
     if (requestedDate !== reportDateInput.value) return;
     const data = normalize(snapshot, events);
+    serverOffset = new Date(data.server_time).valueOf() - Date.now();
+    lastPageSync = Date.now();
+    connected = true;
     render(data);
   } catch (error) {
     markDisconnected(error.name === "AbortError" ? "请求超时" : error.message);
@@ -545,7 +547,7 @@ async function refreshSelectedDay() {
       `/api/v1/monitor/${encodeURIComponent(requestedDate)}/refresh`,
       { method: "POST" },
     );
-    for (let attempt = 0; attempt < 150; attempt += 1) {
+    for (let attempt = 0; attempt < 300; attempt += 1) {
       const status = await fetchJson(
         `/api/v1/report-jobs/${encodeURIComponent(job.job_id)}`,
       );
@@ -557,7 +559,7 @@ async function refreshSelectedDay() {
       if (status.status === "failed" || status.status === "cancelled") {
         throw new Error(status.error || "当日实盘生成失败");
       }
-      await wait(2000);
+      await wait(1000);
     }
     throw new Error("当日实盘生成超时，请稍后重试");
   } catch (error) {
@@ -570,6 +572,49 @@ async function refreshSelectedDay() {
     refreshButton.textContent = "刷新";
   }
 }
+async function connectStream() {
+  await window.strategyReady;
+  if (eventSource) eventSource.close();
+  eventSource = new EventSource(monitorURL("/api/v1/monitor/stream"));
+  eventSource.onopen = () => {
+    connected = true;
+    write("connection", "事件流已连接");
+    byId("connection").dataset.error = "false";
+    sourceStatus.className = "source-status ready";
+  };
+  for (const name of ["snapshot", "decision.changed", "data.degraded"]) {
+    eventSource.addEventListener(name, sync);
+  }
+  eventSource.onerror = () => {
+    eventSource.close();
+    markDisconnected("实时事件流中断");
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connectStream, 2000);
+  };
+}
+
+setInterval(() => {
+  if (connected && Date.now() - lastPageSync > 15000) sync();
+  const today = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+  const age = latest?.collected_at
+    ? Math.max(0, Math.floor((Date.now() + serverOffset - new Date(latest.collected_at).valueOf()) / 1000))
+    : null;
+  write(
+    "countdown",
+    latest?.plan_date && latest.plan_date < today
+      ? "历史收盘快照 · mootdx 已验证"
+      : age === null
+        ? "等待首次行情"
+        : `行情年龄 ${age}秒 · SSE 实时推送 · 5秒轮询兜底`,
+  );
+}, 1000);
+setInterval(sync, 5000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) sync(); });
 reportDateInput.addEventListener("change", () => {
   if (!reportDateInput.value) return;
   const params = new URLSearchParams(location.search);
@@ -577,6 +622,7 @@ reportDateInput.addEventListener("change", () => {
   history.replaceState(null, "", `${location.pathname}?${params}`);
   selected = null;
   sync({ userInitiated: true });
+  connectStream();
 });
 refreshButton.addEventListener("click", refreshSelectedDay);
 document.querySelectorAll("[data-chart-period]").forEach((button) => {
@@ -598,6 +644,7 @@ async function initialize() {
       { defaultKey: "monitor" },
     );
     await sync();
+    connectStream();
   } catch (error) {
     markDisconnected(error.message);
   }

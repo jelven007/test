@@ -413,11 +413,7 @@ class WebAssetTest(unittest.TestCase):
             "data.requested_date || data.plan_date",
             monitor_app,
         )
-        self.assertIn("/monitor.js?v=20260929.1", monitor_html)
-        self.assertNotIn("new EventSource", monitor_app)
-        self.assertNotIn("setInterval(sync", monitor_app)
-        self.assertNotIn('addEventListener("visibilitychange"', monitor_app)
-        self.assertIn('"行情快照 · 手动刷新"', monitor_app)
+        self.assertIn("/monitor.js?v=20260926.10", monitor_html)
         self.assertIn('class="monitor-workspace"', monitor_html)
         self.assertIn('id="watch-list" class="watch-list"', monitor_html)
         self.assertIn('id="stock-detail" class="stock-detail"', monitor_html)
@@ -594,7 +590,7 @@ class WebAssetTest(unittest.TestCase):
         )
         self.assertNotIn("rememberDate", plan)
         self.assertIn('fetch(monitorURL("/api/v1/monitor")', monitor)
-        self.assertNotIn(
+        self.assertIn(
             'new EventSource(monitorURL("/api/v1/monitor/stream"))',
             monitor,
         )
