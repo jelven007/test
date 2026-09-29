@@ -12,7 +12,7 @@
     <script src="/auth.js?v=20260927.2" defer></script>
     <script src="/strategy-selector.js?v=20260926.1" defer></script>
     <script src="/trading-calendar.js?v=20260926.3" defer></script>
-    <script src="/monitor.js?v=20260926.10" defer></script>
+    <script src="/monitor.js?v=20260929.1" defer></script>
   </head>
   <body class="monitor-body">
     <header class="topbar dashboard-topbar">
@@ -27,7 +27,7 @@
       <div class="dashboard-meta">
         <div class="source-status">
           <span class="status-dot" aria-hidden="true"></span>
-          <span id="connection" role="status">正在连接实盘行情</span>
+          <span id="connection" role="status">正在读取实盘行情</span>
         </div>
         <div data-account-slot></div>
       </div>
@@ -45,7 +45,7 @@
         <div class="page-header-copy">
           <h1><span id="monitor-date">—</span> 当日实盘<span id="watch-count">—</span></h1>
           <p id="scope">正在读取观察清单</p>
-          <p id="countdown" class="page-header-meta">正在同步行情状态</p>
+          <p id="countdown" class="page-header-meta">行情快照 · 手动刷新</p>
         </div>
       </section>
       <div id="monitor-error" class="notice is-error" role="alert" hidden></div>
@@ -59,7 +59,7 @@
         <aside class="watchlist-panel">
           <div class="monitor-section-title"><h2 id="watch-heading">股票观察清单</h2><p>以下判断针对尚未买入的仓位</p></div>
           <div id="watch-list" class="watch-list" role="listbox" aria-label="股票实时行情与建议">
-            <p class="waiting-cell">等待后台首次采集，行情到达后自动显示。</p>
+            <p class="waiting-cell">正在读取行情快照。</p>
           </div>
           <p class="table-footnote">点选股票查看分时、K线与执行细则。日报评分不代表实时胜率；盘中补充股票未参与原日报评分，静态门槛未通过者仅作观察。</p>
         </aside>
