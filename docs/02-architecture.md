@@ -12,12 +12,15 @@
 
 ## 2. CURRENT 架构
 
-当前版本已经拆分为可独立运行的 Python 服务，并在本地 Compose 中接入完整数据链路：
+当前版本已经部署到火山引擎 VKE，生产入口为 <https://shanao.asia>。应用服务多副本运行，
+PostgreSQL、Kafka、ClickHouse、Redis 和 MinIO 以单副本 StatefulSet 运行。完整物理拓扑、
+容量、上线状态和三条数据链路见
+[当前生产技术方案](13-current-production-solution.md)。
 
 ```mermaid
 flowchart LR
     M[mootdx 节点池] --> C[market-collector]
-    C --> WAL[(SQLite WAL)]
+    C --> WAL[(EBS SQLite WAL)]
     C --> K[Kafka]
     K --> MS[market-sink]
     MS --> CH[(ClickHouse)]
@@ -36,7 +39,8 @@ flowchart LR
     PG --> API[FastAPI]
     RD --> API
     OBJ --> API
-    API --> WEB[四页 Web 看板]
+    API --> ALB[火山 ALB / HTTPS]
+    ALB --> WEB[Web 看板]
 ```
 
 已实现能力：
@@ -48,15 +52,20 @@ flowchart LR
 - 16:30/23:30 调度、启动补跑、独立刷新任务及持久化完成标记。
 - 月度研究、一年历史回填、严格可买执行分析、T+1 收益和盈利约束优化。
 - FastAPI `/api/v1`、SSE、Prometheus 和策略管理/次日计划/当日实盘/回测优化页面。
+- VKE、EBS/NAS、ALB HTTPS、Kustomize 发布、Migration/Bootstrap Job 和 NetworkPolicy。
 
 当前限制：
 
-- Compose 为单机开发拓扑，Kafka、PostgreSQL、ClickHouse、Redis 和 MinIO 未形成生产高可用。
-- Kubernetes 清单是部署基线，尚未在目标集群完成容量、跨可用区和恢复演练。
+- PostgreSQL、Kafka、ClickHouse、Redis、MinIO 和 Flink JobManager 当前均为单副本，
+  存在数据服务单点；EBS `Retain` 不等于数据库高可用或备份。
+- Kafka 当前复制因子为 1；Flink Checkpoint 与业务对象均写入单实例 MinIO。
+- Prometheus Operator 监控对象为可选清单，完整告警、日志、追踪和自动恢复验证仍需完善。
 - 历史分钟线无法证明真实委托队列成交，严格可买只是保守代理。
 - 09:45 盈利优化候选样本仅 9 笔且留出集 1 笔，保持未激活。
 
-## 3. TARGET 总体架构
+## 3. TARGET 高可用架构
+
+目标架构保持现有事件契约和服务边界，将单副本数据服务替换为托管或多副本高可用能力：
 
 ```mermaid
 flowchart TB
@@ -128,7 +137,7 @@ flowchart TB
 - 每个分片由一个 Leader 采集，备用实例通过租约接管。
 - 复用 mootdx 连接并维护节点健康分数。
 - 盘口目标周期 1 秒，分钟线目标周期 60 秒。
-- 事件发布前写本地 RocksDB WAL；Kafka 确认后推进 WAL Checkpoint。
+- 事件发布前写每 Pod EBS 上的 SQLite WAL；Kafka 确认后删除对应记录。
 - 生成稳定 `event_id`，记录 `source_time`、`collected_at` 和 `published_at`。
 
 采集器不执行策略判断，避免行情接入和业务规则耦合。
@@ -299,18 +308,24 @@ Flink 输出进入新的 Kafka Topic，再由策略引擎和存储 Sink 消费�
 
 ## 7. 部署拓扑
 
-生产目标（当前 Kubernetes 清单已提供基线，仍需目标集群验证）：
+当前生产拓扑：
 
-- Kubernetes 跨三个可用区。
+- 火山引擎 VKE 承载全部应用和数据工作负载，ALB 负责公网 HTTPS。
+- API、采集器、行情 Sink、策略引擎、Outbox Relay 和投影 Worker 使用 2 副本。
+- Flink 使用 1 个 JobManager 和 2 个 TaskManager。
+- PostgreSQL、Kafka、ClickHouse、Redis 和 MinIO 各 1 个 StatefulSet 副本。
+- 数据服务使用独立 EBS RWO 卷，采集器每副本使用独立 EBS WAL 卷，报告目录使用 NAS RWX。
+
+高可用目标：
+
 - Kafka 3 Broker，副本数 3，`min.insync.replicas=2`。
-- Flink 高可用 JobManager，Checkpoint 写 S3/MinIO。
-- PostgreSQL 一主两副本或托管 Multi-AZ，启用 WAL 归档。
-- ClickHouse 首期一分片两副本，三节点 Keeper。
-- Redis 主从加 Sentinel，或使用托管高可用 Redis。
-- API、采集器、策略引擎和 Worker 至少两个实例。
+- Flink 高可用 JobManager，Checkpoint 写 TOS。
+- PostgreSQL 托管 Multi-AZ，启用持续归档和时间点恢复。
+- ClickHouse 使用副本与 Keeper，或迁移到 ByteHouse。
+- Redis 使用托管高可用实例，对象存储迁移到 TOS。
 
-实时采集使用分片 Leader，不让多个副本重复请求同一批股票。Kafka、Flink 和数据库仍需
-处理切换过程中可能出现的重复事件。
+实时采集使用 advisory lease Leader，不让多个副本重复请求同一批股票。Kafka、Flink 和
+数据库仍需处理切换过程中可能出现的重复事件。
 
 ## 8. 性能与容量边界
 
@@ -333,7 +348,7 @@ ClickHouse 写入量和 Flink 状态大小，不得直接沿用候选池容量�
 | Kafka 客户端 | confluent-kafka-python | 使用 librdkafka 的幂等生产和消费能力 |
 | 消息总线 | Kafka | 不同时维护 Pulsar |
 | 流计算 | Flink SQL、PyFlink | 用于窗口和板块指标，不用于权威业务状态 |
-| 采集 WAL | RocksDB | 保存尚未被 Kafka 确认的采集事件 |
+| 采集 WAL | SQLite WAL + 每 Pod EBS | 保存尚未被 Kafka 确认的采集事件 |
 | 事务数据 | PostgreSQL | 策略、计划、状态、审计和任务控制面 |
 | 高频历史 | ClickHouse | 行情和指标的列式存储与聚合 |
 | 实时缓存 | Redis | 最新快照和查询投影，可重建 |

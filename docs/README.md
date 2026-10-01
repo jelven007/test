@@ -5,10 +5,10 @@
 
 ## 文档状态
 
-- 基线版本：`2.0`
-- 基线日期：`2026-09-26`
+- 基线版本：`2.1`
+- 基线日期：`2026-10-01`
 - 当前实现：Python 多服务运行时 + Kafka + Flink + PostgreSQL + ClickHouse + Redis + MinIO
-- 部署形态：本地 Compose 已实现，Kubernetes 基线已提供，目标集群生产验证待完成
+- 部署形态：火山引擎 VKE 生产环境已上线，本地 Compose 用于开发和集成验证
 - 数据源：仅使用 `mootdx`
 - 系统边界：研究、筛选、监控和报告，不连接券商，不自动下单
 
@@ -36,6 +36,7 @@
 | [Web UI 标准](10-web-ui-standard.md) | 四个页面的共享设计令牌、组件和响应式规则 |
 | [mootdx 非实时数据持久化](11-mootdx-persistence.md) | 证券、板块、公司资料、历史行情和财务包的全量持久化设计 |
 | [游资策略原型库 PRD](12-yu-zi-strategy-library-prd.md) | 十类高影响力短线策略原型、统一回测口径、准入门槛和产品需求 |
+| [当前生产技术方案](13-current-production-solution.md) | VKE 生产拓扑、实时与日终数据链路、存储归属、发布流程和当前风险 |
 
 ## 规范优先级
 
@@ -52,6 +53,10 @@
 
 ## 当前实现
 
+- 生产入口为 <https://shanao.asia>，由火山引擎 ALB 终止 HTTPS 并转发到 VKE API。
+- VKE 当前采用应用多副本、数据服务单副本 StatefulSet 的成本优先拓扑；EBS 保存数据和
+  采集 WAL，NAS 提供共享报告目录。完整现状见
+  [当前生产技术方案](13-current-production-solution.md)。
 - 行情由 `market-collector` 通过 mootdx 长连接采集，并经 SQLite WAL 可靠发布到 Kafka。
 - Flink 计算实时特征；`market-sink`、`strategy-engine`、`outbox-relay` 和
   `projection-worker` 分别负责行情、状态、事件和 Redis 投影。
@@ -86,18 +91,27 @@
 | 证券、板块、公司资料的时点版本模型 | mootdx 非实时数据持久化 |
 | 股票/指数统一标识、历史分时和财务包模型 | mootdx 非实时数据持久化 |
 
+## 2026-10-01 变更覆盖
+
+| 变更 | 文档 |
+| --- | --- |
+| 火山引擎 VKE、ALB、HTTPS 和 DNS 正式上线 | 当前生产技术方案、架构、部署 |
+| PostgreSQL、Redis、Kafka、ClickHouse、MinIO 完成迁移 | 当前生产技术方案、数据、部署 |
+| 生产工作负载、Flink、迁移和初始化任务完成验收 | 当前生产技术方案、部署、测试 |
+| 明确单副本数据层风险及托管高可用演进目标 | 当前生产技术方案、架构、部署 |
+
 ## 当前与生产验证差距
 
 | 领域 | 已实现 | 仍需验证或完善 |
 | --- | --- | --- |
-| 行情采集 | 独立服务、mootdx、WAL、节点切换 | 目标节点长稳压测与持久卷故障演练 |
-| 数据总线 | Kafka Topic、DLQ、幂等消费 | 多 Broker、副本和积压恢复演练 |
-| 实时计算 | Flink SQL、Checkpoint、Python 排障后备 | 板块分钟样本完整度与生产负载验证 |
-| 策略状态 | PostgreSQL Inbox/Outbox、不可逆状态 | 并发与跨可用区故障演练 |
+| 行情采集 | VKE 双副本、mootdx、独立 EBS WAL、节点切换 | 采集主备和旧主 WAL 恢复演练 |
+| 数据总线 | 生产 Kafka Topic、DLQ、幂等消费 | 单 Broker 升级为托管多副本并演练积压恢复 |
+| 实时计算 | VKE Flink SQL、Checkpoint、Python 排障后备 | 高可用 JobManager、TOS Checkpoint 和长稳压测 |
+| 策略状态 | 生产 PostgreSQL Inbox/Outbox、不可逆状态 | 单实例升级为托管 Multi-AZ 并演练切换 |
 | 多策略 | 不可变配置、血缘、关联数据永久删除、唯一激活 | 大规模策略目录容量验证 |
 | 研究 | 月度回测、年度严格可买、T+1、盈利约束优化 | 新交易日样本外验证和真实成交滑点校准 |
 | Web | 四页统一组件、桌面与 390x844 响应式 | 目标浏览器矩阵和无障碍专项审计 |
-| 运维 | Compose、Kubernetes 清单、Prometheus | 目标集群容量、备份恢复、告警闭环 |
+| 运维 | VKE、ALB HTTPS、EBS/NAS、Kustomize | 自动备份恢复、托管数据服务和告警闭环 |
 
 ## 发布门槛
 

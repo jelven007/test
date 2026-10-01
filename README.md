@@ -15,9 +15,10 @@ mootdx -> SQLite WAL -> Kafka -> Flink / 策略状态机
        -> /api/v1 -> Web 看板
 ```
 
-本地 Compose 已包含完整链路，Kubernetes 清单提供生产部署基线；目标集群的容量、故障和
-备份恢复演练仍未完成。当前行为以本 README 的运行说明为准，完整文档以
-[docs/README.md](docs/README.md) 为统一入口：
+生产环境已部署到火山引擎 VKE，通过 <https://shanao.asia> 提供服务；本地 Compose
+保留为开发和集成验证环境。当前生产采用应用多副本、数据服务单副本 StatefulSet 的
+成本优先拓扑，仍需继续完成托管高可用迁移和备份恢复演练。当前行为以本 README 的运行
+说明为准，完整文档以 [docs/README.md](docs/README.md) 为统一入口：
 
 - [需求规格](docs/01-requirements.md)
 - [系统架构](docs/02-architecture.md)
@@ -31,6 +32,7 @@ mootdx -> SQLite WAL -> Kafka -> Flink / 策略状态机
 - [Web UI 标准](docs/10-web-ui-standard.md)
 - [mootdx 非实时数据持久化](docs/11-mootdx-persistence.md)
 - [游资策略原型库 PRD](docs/12-yu-zi-strategy-library-prd.md)
+- [当前生产技术方案](docs/13-current-production-solution.md)
 - [OpenAPI](docs/openapi.yaml) / [AsyncAPI](docs/asyncapi.yaml)
 
 ## 本地基础设施

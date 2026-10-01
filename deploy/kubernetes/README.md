@@ -5,6 +5,10 @@ VKE（ECS Worker 节点）生产部署。当前生产 overlay 采用经济型自
 方案：PostgreSQL、Kafka、ClickHouse、Redis 和 MinIO 以单副本
 StatefulSet 运行，并使用独立 EBS 云盘持久化。
 
+截至 `2026-10-01`，该 overlay 已部署到集群 `cdaus2p98m08ce3b12nn0`，生产入口为
+<https://shanao.asia>。架构和数据链路说明见
+[当前生产技术方案](../../docs/13-current-production-solution.md)。
+
 VKE overlay 包含：
 
 - API、业务 Worker、工作日报 CronJob 和 Flink 工作负载。
@@ -136,5 +140,5 @@ kubectl apply -f \
   deploy/kubernetes/overlays/volcengine/servicemonitor.yaml
 ```
 
-生产切流前还应验证桌面端和移动端页面、mootdx 出网、数据库备份恢复、
-collector 主备切换、Pod 驱逐和 ALB 健康检查。
+每次生产发布后都应验证桌面端和移动端页面、mootdx 出网、数据库备份状态、
+collector 主备、Pod 驱逐和 ALB 健康检查。

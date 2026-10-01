@@ -12,7 +12,7 @@
 
 | 数据类型 | 主存储 | 辅助存储 | 说明 |
 | --- | --- | --- | --- |
-| 待发布采集事件 | RocksDB WAL | Kafka | Kafka 确认前的本地持久缓冲 |
+| 待发布采集事件 | SQLite WAL / EBS | Kafka | Kafka 确认前的每 Pod 本地持久缓冲 |
 | 原始盘口快照 | ClickHouse | Kafka、S3/MinIO | 高频写入、时间范围查询、长期归档 |
 | 一分钟线 | ClickHouse | S3/MinIO | 按股票和分钟幂等更新 |
 | 证券目录、交易日历和板块关系 | PostgreSQL | S3/MinIO | 当前主数据和时点版本，原始文件内容寻址归档 |
@@ -48,9 +48,10 @@
 每个业务 Topic 都有对应 `<topic>.dlq`。DLQ 消息必须保留原 Topic、分区、offset、错误类型、
 失败时间和原始负载。
 
-采集器使用 RocksDB 保存尚未被 Kafka 确认的事件和发布 Checkpoint。RocksDB 放在持久卷，
-按 `event_id` 排序；Kafka 返回成功确认后异步清理。WAL 设置容量上限，达到上限时停止采集、
-触发告警，不能静默覆盖未发布事件。
+采集器使用 SQLite WAL 保存尚未被 Kafka 确认的事件。每个 VKE 采集 Pod 使用独立 10Gi
+EBS 卷，按 `event_id` 幂等追加；Kafka 返回成功确认后删除对应记录。WAL 设置容量上限，
+达到上限时停止接收新事件并触发告警，不能静默覆盖未发布事件。主备切换后，新主不会直接挂载
+旧主的 RWO WAL，因此旧主卷必须保留并纳入恢复检查。
 
 ## 4. 事件标识与时间
 
@@ -320,11 +321,15 @@ flink-state/
 
 ## 13. 备份与恢复
 
-- PostgreSQL：持续 WAL 归档，每日全量备份，支持时间点恢复。
-- ClickHouse：每日增量备份到对象存储，定期验证恢复。
-- S3/MinIO：版本控制、跨区域复制和生命周期保护。
+- 当前生产数据服务均为单副本 StatefulSet，EBS 使用 `Retain`，但尚不能视为完整备份方案。
+- PostgreSQL 目标：持续 WAL 归档、每日全量备份和时间点恢复。
+- ClickHouse 目标：每日增量备份到独立对象存储并定期验证恢复。
+- MinIO 目标：迁移 TOS 或配置版本控制、跨区域复制和生命周期保护。
 - Kafka：不是长期备份；依赖多副本和对象归档。
 - Redis：可启用 AOF，但恢复权威来源仍是 Kafka 和数据库。
 - Flink：Checkpoint 用于故障恢复，Savepoint 用于版本升级。
 
 恢复演练必须验证数据数量、内容哈希、状态机终态和报告可访问性。
+
+当前生产物理卷、容量和数据链路见
+[当前生产技术方案](13-current-production-solution.md)。

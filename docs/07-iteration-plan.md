@@ -236,8 +236,9 @@ tests/
 - P3：状态机事务、Inbox/Outbox、MinIO 报告和日报事件已实现。
 - P4：Flink SQL 作业实现秒级板块宽度和分钟量能窗口，Checkpoint 写入 MinIO。
 - P5：FastAPI、Redis 投影、SSE、标准错误结构和新版 Web 接口已实现。
-- P6：Compose、Kubernetes 副本/探针/资源/PDB/HPA/NetworkPolicy 和 Prometheus
-  基线已提供；正式生产仍需在目标集群完成容量、故障与恢复演练。
+- P6：火山引擎 VKE、ALB HTTPS、EBS/NAS、应用多副本、探针、资源限制、
+  PDB/HPA/NetworkPolicy 已投入生产；数据服务当前为单副本，仍需完成托管高可用迁移、
+  自动备份恢复和故障演练。
 - P7：不可变多策略目录、父子血缘、唯一激活、关联数据永久删除、每策略每日记录、242 个交易日
   幂等回填、年度严格可买对比、T+1 收益和盈利约束优化已实现。
 - P7：四个 Web 页面已统一设计令牌、导航、表单、按钮、状态、表格和响应式规则；

@@ -15,27 +15,28 @@
 
 ### 2.1 应用服务
 
-- `market-collector`：Compose 单实例；Kubernetes 基线为 2 副本，按 PostgreSQL advisory lease 选举 Leader。
-- `market-sink`：消费行情 Topic 并写 ClickHouse。
-- `flink-feature-job`：默认实时特征生产者；`feature-worker` 仅作排障后备。
-- `strategy-engine`：至少 2 副本，Kafka Consumer Group 扩展。
-- `report-worker`：按任务弹性运行。
-- `report-scheduler`：常驻检查 16:30/23:30 时点、遗漏补跑和页面刷新任务。
-- `api-service`：至少 2 副本，通过负载均衡提供服务。
-- `outbox-relay`：至少 2 副本，使用数据库锁避免重复发布。
-- `projection-worker`：消费决策和行情事件，更新 Redis。
+- `market-collector`：VKE StatefulSet 2 副本，每副本独立 EBS WAL，按 PostgreSQL
+  advisory lease 选举 Leader。
+- `market-sink`、`strategy-engine`、`outbox-relay` 和 `projection-worker`：各 2 副本，
+  通过 Kafka Consumer Group 或数据库租约并行运行。
+- `flink-feature-job`：1 个 JobManager、2 个 TaskManager；`feature-worker` 仅作排障后备。
+- `market-reference-sync`：1 副本，工作日 16:20 发布参考数据快照。
+- `report-worker`：16:30 和 23:30 两个 Kubernetes CronJob。
+- `api-service`：2 副本，HPA 范围 2~6，由火山 ALB 提供 HTTPS 入口。
 
 ### 2.2 基础设施
 
-- Kafka：3 Broker，跨可用区，副本数 3。
-- Flink：高可用 JobManager，按负载配置 TaskManager。
-- PostgreSQL：一主两副本或托管 Multi-AZ。
-- ClickHouse：首期一分片两副本，三节点 Keeper。
-- Redis：主从加 Sentinel 或托管高可用实例。
-- S3/MinIO：启用版本控制、服务端加密和生命周期。
-- Prometheus、Loki、Tempo：独立于业务服务部署。
+- PostgreSQL 16.4：单副本 StatefulSet，20Gi EBS。
+- Kafka 3.9.0 KRaft：单 Broker，复制因子 1，20Gi EBS。
+- ClickHouse 24.8：单副本 StatefulSet，40Gi EBS。
+- Redis 7.4.1：单副本、AOF，10Gi EBS。
+- MinIO：单副本，30Gi EBS。
+- 报告目录：10Gi NAS RWX；每个采集器另有 10Gi EBS WAL。
+- EBS 和 NAS StorageClass 使用 `Retain`，避免资源删除时级联删除数据卷。
 
-数据库、Kafka、Redis 和对象存储只允许私网访问。
+数据库、Kafka、Redis 和对象存储只允许集群私网访问。当前方案优先控制成本，数据服务存在
+单点；目标是逐步迁移到托管 Multi-AZ PostgreSQL、托管 Redis/Kafka、ByteHouse 和 TOS。
+完整现状见 [当前生产技术方案](13-current-production-solution.md)。
 
 ## 3. 配置管理
 
@@ -70,7 +71,8 @@
 
 ### 3.3 密钥
 
-- 数据库密码、Kafka 凭证、OIDC 密钥和对象存储密钥进入 Vault 或云 KMS。
+- 当前生产使用 Kubernetes Secret 保存数据库、认证和对象存储凭证。
+- 目标是接入 Vault 或云 KMS，并实现自动轮换。
 - 不得写入 Git、镜像、ConfigMap 或日志。
 - 密钥必须支持轮换。
 
@@ -232,6 +234,9 @@ colima stop --profile banxia
 
 ## 9. 备份
 
+当前数据卷使用 `Retain` 防止 Kubernetes 资源删除时自动回收，但单副本 EBS 和 MinIO
+不等于备份。以下条目是生产增强要求，完成自动任务和隔离恢复验证后才能视为已具备：
+
 ### 9.1 PostgreSQL
 
 - 每日全量备份。
@@ -259,6 +264,9 @@ colima stop --profile banxia
 - Savepoint 与应用版本建立映射。
 
 ## 10. 容灾目标
+
+下表是目标 SLO，不代表当前单副本数据层已经达到。当前可快速恢复应用 Pod，但 Kafka、
+PostgreSQL、ClickHouse、Redis 或 MinIO 实例故障需要依赖 EBS 重挂载或备份恢复。
 
 | 场景 | RPO | RTO |
 | --- | --- | --- |
