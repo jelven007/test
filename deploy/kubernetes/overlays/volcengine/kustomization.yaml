@@ -1,0 +1,82 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - storage.yaml
+  - data-services.yaml
+  - ingress.yaml
+  - migration-job.yaml
+  - bootstrap-job.yaml
+  - collector-statefulset.yaml
+  - network-policy.yaml
+patches:
+  - path: runtime-config.yaml
+  - path: reports-pvc-patch.yaml
+  - path: delete-market-collector.yaml
+  - path: flink-jobmanager-patch.yaml
+  - path: flink-taskmanager-patch.yaml
+  - path: flink-feature-job-patch.yaml
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    path: scheduling-patch.yaml
+  - target:
+      group: apps
+      version: v1
+      kind: StatefulSet
+    path: scheduling-patch.yaml
+images:
+  - name: banxia-strategy
+    newName: REPLACE_WITH_CR_REGISTRY/banxia-strategy
+    newTag: REPLACE_WITH_GIT_COMMIT
+  - name: banxia-flink
+    newName: REPLACE_WITH_CR_REGISTRY/banxia-flink
+    newTag: REPLACE_WITH_GIT_COMMIT
+  - name: postgres
+    newName: REPLACE_WITH_CR_REGISTRY/postgres
+    newTag: 16.4-alpine
+  - name: redis
+    newName: REPLACE_WITH_CR_REGISTRY/redis
+    newTag: 7.4.1-alpine
+  - name: apache/kafka
+    newName: REPLACE_WITH_CR_REGISTRY/kafka
+    newTag: 3.9.0
+  - name: clickhouse/clickhouse-server
+    newName: REPLACE_WITH_CR_REGISTRY/clickhouse
+    newTag: "24.8"
+  - name: quay.io/minio/minio
+    newName: REPLACE_WITH_CR_REGISTRY/minio
+    newTag: RELEASE.2024-09-22T00-33-43Z
+  - name: quay.io/minio/mc
+    newName: REPLACE_WITH_CR_REGISTRY/minio-mc
+    newTag: RELEASE.2024-09-16T17-43-14Z
+configMapGenerator:
+  - name: banxia-postgres-migrations
+    namespace: banxia
+    files:
+      - ../../../../migrations/postgres/001_initial.sql
+      - ../../../../migrations/postgres/002_outbox_leases.sql
+      - ../../../../migrations/postgres/003_outbox_event_identity.sql
+      - ../../../../migrations/postgres/004_strategy_research.sql
+      - ../../../../migrations/postgres/005_multi_strategy.sql
+      - ../../../../migrations/postgres/006_immutable_active_strategy.sql
+      - ../../../../migrations/postgres/007_mutable_strategy_name.sql
+      - ../../../../migrations/postgres/008_strategy_cascade_delete.sql
+      - ../../../../migrations/postgres/009_initial_strategy_defaults.sql
+      - ../../../../migrations/postgres/010_execution_comparison.sql
+      - ../../../../migrations/postgres/011_market_reference.sql
+      - ../../../../migrations/postgres/012_security_daily_snapshot.sql
+      - ../../../../migrations/postgres/013_identity_and_new_boards.sql
+      - ../../../../migrations/postgres/014_user_watchlist.sql
+      - ../../../../migrations/postgres/015_strategy_archetypes.sql
+  - name: banxia-clickhouse-migrations
+    namespace: banxia
+    files:
+      - ../../../../migrations/clickhouse/001_initial.sql
+      - ../../../../migrations/clickhouse/002_stock_history.sql
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    app.kubernetes.io/name: banxia-strategy
+    app.kubernetes.io/managed-by: kustomize

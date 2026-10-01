@@ -12,7 +12,7 @@ data:
   TZ: Asia/Shanghai
   BANXIA_ENVIRONMENT: production
   BANXIA_LOG_LEVEL: INFO
-  BANXIA_KAFKA_BOOTSTRAP_SERVERS: kafka.strategy.svc:9093
+  BANXIA_KAFKA_BOOTSTRAP_SERVERS: REPLACE_WITH_KAFKA_BOOTSTRAP_SERVERS
   BANXIA_REPORT_DIRS: /app/reports
   BANXIA_REPORT_OUTPUT_DIR: /app/reports
   BANXIA_REPORT_SCHEDULE: 16:30,23:30
@@ -21,11 +21,11 @@ data:
   BANXIA_MONITOR_WATCHLIST: /app/config/monitor_watchlist.json
   BANXIA_COLLECTOR_WAL_PATH: /app/data/wal/market-collector.sqlite3
   BANXIA_STORAGE_MODE: required
-  BANXIA_CLICKHOUSE_HOST: clickhouse.strategy.svc
+  BANXIA_CLICKHOUSE_HOST: REPLACE_WITH_CLICKHOUSE_HOST
   BANXIA_CLICKHOUSE_PORT: "8123"
   BANXIA_CLICKHOUSE_DATABASE: banxia
   BANXIA_CLICKHOUSE_USER: banxia
-  BANXIA_MINIO_ENDPOINT: minio.strategy.svc:9000
+  BANXIA_MINIO_ENDPOINT: REPLACE_WITH_TOS_OR_MINIO_ENDPOINT
   BANXIA_MINIO_SECURE: "true"
   BANXIA_MINIO_REPORT_BUCKET: strategy-reports
   BANXIA_MINIO_MARKET_BUCKET: market-raw
@@ -39,6 +39,7 @@ metadata:
   namespace: banxia
 spec:
   accessModes: [ReadWriteMany]
+  storageClassName: REPLACE_WITH_RWX_STORAGE_CLASS
   resources:
     requests:
       storage: 10Gi
@@ -48,6 +49,8 @@ kind: Deployment
 metadata:
   name: api
   namespace: banxia
+  labels:
+    app: banxia-api
 spec:
   replicas: 2
   selector:
@@ -58,7 +61,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: banxia-strategy:latest
+          image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
           imagePullPolicy: IfNotPresent
           args: [api]
           envFrom:
@@ -74,6 +77,10 @@ spec:
             httpGet: {path: /api/v1/health/ready, port: http}
             periodSeconds: 10
             failureThreshold: 3
+          startupProbe:
+            httpGet: {path: /api/v1/health/live, port: http}
+            periodSeconds: 5
+            failureThreshold: 24
           livenessProbe:
             httpGet: {path: /api/v1/health/live, port: http}
             periodSeconds: 15
@@ -92,6 +99,8 @@ kind: Service
 metadata:
   name: api
   namespace: banxia
+  labels:
+    app: banxia-api
 spec:
   selector: {app: banxia-api}
   ports:
@@ -113,7 +122,7 @@ spec:
     spec:
       containers:
         - name: market-collector
-          image: banxia-strategy:latest
+          image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
           imagePullPolicy: IfNotPresent
           args: [market-collector]
           envFrom:
@@ -154,7 +163,7 @@ spec:
     spec:
       containers:
         - name: market-sink
-          image: banxia-strategy:latest
+          image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
           args: [market-sink]
           envFrom:
             - configMapRef: {name: banxia-runtime}
@@ -183,7 +192,7 @@ spec:
     spec:
       containers:
         - name: market-reference-sync
-          image: banxia-strategy:latest
+          image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
           args: [market-reference-sync]
           envFrom:
             - configMapRef: {name: banxia-runtime}
@@ -212,7 +221,7 @@ spec:
     spec:
       containers:
         - name: strategy-engine
-          image: banxia-strategy:latest
+          image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
           args: [strategy-engine]
           envFrom:
             - configMapRef: {name: banxia-runtime}
@@ -249,7 +258,7 @@ spec:
     spec:
       containers:
         - name: outbox-relay
-          image: banxia-strategy:latest
+          image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
           args: [outbox-relay]
           envFrom:
             - configMapRef: {name: banxia-runtime}
@@ -278,7 +287,7 @@ spec:
     spec:
       containers:
         - name: projection-worker
-          image: banxia-strategy:latest
+          image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
           args: [projection-worker]
           envFrom:
             - configMapRef: {name: banxia-runtime}
@@ -313,7 +322,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: report-worker
-              image: banxia-strategy:latest
+              image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
               args: [report-worker]
               envFrom:
                 - configMapRef: {name: banxia-runtime}
@@ -348,7 +357,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: report-worker
-              image: banxia-strategy:latest
+              image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
               args: [report-worker]
               envFrom:
                 - configMapRef: {name: banxia-runtime}
@@ -414,4 +423,3 @@ spec:
   ingress:
     - ports:
         - {protocol: TCP, port: 8765}
-        - {protocol: TCP, port: 9100}

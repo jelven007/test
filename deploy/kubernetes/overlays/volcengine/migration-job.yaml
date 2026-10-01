@@ -1,0 +1,112 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: banxia-schema-migration
+  namespace: banxia
+  labels:
+    app: banxia-schema-migration
+    component: migration
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: banxia-schema-migration
+        component: migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: banxia-workload
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: postgres-migrations
+          image: postgres:16.4-alpine
+          command: [sh, -ec]
+          args:
+            - |
+              psql "$BANXIA_POSTGRES_DSN" -v ON_ERROR_STOP=1 <<'SQL'
+              CREATE SCHEMA IF NOT EXISTS banxia;
+              CREATE TABLE IF NOT EXISTS banxia.schema_migration (
+                  filename TEXT PRIMARY KEY,
+                  applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+              );
+              SQL
+              for file in /migrations/*.sql; do
+                name="$(basename "$file")"
+                applied="$(psql "$BANXIA_POSTGRES_DSN" -Atqc \
+                  "SELECT 1 FROM banxia.schema_migration WHERE filename = '$name'")"
+                if [ "$applied" = "1" ]; then
+                  echo "Skipping applied PostgreSQL migration: $name"
+                  continue
+                fi
+                echo "Applying PostgreSQL migration: $name"
+                psql "$BANXIA_POSTGRES_DSN" -v ON_ERROR_STOP=1 -f "$file"
+                psql "$BANXIA_POSTGRES_DSN" -v ON_ERROR_STOP=1 -c \
+                  "INSERT INTO banxia.schema_migration(filename) VALUES ('$name')"
+              done
+          envFrom:
+            - secretRef:
+                name: banxia-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts:
+            - name: postgres-migrations
+              mountPath: /migrations
+              readOnly: true
+        - name: clickhouse-migrations
+          image: clickhouse/clickhouse-server:24.8
+          command: [sh, -ec]
+          args:
+            - |
+              for file in /migrations/*.sql; do
+                echo "Applying ClickHouse migration: $(basename "$file")"
+                clickhouse-client \
+                  --host "$BANXIA_CLICKHOUSE_HOST" \
+                  --port "${BANXIA_CLICKHOUSE_NATIVE_PORT:-9000}" \
+                  --user "$BANXIA_CLICKHOUSE_USER" \
+                  --password "$BANXIA_CLICKHOUSE_PASSWORD" \
+                  --multiquery <"$file"
+              done
+          envFrom:
+            - configMapRef:
+                name: banxia-runtime
+            - secretRef:
+                name: banxia-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          volumeMounts:
+            - name: clickhouse-migrations
+              mountPath: /migrations
+              readOnly: true
+      containers:
+        - name: complete
+          image: postgres:16.4-alpine
+          command: [sh, -c]
+          args: ["echo 'PostgreSQL and ClickHouse migrations completed'"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 5m, memory: 8Mi}
+            limits: {cpu: 50m, memory: 32Mi}
+      volumes:
+        - name: postgres-migrations
+          configMap:
+            name: banxia-postgres-migrations
+        - name: clickhouse-migrations
+          configMap:
+            name: banxia-clickhouse-migrations

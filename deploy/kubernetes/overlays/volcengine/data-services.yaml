@@ -1,0 +1,472 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: banxia
+  labels:
+    app: banxia-postgres
+spec:
+  clusterIP: None
+  selector:
+    app: banxia-postgres
+  ports:
+    - name: postgres
+      port: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: banxia
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: banxia-postgres
+  template:
+    metadata:
+      labels:
+        app: banxia-postgres
+        component: datastore
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:16.4-alpine
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: POSTGRES_DB}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: POSTGRES_USER}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: POSTGRES_PASSWORD}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+            - {name: TZ, value: Asia/Shanghai}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          startupProbe:
+            exec:
+              command: [sh, -ec, "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: [sh, -ec, "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: [sh, -ec, "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: banxia-ebs-retain
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: banxia
+  labels:
+    app: banxia-redis
+spec:
+  clusterIP: None
+  selector:
+    app: banxia-redis
+  ports:
+    - name: redis
+      port: 6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: banxia
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: banxia-redis
+  template:
+    metadata:
+      labels:
+        app: banxia-redis
+        component: datastore
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: redis:7.4.1-alpine
+          command: [sh, -ec]
+          args:
+            - |
+              exec redis-server \
+                --appendonly yes \
+                --appendfsync everysec \
+                --requirepass "$REDIS_PASSWORD"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: REDIS_PASSWORD}
+          ports:
+            - {name: redis, containerPort: 6379}
+          startupProbe:
+            exec:
+              command: [sh, -ec, "redis-cli -a \"$REDIS_PASSWORD\" ping"]
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: [sh, -ec, "redis-cli -a \"$REDIS_PASSWORD\" ping"]
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: [sh, -ec, "redis-cli -a \"$REDIS_PASSWORD\" ping"]
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: banxia-ebs-retain
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: banxia
+  labels:
+    app: banxia-kafka
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: banxia-kafka
+  ports:
+    - {name: broker, port: 9092}
+    - {name: controller, port: 9093}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: banxia
+spec:
+  serviceName: kafka
+  replicas: 1
+  selector:
+    matchLabels:
+      app: banxia-kafka
+  template:
+    metadata:
+      labels:
+        app: banxia-kafka
+        component: datastore
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kafka
+          image: apache/kafka:3.9.0
+          env:
+            - {name: KAFKA_NODE_ID, value: "1"}
+            - {name: KAFKA_PROCESS_ROLES, value: broker,controller}
+            - {name: KAFKA_LISTENERS, value: "PLAINTEXT://:9092,CONTROLLER://:9093"}
+            - {name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka:9092"}
+            - {name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"}
+            - {name: KAFKA_CONTROLLER_LISTENER_NAMES, value: CONTROLLER}
+            - {name: KAFKA_INTER_BROKER_LISTENER_NAME, value: PLAINTEXT}
+            - {name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@kafka-0.kafka.banxia.svc.cluster.local:9093"}
+            - {name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1"}
+            - {name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR, value: "1"}
+            - {name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR, value: "1"}
+            - {name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS, value: "0"}
+            - {name: KAFKA_NUM_PARTITIONS, value: "12"}
+          ports:
+            - {name: broker, containerPort: 9092}
+            - {name: controller, containerPort: 9093}
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: broker}
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 500m, memory: 1Gi}
+            limits: {cpu: "2", memory: 3Gi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/kafka/data}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: banxia-ebs-retain
+        resources:
+          requests:
+            storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  namespace: banxia
+  labels:
+    app: banxia-clickhouse
+spec:
+  clusterIP: None
+  selector:
+    app: banxia-clickhouse
+  ports:
+    - {name: http, port: 8123}
+    - {name: native, port: 9000}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: banxia
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      app: banxia-clickhouse
+  template:
+    metadata:
+      labels:
+        app: banxia-clickhouse
+        component: datastore
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: clickhouse
+          image: clickhouse/clickhouse-server:24.8
+          env:
+            - name: CLICKHOUSE_DB
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: CLICKHOUSE_DB}
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: CLICKHOUSE_USER}
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: CLICKHOUSE_PASSWORD}
+            - {name: TZ, value: Asia/Shanghai}
+          ports:
+            - {name: http, containerPort: 8123}
+            - {name: native, containerPort: 9000}
+          startupProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --query "SELECT 1"
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -ec
+                - clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" --query "SELECT 1"
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 500m, memory: 2Gi}
+            limits: {cpu: "3", memory: 5Gi}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/clickhouse}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: banxia-ebs-retain
+        resources:
+          requests:
+            storage: 40Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: banxia
+  labels:
+    app: banxia-minio
+spec:
+  clusterIP: None
+  selector:
+    app: banxia-minio
+  ports:
+    - {name: api, port: 9000}
+    - {name: console, port: 9001}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: banxia
+spec:
+  serviceName: minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app: banxia-minio
+  template:
+    metadata:
+      labels:
+        app: banxia-minio
+        component: datastore
+    spec:
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:RELEASE.2024-09-22T00-33-43Z
+          args: [server, /data, --console-address, ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: MINIO_ROOT_USER}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: MINIO_ROOT_PASSWORD}
+          ports:
+            - {name: api, containerPort: 9000}
+            - {name: console, containerPort: 9001}
+          startupProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: api
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: api
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 250m, memory: 512Mi}
+            limits: {cpu: "2", memory: 2Gi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: banxia-ebs-retain
+        resources:
+          requests:
+            storage: 30Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: banxia-minio-bootstrap
+  namespace: banxia
+spec:
+  backoffLimit: 12
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: banxia-minio-bootstrap
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: banxia-workload
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: create-buckets
+          image: quay.io/minio/mc:RELEASE.2024-09-16T17-43-14Z
+          command: [/bin/sh, -ec]
+          args:
+            - |
+              until mc alias set banxia http://minio:9000 \
+                "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                sleep 5
+              done
+              mc mb --ignore-existing banxia/strategy-reports
+              mc mb --ignore-existing banxia/market-raw
+              mc mb --ignore-existing banxia/flink-state
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: MINIO_ROOT_USER}
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: banxia-secrets, key: MINIO_ROOT_PASSWORD}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 128Mi}

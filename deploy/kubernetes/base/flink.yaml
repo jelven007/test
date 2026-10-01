@@ -3,12 +3,16 @@ kind: Service
 metadata:
   name: flink-jobmanager
   namespace: banxia
+  labels:
+    app: banxia-flink
+    role: jobmanager
 spec:
   selector: {app: banxia-flink, role: jobmanager}
   ports:
     - {name: rpc, port: 6123}
     - {name: blob, port: 6124}
     - {name: web, port: 8081}
+    - {name: metrics, port: 9249, targetPort: metrics}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -25,7 +29,7 @@ spec:
     spec:
       containers:
         - name: jobmanager
-          image: banxia-flink:1.20.1
+          image: banxia-flink:REPLACE_WITH_GIT_COMMIT
           args: [jobmanager]
           env:
             - name: AWS_ACCESS_KEY_ID
@@ -41,7 +45,7 @@ spec:
                 state.backend.type: hashmap
                 state.checkpoints.dir: s3p://flink-state/checkpoints
                 state.savepoints.dir: s3p://flink-state/savepoints
-                s3.endpoint: https://minio.strategy.svc:9000
+                s3.endpoint: https://REPLACE_WITH_TOS_OR_MINIO_ENDPOINT
                 s3.path.style.access: true
                 metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
                 metrics.reporter.prom.port: 9249
@@ -74,7 +78,7 @@ spec:
     spec:
       containers:
         - name: taskmanager
-          image: banxia-flink:1.20.1
+          image: banxia-flink:REPLACE_WITH_GIT_COMMIT
           args: [taskmanager]
           env:
             - name: AWS_ACCESS_KEY_ID
@@ -91,7 +95,7 @@ spec:
                 state.backend.type: hashmap
                 state.checkpoints.dir: s3p://flink-state/checkpoints
                 state.savepoints.dir: s3p://flink-state/savepoints
-                s3.endpoint: https://minio.strategy.svc:9000
+                s3.endpoint: https://REPLACE_WITH_TOS_OR_MINIO_ENDPOINT
                 s3.path.style.access: true
                 metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
                 metrics.reporter.prom.port: 9249
@@ -118,7 +122,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: submit
-          image: banxia-flink:1.20.1
+          image: banxia-flink:REPLACE_WITH_GIT_COMMIT
           command: [bash, -ec]
           args:
             - |
@@ -127,7 +131,7 @@ spec:
                 /opt/banxia/sql/realtime_features.sql >/tmp/realtime_features.sql
               flink sql-client -f /tmp/realtime_features.sql
           env:
-            - {name: KAFKA_BOOTSTRAP_SERVERS, value: "kafka.strategy.svc:9093"}
+            - {name: KAFKA_BOOTSTRAP_SERVERS, value: "REPLACE_WITH_KAFKA_BOOTSTRAP_SERVERS"}
             - name: FLINK_PROPERTIES
               value: |
                 jobmanager.rpc.address: flink-jobmanager

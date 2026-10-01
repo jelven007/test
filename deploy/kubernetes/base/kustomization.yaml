@@ -1,12 +1,73 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - service-account.yaml
   - platform.yaml
   - flink.yaml
-images:
-  - name: banxia-strategy
-    newName: ghcr.io/jelven007/banxia-strategy
-    newTag: latest
-  - name: banxia-flink
-    newName: ghcr.io/jelven007/banxia-flink
-    newTag: 1.20.1
+patches:
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/serviceAccountName
+        value: banxia-workload
+      - op: add
+        path: /spec/template/spec/automountServiceAccountToken
+        value: false
+      - op: add
+        path: /spec/template/spec/securityContext
+        value:
+          seccompProfile:
+            type: RuntimeDefault
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+  - target:
+      group: batch
+      version: v1
+      kind: Job
+    patch: |-
+      - op: add
+        path: /spec/template/spec/serviceAccountName
+        value: banxia-workload
+      - op: add
+        path: /spec/template/spec/automountServiceAccountToken
+        value: false
+      - op: add
+        path: /spec/template/spec/securityContext
+        value:
+          seccompProfile:
+            type: RuntimeDefault
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+  - target:
+      group: batch
+      version: v1
+      kind: CronJob
+    patch: |-
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/serviceAccountName
+        value: banxia-workload
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/automountServiceAccountToken
+        value: false
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/securityContext
+        value:
+          seccompProfile:
+            type: RuntimeDefault
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]

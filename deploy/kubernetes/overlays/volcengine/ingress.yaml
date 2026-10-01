@@ -1,0 +1,38 @@
+apiVersion: loadbalancer.vke.volcengine.com/v1beta1
+kind: ALBInstance
+metadata:
+  name: banxia-alb
+  namespace: banxia
+spec:
+  instanceID: REPLACE_WITH_EXISTING_ALB_ID
+  listeners:
+    - protocol: HTTP
+      port: 80
+    - protocol: HTTPS
+      port: 443
+      certificateSource: cert_center
+      certificateID: REPLACE_WITH_CERTIFICATE_CENTER_CERT_ID
+      enableHTTP2: true
+      enableQUIC: false
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: banxia-api
+  namespace: banxia
+  annotations:
+    ingress.vke.volcengine.com/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    ingress.vke.volcengine.com/ssl-redirect: "true"
+spec:
+  ingressClassName: banxia-alb
+  rules:
+    - host: shanao.asia
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 80

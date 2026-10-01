@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: banxia-catalog-bootstrap
+  namespace: banxia
+  labels:
+    app: banxia-catalog-bootstrap
+    component: bootstrap
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: banxia-catalog-bootstrap
+        component: bootstrap
+    spec:
+      restartPolicy: Never
+      serviceAccountName: banxia-workload
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-migrations
+          image: postgres:16.4-alpine
+          command: [sh, -ec]
+          args:
+            - |
+              for attempt in $(seq 1 120); do
+                if [ "$(psql "$BANXIA_POSTGRES_DSN" -Atqc \
+                  "SELECT EXISTS (
+                     SELECT 1
+                     FROM banxia.schema_migration
+                     WHERE filename = '015_strategy_archetypes.sql'
+                   )")" = "t" ]; then
+                  exit 0
+                fi
+                echo "Waiting for database migrations ($attempt/120)"
+                sleep 5
+              done
+              echo "Timed out waiting for database migrations" >&2
+              exit 1
+          envFrom:
+            - secretRef:
+                name: banxia-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 128Mi}
+      containers:
+        - name: catalog-bootstrap
+          image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
+          command: [python, -m, banxia_strategy.catalog_bootstrap]
+          envFrom:
+            - configMapRef:
+                name: banxia-runtime
+            - secretRef:
+                name: banxia-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 100m, memory: 192Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          volumeMounts:
+            - name: reports
+              mountPath: /app/reports
+      volumes:
+        - name: reports
+          persistentVolumeClaim:
+            claimName: banxia-reports

@@ -1,0 +1,33 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: banxia-ebs-retain
+provisioner: ebs.csi.volcengine.com
+parameters:
+  ChargeType: PostPaid
+  projectName: default
+  type: ESSD_PL0
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: banxia-nas-rwx
+provisioner: nas.csi.volcengine.com
+parameters:
+  fsId: REPLACE_WITH_NAS_FILE_SYSTEM_ID
+  server: REPLACE_WITH_NAS_MOUNT_SERVER
+  fsType: nfs
+  volumeAs: subpath
+  subPath: /banxia/reports
+  archiveOnDelete: "true"
+mountOptions:
+  - nolock
+  - proto=tcp
+  - noresvport
+  - vers=3
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: Immediate

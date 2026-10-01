@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: banxia-reports
+  namespace: banxia
+spec:
+  storageClassName: banxia-nas-rwx

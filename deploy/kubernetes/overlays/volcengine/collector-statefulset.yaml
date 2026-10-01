@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: market-collector
+  namespace: banxia
+  labels:
+    app: banxia-market-collector
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: banxia-market-collector
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: market-collector
+  namespace: banxia
+  labels:
+    app: banxia-market-collector
+    component: worker
+spec:
+  serviceName: market-collector
+  replicas: 2
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: banxia-market-collector
+  template:
+    metadata:
+      labels:
+        app: banxia-market-collector
+        component: worker
+    spec:
+      serviceAccountName: banxia-workload
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: market-collector
+          image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
+          imagePullPolicy: IfNotPresent
+          args: [market-collector]
+          envFrom:
+            - configMapRef:
+                name: banxia-runtime
+            - secretRef:
+                name: banxia-secrets
+          ports:
+            - name: metrics
+              containerPort: 9100
+          startupProbe:
+            tcpSocket:
+              port: metrics
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            tcpSocket:
+              port: metrics
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: metrics
+            periodSeconds: 15
+            failureThreshold: 4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 150m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}
+          volumeMounts:
+            - name: wal
+              mountPath: /app/data/wal
+            - name: reports
+              mountPath: /app/reports
+      volumes:
+        - name: reports
+          persistentVolumeClaim:
+            claimName: banxia-reports
+  volumeClaimTemplates:
+    - metadata:
+        name: wal
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: banxia-ebs-retain
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: market-collector
+  namespace: banxia
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: banxia-market-collector
