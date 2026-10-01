@@ -528,6 +528,25 @@ class FakeConnection:
 
 
 class PostgresAdapterTest(unittest.TestCase):
+    def test_monitor_plan_query_can_include_inactive_initial_strategies(self):
+        cursor = FakeCursor([[
+            (
+                "00000000-0000-0000-0000-000000000001",
+                date(2026, 9, 24),
+            )
+        ]])
+        storage = PostgresStorage(
+            connection_factory=lambda: FakeConnection(cursor)
+        )
+        storage.get_active_plan = Mock(return_value={"plan_id": "plan"})
+
+        plans = storage.list_monitor_plans(include_initial=True)
+
+        self.assertEqual(plans, [{"plan_id": "plan"}])
+        query, params = cursor.calls[0]
+        self.assertIn("s.code LIKE 'banxia-%%'", query)
+        self.assertEqual(params, (True,))
+
     def test_market_reference_publish_stages_versions_in_one_transaction(self):
         cursor = FakeCursor([None])
         storage = PostgresStorage(

@@ -23,7 +23,7 @@ from banxia_strategy.domain.events import EventEnvelope
 from banxia_strategy.ports.messaging import ConsumedEvent
 from banxia_strategy.strategy import StrategyEngine
 from banxia_strategy.strategy_archetypes import STRATEGY_ARCHETYPES
-from banxia_strategy.strategy_config import ConfigConflict, ConfigError, StrategyConfig, StrategyConfigStore
+from banxia_strategy.strategy_config import ConfigConflict, StrategyConfig, StrategyConfigStore
 from banxia_strategy.web_server import ReportStore
 from test_api_v1 import FakeCache
 from test_strategy import FakeProvider

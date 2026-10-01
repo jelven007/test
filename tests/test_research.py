@@ -46,7 +46,8 @@ class ResearchLabelsTest(unittest.TestCase):
     def test_touch_does_not_count_as_close_or_trade(self):
         snapshot = {"requested_end": "2026-09-24", "histories": {
             "600001": [{"datetime": "2026-09-24", "open": 10.5, "high": 11,
-                        "low": 9.9, "close": 10.8, "vol": 100}],
+                        "low": 9.9, "close": 10.8, "vol": 100,
+                        "amount": 300_000_000}],
         }}
         row = label_candidate(candidate(), "2026-09-24", snapshot)
         self.assertTrue(row["touched_limit_up"])
@@ -55,6 +56,8 @@ class ResearchLabelsTest(unittest.TestCase):
         self.assertTrue(row["daily_below_reference"])
         self.assertEqual(row["entry_verification"], "unverified")
         self.assertIsNone(row["early_touch_proxy"])
+        self.assertEqual(row["volume"], 100)
+        self.assertEqual(row["amount_cny"], 300_000_000)
         self.assertEqual(summarize([row])["accuracy_pct"], 0)
         self.assertIsNone(summarize([row])["execution_accuracy_pct"])
 

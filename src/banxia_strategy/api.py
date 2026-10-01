@@ -9,7 +9,15 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
-from .domain.intraday import DECISION_LABELS, PHASE_LABELS, SHANGHAI, phase_at
+from .domain.intraday import (
+    DECISION_LABELS,
+    PHASE_LABELS,
+    SHANGHAI,
+    apply_sector_confirmation,
+    evaluate,
+    phase_at,
+)
+from .intraday import plan_for
 from .mootdx_provider import MootdxProvider
 from .web_server import ReportStore
 from .strategy_config import ConfigConflict, ConfigError, StrategyConfig, StrategyConfigStore, revision_for
@@ -17,6 +25,7 @@ from .strategy_history import HISTORY_RANGE_DAYS, history_window
 from .adapters.identity_settings import IdentityConflict, VerificationRejected
 from .adapters.strategy_catalog import CatalogConfigStore
 from .strategy_archetypes import (
+    STRATEGY_ARCHETYPES,
     archetype_for,
     is_initial_strategy_code,
     profile_metadata,
@@ -459,6 +468,8 @@ def create_api_app(services: ApiServices):
                 "/login",
                 "/plan",
                 "/monitor",
+                "/temporary-plan",
+                "/temporary-monitor",
                 "/settings",
                 "/strategy",
                 "/research",
@@ -920,6 +931,57 @@ def create_api_app(services: ApiServices):
         )
         result.pop("config", None)
         return result
+
+    def initial_strategies():
+        by_code = {
+            item["code"]: item
+            for item in services.repository.list_strategies()
+            if is_initial_strategy_code(item["code"])
+        }
+        return [
+            by_code[profile.code]
+            for profile in STRATEGY_ARCHETYPES
+            if profile.code in by_code
+        ]
+
+    def temporary_strategy_summary(item):
+        profile = next(
+            profile
+            for profile in STRATEGY_ARCHETYPES
+            if profile.code == item["code"]
+        )
+        return {
+            "strategy_id": item["strategy_id"],
+            "code": item["code"],
+            "name": profile.name,
+            "catalog_name": item["name"],
+            "enabled": item["enabled"],
+            "archetype": profile_metadata(profile.key),
+        }
+
+    def enqueue_temporary_reports(
+        reference_date: str,
+        request: Request,
+        *,
+        execution_date: Optional[str] = None,
+    ):
+        jobs = [
+            services.repository.enqueue_report_refresh(
+                reference_date,
+                requested_by=request.state.request_id,
+                strategy_id=item["strategy_id"],
+                execution_date=execution_date,
+            )
+            for item in initial_strategies()
+        ]
+        if not jobs:
+            raise HTTPException(status_code=503, detail="初始策略尚未初始化")
+        return {
+            "trade_date": reference_date,
+            "execution_date": execution_date,
+            "job_count": len(jobs),
+            "jobs": jobs,
+        }
 
     @app.get("/api/v1/strategies")
     def strategies(
@@ -1735,6 +1797,7 @@ def create_api_app(services: ApiServices):
         stocks = []
         ages = []
         missing = 0
+        materialized_count = 0
         now = datetime.now(timezone.utc)
         current_session = datetime.now(SHANGHAI).date()
         plan_session = date.fromisoformat(plan["trade_date"])
@@ -1754,7 +1817,24 @@ def create_api_app(services: ApiServices):
             feature = {}
             decision = {}
             bars = []
-            if live_market_data:
+            outcome = outcomes.get(symbol)
+            if outcome and outcome.get("status") == "observed":
+                materialized_count += 1
+                quote = {
+                    "trade_date": plan["trade_date"],
+                    "price": outcome.get("close"),
+                    "open": outcome.get("open"),
+                    "high": outcome.get("high"),
+                    "low": outcome.get("low"),
+                    "previous_close": outcome.get("reference_close"),
+                    "cumulative_volume": outcome.get("volume"),
+                    "cumulative_amount_cny": outcome.get("amount_cny"),
+                    "source_time": (
+                        f"{plan['trade_date']}T15:00:00+08:00"
+                    ),
+                    "collected_at": day["updated_at"],
+                }
+            elif live_market_data:
                 quote_event = services.cache.get_latest_quote(symbol)
                 get_feature = getattr(
                     services.cache,
@@ -1855,10 +1935,116 @@ def create_api_app(services: ApiServices):
                     bars = []
             if not decision and saved:
                 decision = saved
-            outcome = outcomes.get(symbol)
             if outcome and outcome.get("status") == "observed":
-                decision = {"state": "expired", "label": "收盘封板" if outcome["closed_limit_up"] else "收盘未封板",
-                            "reason": outcome["reason"], "updated_at": day["updated_at"]}
+                is_board_reseal = (
+                    outcome.get("entry_mode", "board_reseal")
+                    == "board_reseal"
+                )
+                target_hit = (
+                    outcome.get("closed_limit_up")
+                    if is_board_reseal
+                    else outcome.get("target_hit")
+                )
+                decision = {
+                    "state": "expired",
+                    "label": (
+                        "收盘封板" if target_hit else "收盘未封板"
+                    ) if is_board_reseal else (
+                        "收盘达到目标" if target_hit else "收盘未达目标"
+                    ),
+                    "reason": outcome["reason"],
+                    "updated_at": day["updated_at"],
+                }
+            if live_market_data and not decision:
+                rules = plan_for(candidate)
+                source_stamp = None
+                try:
+                    source_stamp = datetime.fromisoformat(str(quote.get("source_time")))
+                except (TypeError, ValueError):
+                    pass
+                quote_age = (
+                    (now - source_stamp.astimezone(timezone.utc)).total_seconds()
+                    if source_stamp
+                    else None
+                )
+                projected = evaluate(
+                    {
+                        "price": quote.get("price"),
+                        "open": quote.get("open"),
+                        "high": quote.get("high"),
+                        "low": quote.get("low"),
+                        "previous_close": quote.get("previous_close"),
+                        "change_pct": (
+                            round(
+                                (
+                                    float(quote["price"])
+                                    / float(rules["previous_close"])
+                                    - 1
+                                )
+                                * 100,
+                                4,
+                            )
+                            if quote.get("price") is not None
+                            and rules.get("previous_close")
+                            else None
+                        ),
+                        "open_change_pct": (
+                            round(
+                                (
+                                    float(quote["open"])
+                                    / float(rules["previous_close"])
+                                    - 1
+                                )
+                                * 100,
+                                4,
+                            )
+                            if quote.get("open") is not None
+                            and rules.get("previous_close")
+                            else None
+                        ),
+                        "amount": quote.get("cumulative_amount_cny"),
+                        "volume": quote.get("cumulative_volume"),
+                        "bid": quote.get("bid1"),
+                        "ask": quote.get("ask1"),
+                        "bid_volume": quote.get("bid1_volume"),
+                        "ask_volume": quote.get("ask1_volume"),
+                        "quote_time": quote.get("source_time"),
+                        "fresh": (
+                            quote_age is not None
+                            and -5
+                            <= quote_age
+                            <= rules.get("quote_max_age_seconds", 180)
+                        ),
+                        "minute_volume_ratio": feature.get(
+                            "minute_volume_ratio",
+                            feature.get("attributes", {}).get(
+                                "minute_volume_ratio"
+                            ),
+                        ),
+                    },
+                    rules,
+                    datetime.now(SHANGHAI),
+                    plan["trade_date"],
+                )
+                projected = apply_sector_confirmation(
+                    projected,
+                    rules,
+                    feature,
+                )
+                decision = {
+                    **projected,
+                    "reason_code": projected["state"],
+                    "irreversible": projected["state"]
+                    in {
+                        "expired",
+                        "ineligible",
+                        "reject_open",
+                        "reject_low",
+                        "outside_open",
+                        "window_closed",
+                    },
+                    "updated_at": quote.get("collected_at") or _now(),
+                }
             source_time = quote.get("source_time")
             if source_time and live_market_data:
                 age = (
@@ -1973,10 +2159,15 @@ def create_api_app(services: ApiServices):
             )
         max_age = max(ages) if ages else None
         current_phase = phase_at(datetime.now(SHANGHAI))
+        all_materialized = bool(stocks) and materialized_count == len(stocks)
         data_state = (
-            _data_state(max_age, missing)
-            if live_market_data
-            else ("historical" if missing == 0 else "unavailable")
+            "historical"
+            if all_materialized
+            else (
+                _data_state(max_age, missing)
+                if live_market_data
+                else ("historical" if missing == 0 else "unavailable")
+            )
         )
         return {
             "trade_date": plan["trade_date"],
@@ -1997,7 +2188,7 @@ def create_api_app(services: ApiServices):
                     if resolved_from_non_trading_day
                     else (
                         "historical_market_data"
-                        if not live_market_data
+                        if not live_market_data or all_materialized
                         else None
                     )
                 ),
@@ -2160,6 +2351,158 @@ def create_api_app(services: ApiServices):
             requested_by=request.state.request_id,
             execution_date=tradeDate,
             **({"strategy_id": selected["strategy_id"]} if selected else {}),
+        )
+
+    @app.get("/api/v1/temporary-plans")
+    def temporary_plans(trade_date: str):
+        resolved_date, resolved_from_non_trading_day = resolve_trade_date(
+            trade_date
+        )
+        items = []
+        total_candidates = 0
+        ready_count = 0
+        plan_dates = set()
+        for strategy in initial_strategies():
+            summary = temporary_strategy_summary(strategy)
+            day = services.repository.get_strategy_day(
+                strategy["strategy_id"],
+                resolved_date,
+            )
+            report = day.get("next_plan") if day else None
+            payload = (
+                _report_payload(report, services.strategy_version)
+                if report
+                else None
+            )
+            if payload:
+                ready_count += 1
+                total_candidates += payload["candidate_count"]
+                if payload.get("plan_date"):
+                    plan_dates.add(payload["plan_date"])
+            items.append({
+                **summary,
+                "status": "ready" if payload else "pending",
+                "candidate_count": (
+                    payload["candidate_count"] if payload else 0
+                ),
+                "report": payload,
+            })
+        return {
+            "requested_date": trade_date,
+            "trade_date": resolved_date,
+            "resolved_from_non_trading_day": resolved_from_non_trading_day,
+            "plan_date": next(iter(plan_dates)) if len(plan_dates) == 1 else None,
+            "strategy_count": len(items),
+            "ready_count": ready_count,
+            "candidate_count": total_candidates,
+            "strategies": items,
+        }
+
+    @app.post(
+        "/api/v1/temporary-plans/{tradeDate}/refresh",
+        status_code=202,
+    )
+    def refresh_temporary_plans(tradeDate: str, request: Request):
+        try:
+            requested_date = date.fromisoformat(tradeDate)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="tradeDate must be a valid ISO date",
+            ) from exc
+        if not services.repository.is_trading_session(requested_date):
+            raise HTTPException(status_code=400, detail="所选日期不是交易日")
+        now = datetime.now(SHANGHAI)
+        if (
+            requested_date > now.date()
+            or requested_date == now.date()
+            and now.hour < 15
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="该交易日尚未收盘，暂不能生成收盘计划",
+            )
+        return enqueue_temporary_reports(tradeDate, request)
+
+    @app.get("/api/v1/temporary-monitor")
+    def temporary_monitor(trade_date: str):
+        resolved_date, resolved_from_non_trading_day = resolve_trade_date(
+            trade_date
+        )
+        items = []
+        total_candidates = 0
+        ready_count = 0
+        for strategy in initial_strategies():
+            summary = temporary_strategy_summary(strategy)
+            try:
+                snapshot = monitor(
+                    trade_date=trade_date,
+                    strategy_id=strategy["strategy_id"],
+                )
+            except HTTPException:
+                items.append({
+                    **summary,
+                    "status": "pending",
+                    "candidate_count": 0,
+                    "message": "所选日期尚未生成对应临时计划。",
+                    "snapshot": None,
+                })
+                continue
+            ready_count += 1
+            total_candidates += len(snapshot["stocks"])
+            items.append({
+                **summary,
+                "status": "ready",
+                "candidate_count": len(snapshot["stocks"]),
+                "message": None,
+                "snapshot": snapshot,
+            })
+        return {
+            "requested_date": trade_date,
+            "trade_date": resolved_date,
+            "resolved_from_non_trading_day": resolved_from_non_trading_day,
+            "server_time": _now(),
+            "phase": phase_at(datetime.now(SHANGHAI)),
+            "phase_label": PHASE_LABELS[
+                phase_at(datetime.now(SHANGHAI))
+            ],
+            "strategy_count": len(items),
+            "ready_count": ready_count,
+            "candidate_count": total_candidates,
+            "strategies": items,
+        }
+
+    @app.post(
+        "/api/v1/temporary-monitor/{tradeDate}/refresh",
+        status_code=202,
+    )
+    def refresh_temporary_monitor(tradeDate: str, request: Request):
+        try:
+            execution_date = date.fromisoformat(tradeDate)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="tradeDate must be a valid ISO date",
+            ) from exc
+        if execution_date > datetime.now(SHANGHAI).date():
+            raise HTTPException(
+                status_code=400,
+                detail="所选交易日不能晚于今天",
+            )
+        if not services.repository.is_trading_session(execution_date):
+            raise HTTPException(status_code=400, detail="所选日期不是交易日")
+        reference_date = services.repository.previous_trading_session(
+            execution_date
+        )
+        if reference_date is None:
+            raise HTTPException(
+                status_code=400,
+                detail="交易日历中缺少所选日期的前一交易日",
+            )
+        return enqueue_temporary_reports(
+            reference_date,
+            request,
+            execution_date=tradeDate,
         )
 
     @app.get("/api/v1/reports")
@@ -2425,6 +2768,14 @@ def create_api_app(services: ApiServices):
     @app.get("/monitor")
     def monitor_dashboard():
         return FileResponse(static_root / "monitor.html")
+
+    @app.get("/temporary-plan")
+    def temporary_plan_dashboard():
+        return FileResponse(static_root / "temporary-plan.html")
+
+    @app.get("/temporary-monitor")
+    def temporary_monitor_dashboard():
+        return FileResponse(static_root / "temporary-monitor.html")
 
     @app.get("/strategy")
     def strategy_dashboard():

@@ -11,7 +11,12 @@ from ..contracts.topics import (
     STRATEGY_PLAN_CREATED,
 )
 from ..domain.events import EventEnvelope
-from ..domain.intraday import IRREVERSIBLE_STATES, evaluate, resolve_transition
+from ..domain.intraday import (
+    IRREVERSIBLE_STATES,
+    apply_sector_confirmation,
+    evaluate,
+    resolve_transition,
+)
 from ..intraday import plan_for
 from ..ports.messaging import ConsumedEvent, EventConsumer
 from ..ports.storage import DecisionRecord, DecisionRepository
@@ -117,36 +122,13 @@ class StrategyEventProcessor:
             collected_at,
             str(candidate["plan_date"]),
         )
-        sector_sample_size = feature_attributes.get("sector_sample_size")
-        sector_rise_ratio = feature.get("sector_rise_ratio")
-        minimum_sample = plan.get("minimum_sector_sample_size", self.minimum_sector_sample_size)
-        minimum_ratio = plan.get("minimum_sector_rise_ratio", self.minimum_sector_rise_ratio)
-        if (
-            proposed["state"] in {"watch", "near_limit", "at_limit", "sealed", "triggered"}
-            and sector_sample_size is not None
-            and int(sector_sample_size) >= minimum_sample
-            and sector_rise_ratio is not None
-            and float(sector_rise_ratio) < minimum_ratio
-        ):
-            proposed = {
-                "state": "watch",
-                "label": "板块确认不足",
-                "reason": (
-                    f"同题材上涨比例{float(sector_rise_ratio):.0%}，"
-                    f"低于{minimum_ratio:.0%}确认线，继续观察。"
-                ),
-                "tone": "muted",
-            }
-        elif (
-            proposed["state"] in {"watch", "near_limit", "at_limit", "sealed", "triggered"}
-            and "minimum_sector_sample_size" in plan
-            and (sector_sample_size is None or int(sector_sample_size) < minimum_sample or sector_rise_ratio is None)
-        ):
-            proposed = {
-                "state": "watch", "label": "板块样本不足",
-                "reason": f"同题材至少需要{minimum_sample}个有效样本，当前无法完成确认。",
-                "tone": "muted",
-            }
+        proposed = apply_sector_confirmation(
+            proposed,
+            plan,
+            feature,
+            default_minimum_sample_size=self.minimum_sector_sample_size,
+            default_minimum_rise_ratio=self.minimum_sector_rise_ratio,
+        )
         current = self.repository.get(self.plan_id, symbol)
         previous = (
             {

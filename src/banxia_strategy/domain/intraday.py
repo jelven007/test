@@ -313,3 +313,59 @@ def evaluate(
         "观察 · 不提前买",
         f"竞价条件通过，但尚未形成二板确认；继续等{cutoff}前的封板或快速回封。",
     )
+
+
+def apply_sector_confirmation(
+    proposed: Mapping[str, Any],
+    plan: Mapping[str, Any],
+    feature: Mapping[str, Any],
+    *,
+    default_minimum_sample_size: int = 2,
+    default_minimum_rise_ratio: float = 0.5,
+) -> Dict[str, Any]:
+    """Apply the shared theme-strength gate to an otherwise valid decision."""
+    active_states = {"watch", "near_limit", "at_limit", "sealed", "triggered"}
+    if proposed.get("state") not in active_states:
+        return dict(proposed)
+
+    attributes = feature.get("attributes", {})
+    sample_size = attributes.get("sector_sample_size")
+    rise_ratio = feature.get("sector_rise_ratio")
+    minimum_sample = plan.get(
+        "minimum_sector_sample_size",
+        default_minimum_sample_size,
+    )
+    minimum_ratio = plan.get(
+        "minimum_sector_rise_ratio",
+        default_minimum_rise_ratio,
+    )
+    if (
+        sample_size is not None
+        and int(sample_size) >= minimum_sample
+        and rise_ratio is not None
+        and float(rise_ratio) < minimum_ratio
+    ):
+        return {
+            "state": "watch",
+            "label": "板块确认不足",
+            "reason": (
+                f"同题材上涨比例{float(rise_ratio):.0%}，"
+                f"低于{minimum_ratio:.0%}确认线，继续观察。"
+            ),
+            "tone": "muted",
+        }
+    if (
+        "minimum_sector_sample_size" in plan
+        and (
+            sample_size is None
+            or int(sample_size) < minimum_sample
+            or rise_ratio is None
+        )
+    ):
+        return {
+            "state": "watch",
+            "label": "板块样本不足",
+            "reason": f"同题材至少需要{minimum_sample}个有效样本，当前无法完成确认。",
+            "tone": "muted",
+        }
+    return dict(proposed)

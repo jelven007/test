@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f6f7f5">
+    <title>临时当日实盘 · 一进二</title>
+    <link rel="stylesheet" href="/styles.css?v=20260926.1">
+    <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
+    <link rel="stylesheet" href="/temporary.css?v=20260929.1">
+    <script src="/auth.js?v=20260927.2" defer></script>
+    <script src="/strategy-selector.js?v=20260926.1" defer></script>
+    <script src="/trading-calendar.js?v=20260926.3" defer></script>
+    <script src="/temporary.js?v=20260929.1" defer></script>
+  </head>
+  <body class="temporary-body" data-temporary-page="monitor">
+    <header class="topbar temporary-topbar">
+      <a class="brand" href="/" aria-label="返回股票首页">
+        <span class="brand-mark" aria-hidden="true">BX</span>
+        <strong>一进二</strong>
+      </a>
+      <div class="report-tools">
+        <label for="report-date">交易日</label>
+        <select id="report-date" class="ui-control" aria-label="选择实盘交易日" disabled></select>
+        <button id="refresh-button" type="button" class="ui-button">生成十份</button>
+      </div>
+      <div class="dashboard-meta">
+        <div class="source-status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="connection" role="status">正在连接十策略行情</span>
+        </div>
+        <div data-account-slot></div>
+      </div>
+    </header>
+    <nav class="primary-nav" aria-label="主导航">
+      <a href="/">首页</a>
+      <a href="/strategy">策略管理</a>
+      <a href="/plan">次日计划</a>
+      <a href="/monitor">当日实盘</a>
+      <a href="/temporary-plan">临时次日计划</a>
+      <a href="/temporary-monitor" aria-current="page">临时当日实盘</a>
+      <a href="/research">回测优化</a>
+      <a href="/settings">系统设置</a>
+    </nav>
+
+    <main class="temporary-main page-main">
+      <section class="temporary-heading page-header">
+        <div class="page-header-copy">
+          <p class="eyebrow">TEN STRATEGY LIVE MATRIX</p>
+          <h1><span id="display-date">—</span> 临时当日实盘</h1>
+          <p id="scope">正在读取十策略对应行情</p>
+        </div>
+      </section>
+
+      <div id="temporary-error" class="notice is-error" role="alert" hidden></div>
+
+      <section class="temporary-summary" aria-label="临时实盘汇总">
+        <div><span>交易阶段</span><strong id="phase-label">—</strong></div>
+        <div><span>已就绪策略</span><strong id="ready-count">—</strong></div>
+        <div><span>观察股票</span><strong id="candidate-count">—</strong></div>
+        <div><span>页面同步</span><strong id="sync-time">—</strong></div>
+      </section>
+
+      <section class="temporary-monitor-layout">
+        <aside class="temporary-strategy-rail">
+          <div class="rail-heading">
+            <span>策略信号台</span>
+            <strong id="strategy-count">—</strong>
+          </div>
+          <div id="strategy-tabs" class="strategy-tabs" role="listbox" aria-label="选择临时实盘策略"></div>
+        </aside>
+        <section id="monitor-panel" class="temporary-monitor-panel" aria-live="polite">
+          <div class="temporary-loading"><span class="loading-rule"></span><p>读取十策略实盘</p></div>
+        </section>
+      </section>
+
+      <footer class="temporary-footer">
+        <p>本页与临时次日计划逐策略对应；判断基于共享 mootdx 行情快照，不改变正式激活策略，也不自动下单。</p>
+        <p>行情存在秒级延迟。出现数据陈旧、昨收不一致、跌破昨收或超过策略入场时限时，暂停或放弃入场。</p>
+      </footer>
+    </main>
+  </body>
+</html>

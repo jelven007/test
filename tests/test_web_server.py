@@ -144,6 +144,8 @@ class SharedNavigationTest(unittest.TestCase):
         for filename in (
             "index.html",
             "monitor.html",
+            "temporary-plan.html",
+            "temporary-monitor.html",
             "strategy.html",
             "research.html",
             "stocks.html",
@@ -165,7 +167,7 @@ class SharedNavigationTest(unittest.TestCase):
         self.assertEqual(blocks[0], blocks[3])
         self.assertEqual(
             blocks[0],
-            '<a href="/">首页</a> <a href="/strategy">策略管理</a> <a href="/plan">次日计划</a> <a href="/monitor">当日实盘</a> <a href="/research">回测优化</a> <a href="/settings">系统设置</a>',
+            '<a href="/">首页</a> <a href="/strategy">策略管理</a> <a href="/plan">次日计划</a> <a href="/monitor">当日实盘</a> <a href="/temporary-plan">临时次日计划</a> <a href="/temporary-monitor">临时当日实盘</a> <a href="/research">回测优化</a> <a href="/settings">系统设置</a>',
         )
 
 

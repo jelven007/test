@@ -157,6 +157,8 @@ def label_candidate(candidate, next_session, snapshot):
             "板块和成交条件"
         ),
         open=bar["open"], high=bar["high"], low=bar["low"], close=bar["close"],
+        volume=bar.get("vol", bar.get("volume")),
+        amount_cny=bar.get("amount"),
         limit_price=limit_price, open_change_pct=round(open_pct, 3),
         close_change_pct=round(100*(bar["close"]/ref-1), 3),
         closed_limit_up=_at_price_limit(bar["close"], limit_price),
