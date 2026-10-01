@@ -14,9 +14,10 @@ from ..ports.storage import (
     ReportAsset,
     ReportIdentity,
 )
+from ..strategy_archetypes import INITIAL_STRATEGY_CODE
 from .market_reference import MarketReferenceMixin
 from .identity_settings import IdentitySettingsMixin
-from .strategy_catalog import INITIAL_STRATEGY_CODE, StrategyCatalogMixin
+from .strategy_catalog import StrategyCatalogMixin
 
 
 IDENTITY_NAMESPACE = uuid.UUID("4b6067a1-05ca-4eaf-9c59-ed125f79cb45")
