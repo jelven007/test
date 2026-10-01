@@ -11,8 +11,8 @@ VKE overlay 包含：
 - 使用 NAS CSI 的 RWX 报告目录。
 - 使用独立 RWO 云盘保存每个 `market-collector` 副本的本地 WAL。
 - 使用 `Retain` 回收策略的 EBS 云盘保存五个数据服务的数据。
-- PostgreSQL/ClickHouse 迁移 Job 和策略目录初始化 Job。
-- 复用已有 ALB 的 HTTPS Ingress，并将 HTTP 重定向到 HTTPS。
+- PostgreSQL/ClickHouse 迁移 Job、Kafka topic、MinIO bucket 和策略目录初始化 Job。
+- 创建公网 ALB 的 HTTPS Ingress，并将 HTTP 重定向到 HTTPS。
 - PDB、HPA、跨可用区/节点软分散和默认拒绝入站的 NetworkPolicy。
 - 可选的 ServiceMonitor/PodMonitor。
 
@@ -22,8 +22,11 @@ VKE overlay 包含：
 2. `ssl-redirect` 要求 ALB Ingress Controller `v0.35.0` 或更高版本。
 3. VKE Worker 子网可通过 NAT 访问 mootdx 行情节点。
 4. 已创建 CR 镜像仓库，并镜像应用、Flink 及全部基础镜像。
-5. 已创建可供 VKE 复用的 ALB 和证书中心证书。
+5. 已开通 ALB 服务授权，并准备证书中心证书。
 6. 已准备 NAS 文件系统；集群已提供 `ebs-ssd` StorageClass。
+
+火山引擎 ESSD 云盘的最小容量为 10GiB，数据卷和 Collector WAL 均不得
+低于此容量。
 
 ## 配置占位符
 
@@ -46,7 +49,7 @@ rg -n 'REPLACE_WITH_' \
 - `overlays/volcengine/flink-*-patch.yaml`：Flink 使用的 Kafka 和 MinIO 地址。
 - `overlays/volcengine/storage.yaml`：NAS 文件系统 ID 和挂载地址。
 - `overlays/volcengine/collector-statefulset.yaml`：WAL 使用的块存储类。
-- `overlays/volcengine/ingress.yaml`：已有 ALB ID 和证书中心证书 ID。
+- `overlays/volcengine/ingress.yaml`：新建 ALB 的子网和证书中心证书 ID。
 - `banxia-secrets.example.yaml`：数据库、Redis、对象存储及 CR 凭据。
 
 `BANXIA_MINIO_ENDPOINT` 不带 URL scheme；Flink 配置中的
@@ -71,7 +74,7 @@ kubectl apply -f deploy/kubernetes/banxia-secrets.yaml
 Kustomize 读取 overlay 目录之外的文件：
 
 ```bash
-kustomize build \
+kubectl kustomize \
   --load-restrictor LoadRestrictionsNone \
   deploy/kubernetes/overlays/volcengine \
   > /tmp/banxia-vke.yaml
@@ -99,7 +102,9 @@ kubectl -n banxia get pods,pvc,ingress
 
 ```bash
 kubectl -n banxia delete job \
-  banxia-schema-migration banxia-catalog-bootstrap --ignore-not-found
+  banxia-schema-migration banxia-kafka-bootstrap \
+  banxia-minio-bootstrap banxia-catalog-bootstrap \
+  flink-feature-job-v1 --ignore-not-found
 kubectl apply --server-side -f /tmp/banxia-vke.yaml
 ```
 

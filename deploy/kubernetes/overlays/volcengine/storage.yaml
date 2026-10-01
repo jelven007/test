@@ -17,8 +17,8 @@ metadata:
   name: banxia-nas-rwx
 provisioner: nas.csi.volcengine.com
 parameters:
-  fsId: REPLACE_WITH_NAS_FILE_SYSTEM_ID
-  server: REPLACE_WITH_NAS_MOUNT_SERVER
+  fsId: enas-cnsha08273a84410dd
+  server: cnsha08273a84410dd.vpc-1pm13zlt8zq4g643rfzcpm2z8.nas.ivolces.com
   fsType: nfs
   volumeAs: subpath
   subPath: /banxia/reports

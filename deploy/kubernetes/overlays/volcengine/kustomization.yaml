@@ -28,28 +28,28 @@ patches:
     path: scheduling-patch.yaml
 images:
   - name: banxia-strategy
-    newName: REPLACE_WITH_CR_REGISTRY/banxia-strategy
-    newTag: REPLACE_WITH_GIT_COMMIT
+    newName: xm1001-cn-shanghai.cr.volces.com/banxia/banxia-strategy
+    newTag: 59f59a6
   - name: banxia-flink
-    newName: REPLACE_WITH_CR_REGISTRY/banxia-flink
-    newTag: REPLACE_WITH_GIT_COMMIT
+    newName: xm1001-cn-shanghai.cr.volces.com/banxia/banxia-flink
+    newTag: 59f59a6
   - name: postgres
-    newName: REPLACE_WITH_CR_REGISTRY/postgres
+    newName: xm1001-cn-shanghai.cr.volces.com/banxia/postgres
     newTag: 16.4-alpine
   - name: redis
-    newName: REPLACE_WITH_CR_REGISTRY/redis
+    newName: xm1001-cn-shanghai.cr.volces.com/banxia/redis
     newTag: 7.4.1-alpine
   - name: apache/kafka
-    newName: REPLACE_WITH_CR_REGISTRY/kafka
+    newName: xm1001-cn-shanghai.cr.volces.com/banxia/kafka
     newTag: 3.9.0
   - name: clickhouse/clickhouse-server
-    newName: REPLACE_WITH_CR_REGISTRY/clickhouse
+    newName: xm1001-cn-shanghai.cr.volces.com/banxia/clickhouse
     newTag: "24.8"
   - name: quay.io/minio/minio
-    newName: REPLACE_WITH_CR_REGISTRY/minio
+    newName: xm1001-cn-shanghai.cr.volces.com/banxia/minio
     newTag: RELEASE.2024-09-22T00-33-43Z
   - name: quay.io/minio/mc
-    newName: REPLACE_WITH_CR_REGISTRY/minio-mc
+    newName: xm1001-cn-shanghai.cr.volces.com/banxia/minio-mc
     newTag: RELEASE.2024-09-16T17-43-14Z
 configMapGenerator:
   - name: banxia-postgres-migrations

@@ -123,18 +123,32 @@ spec:
       containers:
         - name: submit
           image: banxia-flink:REPLACE_WITH_GIT_COMMIT
-          command: [bash, -ec]
+          command: [/docker-entrypoint.sh, bash, -ec]
           args:
             - |
-              until curl --fail http://flink-jobmanager:8081/overview; do sleep 2; done
+              until curl --silent --show-error --fail \
+                --connect-timeout 2 --max-time 5 \
+                http://flink-jobmanager:8081/overview >/dev/null; do
+                sleep 2
+              done
+              if curl --fail --silent http://flink-jobmanager:8081/jobs/overview \
+                | grep -Eq '"name":"banxia-realtime-features-v1".*"state":"(CREATED|INITIALIZING|RUNNING|FAILING|RESTARTING|RECONCILING)"'; then
+                echo "Flink feature job is already running; skipping submission."
+                exit 0
+              fi
               sed "s|__KAFKA_BOOTSTRAP_SERVERS__|${KAFKA_BOOTSTRAP_SERVERS}|g" \
                 /opt/banxia/sql/realtime_features.sql >/tmp/realtime_features.sql
-              flink sql-client -f /tmp/realtime_features.sql
+              /opt/flink/bin/sql-client.sh -f /tmp/realtime_features.sql 2>&1 \
+                | tee /tmp/sql-client.log
+              if grep -Fq '[ERROR]' /tmp/sql-client.log; then
+                exit 1
+              fi
           env:
             - {name: KAFKA_BOOTSTRAP_SERVERS, value: "REPLACE_WITH_KAFKA_BOOTSTRAP_SERVERS"}
             - name: FLINK_PROPERTIES
               value: |
                 jobmanager.rpc.address: flink-jobmanager
+                rest.address: flink-jobmanager
                 parallelism.default: 4
           resources:
             requests: {cpu: 100m, memory: 256Mi}

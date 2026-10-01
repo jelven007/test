@@ -4,14 +4,26 @@ metadata:
   name: banxia-alb
   namespace: banxia
 spec:
-  instanceID: REPLACE_WITH_EXISTING_ALB_ID
+  blockCascadeDeletion: true
+  instance:
+    name: banxia-alb
+    edition: Basic
+    zoneMappings:
+      - subnetId: subnet-7uuemtcskd1c72200s8k98yw
+    addressType: public
+    eipSpec:
+      isp: BGP
+      bandwidth: 5
+      billingType: 3
+    ipVersion: ipv4
+    deleteProtection: "on"
   listeners:
     - protocol: HTTP
       port: 80
     - protocol: HTTPS
       port: 443
       certificateSource: cert_center
-      certificateID: REPLACE_WITH_CERTIFICATE_CENTER_CERT_ID
+      certificateID: cert-0b9f4e0c80eb4a9e8a0b2321cc063836
       enableHTTP2: true
       enableQUIC: false
 ---
@@ -22,6 +34,7 @@ metadata:
   namespace: banxia
   annotations:
     ingress.vke.volcengine.com/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    ingress.vke.volcengine.com/loadbalancer-pass-through: "true"
     ingress.vke.volcengine.com/ssl-redirect: "true"
 spec:
   ingressClassName: banxia-alb

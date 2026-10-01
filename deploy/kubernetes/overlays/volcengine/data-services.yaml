@@ -204,7 +204,7 @@ spec:
           image: apache/kafka:3.9.0
           env:
             - {name: KAFKA_NODE_ID, value: "1"}
-            - {name: KAFKA_PROCESS_ROLES, value: broker,controller}
+            - {name: KAFKA_PROCESS_ROLES, value: "broker,controller"}
             - {name: KAFKA_LISTENERS, value: "PLAINTEXT://:9092,CONTROLLER://:9093"}
             - {name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka:9092"}
             - {name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"}
@@ -226,6 +226,7 @@ spec:
                 - -ec
                 - /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
             periodSeconds: 5
+            timeoutSeconds: 10
             failureThreshold: 60
           readinessProbe:
             exec:
@@ -234,6 +235,7 @@ spec:
                 - -ec
                 - /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
             periodSeconds: 10
+            timeoutSeconds: 10
           livenessProbe:
             tcpSocket: {port: broker}
             periodSeconds: 20
@@ -252,6 +254,70 @@ spec:
         resources:
           requests:
             storage: 20Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: banxia-kafka-bootstrap
+  namespace: banxia
+spec:
+  backoffLimit: 12
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: banxia-kafka-bootstrap
+        component: bootstrap
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: banxia-workload
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: create-topics
+          image: apache/kafka:3.9.0
+          command: [bash, -ec]
+          args:
+            - |
+              topics=(
+                "market.quote.snapshot.v1:12:604800000"
+                "market.bar.1m.v1:12:1209600000"
+                "market.feature.realtime.v1:12:604800000"
+                "strategy.plan.created.v1:3:2592000000"
+                "strategy.decision.v1:12:2592000000"
+                "strategy.audit.v1:12:7776000000"
+                "report.generated.v1:3:2592000000"
+              )
+              until /opt/kafka/bin/kafka-topics.sh \
+                --bootstrap-server kafka:9092 --list >/dev/null; do
+                sleep 5
+              done
+              for spec in "${topics[@]}"; do
+                IFS=: read -r topic partitions retention_ms <<<"$spec"
+                for name in "$topic" "${topic}.dlq"; do
+                  /opt/kafka/bin/kafka-topics.sh \
+                    --bootstrap-server kafka:9092 \
+                    --create \
+                    --if-not-exists \
+                    --topic "$name" \
+                    --partitions "$partitions" \
+                    --replication-factor 1 \
+                    --config "retention.ms=$(
+                      [ "$name" = "$topic" ] &&
+                        printf '%s' "$retention_ms" ||
+                        printf '%s' 7776000000
+                    )"
+                done
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: "1", memory: 512Mi}
 ---
 apiVersion: v1
 kind: Service
@@ -455,8 +521,10 @@ spec:
               done
               mc mb --ignore-existing banxia/strategy-reports
               mc mb --ignore-existing banxia/market-raw
+              mc mb --ignore-existing banxia/strategy-audit
               mc mb --ignore-existing banxia/flink-state
           env:
+            - {name: MC_CONFIG_DIR, value: /tmp/.mc}
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef: {name: banxia-secrets, key: MINIO_ROOT_USER}

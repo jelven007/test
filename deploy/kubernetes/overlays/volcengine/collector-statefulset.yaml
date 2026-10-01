@@ -100,7 +100,7 @@ spec:
         storageClassName: banxia-ebs-retain
         resources:
           requests:
-            storage: 5Gi
+            storage: 10Gi
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

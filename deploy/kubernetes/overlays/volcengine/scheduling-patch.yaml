@@ -3,6 +3,12 @@
   value:
     kubernetes.io/os: linux
 - op: add
+  path: /spec/template/spec/serviceAccountName
+  value: banxia-workload
+- op: add
+  path: /spec/template/spec/automountServiceAccountToken
+  value: false
+- op: add
   path: /spec/template/spec/topologySpreadConstraints
   value:
     - maxSkew: 1
