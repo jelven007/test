@@ -777,16 +777,14 @@ class StrategyCatalogMixin:
                 row = cursor.fetchone()
                 return self._day_row(row) if row else None
 
-    def list_monitor_plans(self, *, include_initial=False):
-        """Return current plans for live execution or temporary built-in previews."""
+    def list_monitor_plans(self):
+        """Only current/future plans; each strategy/date keeps its latest revision."""
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("""SELECT DISTINCT v.strategy_id,p.trade_date
                     FROM banxia.strategy_plan p JOIN banxia.strategy_version v USING(strategy_version_id)
                     JOIN banxia.strategy_definition s USING(strategy_id)
-                    WHERE p.status='active' AND NOT s.archived
-                      AND (s.enabled OR (%s AND s.code LIKE 'banxia-%%'))
-                      AND p.trade_date >= CURRENT_DATE AND p.trade_date <= CURRENT_DATE + 14""",
-                    (include_initial,))
+                    WHERE p.status='active' AND s.enabled AND NOT s.archived
+                      AND p.trade_date >= CURRENT_DATE AND p.trade_date <= CURRENT_DATE + 14""")
                 keys = cursor.fetchall()
         return [plan for sid, day in keys if (plan := self.get_active_plan(str(day), str(sid)))]

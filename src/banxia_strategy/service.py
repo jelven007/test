@@ -193,8 +193,7 @@ def run_collector(settings: RuntimeSettings, logger: Any) -> None:
     repository = _postgres(settings)
     def candidates():
         return [{**item, "code": item["symbol"], "plan_date": current["trade_date"]}
-                for current in repository.list_monitor_plans(include_initial=True)
-                for item in current["candidates"]]
+                for current in repository.list_monitor_plans() for item in current["candidates"]]
     reliable = ReliableEventPublisher(
         wal=SQLiteEventWAL(
             settings.wal_path,

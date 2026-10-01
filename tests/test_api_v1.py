@@ -1156,112 +1156,15 @@ class ApiV1Test(unittest.TestCase):
             },
         )
 
-    def test_temporary_pages_aggregate_and_refresh_all_initial_strategies(self):
-        strategies = []
-        for index, profile in enumerate(STRATEGY_ARCHETYPES, start=1):
-            strategies.append({
-                "strategy_id": (
-                    f"00000000-0000-0000-0000-{index:012d}"
-                ),
-                "code": profile.code,
-                "name": profile.name,
-                "description": profile.description,
-                "enabled": index == 1,
-                "archived": False,
-                "config": {
-                    **asdict(StrategyConfig()),
-                    "strategy_archetype": profile.key,
-                },
-                "parent_strategy_id": None,
-                "config_changes": {},
-            })
-        by_id = {item["strategy_id"]: item for item in strategies}
-        candidate = {
-            "code": "002635",
-            "name": "安洁科技",
-            "industry": "电子",
-            "rank": 1,
-            "score": 80,
-            "latest_price": 10,
-            "entry_trigger": "竞价位于0.5%～5%；等待确认",
-            "invalidation": "竞价低于-2%或高于7%",
-            "exit_plan": "按计划退出",
-            "position_limit_pct": 20,
-            "reasons": ["测试候选"],
-            "plan": {
-                "open_min_pct": 0.5,
-                "open_max_pct": 5,
-                "reject_min_pct": -2,
-                "reject_max_pct": 7,
-                "entry_cutoff_time": "10:00",
-            },
-        }
-        report = {
-            "as_of": "2026-09-23",
-            "next_session": "2026-09-24",
-            "generated_at": "2026-09-23T16:20:00+08:00",
-            "market": {"regime": "中性", "score": 60},
-            "candidates": [candidate],
-            "strategy_config": asdict(StrategyConfig()),
-            "data_source": "mootdx",
-            "data_sessions": ["2026-09-23"],
-        }
-        repository = self.services.repository
-        repository.list_strategies = lambda: [dict(item) for item in strategies]
-        repository.get_strategy = lambda strategy_id: by_id.get(strategy_id)
-        repository.get_strategy_day = lambda strategy_id, trade_date: (
-            {
-                "trade_date": trade_date,
-                "next_plan": report if trade_date == "2026-09-23" else None,
-                "execution_plan": report if trade_date == "2026-09-24" else None,
-                "actuals": {},
-                "updated_at": "2026-09-24T15:00:00+08:00",
-            }
-        )
-        repository.get_active_plan = lambda trade_date=None, strategy_id=None: (
-            {
-                "plan_id": f"plan-{strategy_id}",
-                "reference_date": "2026-09-23",
-                "trade_date": "2026-09-24",
-                "strategy_version": "v1",
-                "candidates": [{**candidate, "symbol": candidate["code"]}],
-            }
-        )
-
-        plans = self.client.get(
-            "/api/v1/temporary-plans?trade_date=2026-09-23"
-        )
-        self.assertEqual(plans.status_code, 200)
-        self.assertEqual(plans.json()["strategy_count"], 10)
-        self.assertEqual(plans.json()["candidate_count"], 10)
-        self.assertEqual(
-            [item["code"] for item in plans.json()["strategies"]],
-            [profile.code for profile in STRATEGY_ARCHETYPES],
-        )
-
-        refresh = self.client.post(
-            "/api/v1/temporary-plans/2026-09-23/refresh"
-        )
-        self.assertEqual(refresh.status_code, 202)
-        self.assertEqual(refresh.json()["job_count"], 10)
-        self.assertEqual(
-            {
-                job["payload"]["strategy_id"]
-                for job in refresh.json()["jobs"]
-            },
-            set(by_id),
-        )
-
-        monitor = self.client.get(
-            "/api/v1/temporary-monitor?trade_date=2026-09-24"
-        )
-        self.assertEqual(monitor.status_code, 200)
-        self.assertEqual(monitor.json()["ready_count"], 10)
-        self.assertEqual(monitor.json()["candidate_count"], 10)
-        self.assertEqual(
-            monitor.json()["strategies"][0]["snapshot"]["stocks"][0]["symbol"],
-            "002635",
-        )
+    def test_temporary_plan_and_monitor_routes_are_removed(self):
+        for path in (
+            "/temporary-plan",
+            "/temporary-monitor",
+            "/api/v1/temporary-plans?trade_date=2026-09-23",
+            "/api/v1/temporary-monitor?trade_date=2026-09-24",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.client.get(path).status_code, 404)
 
     def test_monitor_refresh_rejects_invalid_nontrading_and_future_dates(self):
         invalid = self.client.post("/api/v1/monitor/not-a-date/refresh")
