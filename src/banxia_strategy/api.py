@@ -1260,6 +1260,9 @@ def create_api_app(services: ApiServices):
         direction: str = "desc",
         limit: int = 100,
         offset: int = 0,
+        include_statistics: bool = False,
+        stock_limit: int = 10,
+        stock_offset: int = 0,
     ):
         reader = getattr(
             services.repository,
@@ -1281,6 +1284,11 @@ def create_api_app(services: ApiServices):
             raise HTTPException(
                 status_code=400,
                 detail="limit 必须为 1 至 500，offset 不能小于 0",
+            )
+        if not 1 <= stock_limit <= 100 or stock_offset < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="stock_limit 必须为 1 至 100，stock_offset 不能小于 0",
             )
         try:
             first = date.fromisoformat(start_date)
@@ -1339,6 +1347,9 @@ def create_api_app(services: ApiServices):
                 direction=direction,
                 limit=limit,
                 offset=offset,
+                include_statistics=include_statistics,
+                stock_limit=stock_limit,
+                stock_offset=stock_offset,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

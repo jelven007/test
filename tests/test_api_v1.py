@@ -743,6 +743,9 @@ class ApiV1Test(unittest.TestCase):
                 "direction": "desc",
                 "limit": 50,
                 "offset": 100,
+                "include_statistics": True,
+                "stock_limit": 20,
+                "stock_offset": 40,
             },
         )
 
@@ -762,6 +765,15 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(call["maximums"]["return_5d_pct"], 60)
         self.assertEqual(call["sort_by"], "turnover_pct")
         self.assertEqual(call["offset"], 100)
+        self.assertTrue(call["include_statistics"])
+        self.assertEqual(call["stock_limit"], 20)
+        self.assertEqual(call["stock_offset"], 40)
+
+    def test_limit_up_statistics_reject_invalid_paging(self):
+        for parameters in ({"stock_limit": 0}, {"stock_limit": 101}, {"stock_offset": -1}):
+            with self.subTest(parameters=parameters):
+                response = self.client.get("/api/v1/limit-up-history", params=parameters)
+                self.assertEqual(response.status_code, 400)
 
     def test_stock_directory_sorts_full_result_before_pagination(self):
         quotes = {
@@ -1292,7 +1304,7 @@ class ApiV1Test(unittest.TestCase):
 
         limit_ups = self.client.get("/limit-ups")
         self.assertEqual(limit_ups.status_code, 200)
-        self.assertIn("/limit-ups.js?v=20261001.1", limit_ups.text)
+        self.assertIn("/limit-ups.js?v=20261002.2", limit_ups.text)
 
         dashboard = self.client.get("/plan")
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store")

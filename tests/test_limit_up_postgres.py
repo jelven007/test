@@ -117,3 +117,83 @@ class LimitUpPostgresTest(unittest.TestCase):
         with self.assertRaises(Exception):
             self.save(rows=broken)
         self.assertEqual(self.read()["total"], 1)
+
+    def seed_statistics(self):
+        self.day = date(2025, 5, 2)
+        template = self.rows[0]
+        observations = [
+            ("600001", date(2025, 1, 2), "银行", False),
+            ("600001", date(2025, 1, 3), "银行", False),
+            ("600001", date(2025, 3, 3), "银行", False),
+            ("600002", date(2025, 1, 2), "银行", False),
+            ("600003", date(2025, 3, 3), "电子", False),
+            ("600004", date(2025, 3, 3), "银行", True),
+        ]
+        rows = [{
+            **template, "symbol": symbol, "instrument_id": f"sh:stock:{symbol}",
+            "trade_date": day, "name": f"样本{symbol}", "industry": industry,
+            "turnover_pct": 2 if symbol == "600002" else 8,
+            "raw": {**template["raw"], "limit_rule_basis":
+                    "unverified_5pct_candidate" if candidate else "board_price_band"},
+        } for symbol, day, industry, candidate in observations]
+        run = self.repository.begin_limit_up_history_sync(date(2025, 1, 1), self.day)
+        covered = [date(2025, 1, 2), date(2025, 1, 3), date(2025, 2, 5), date(2025, 3, 3), self.day]
+        self.repository.complete_limit_up_history_sync(
+            run, rows, universe_count=4, history_count=4, missing_symbols=[],
+            successful_symbols=["600001", "600002", "600003", "600004"],
+            effective_end=self.day,
+            coverage=[{"trade_date": day, "bar_count": 4,
+                       "row_count": sum(row["trade_date"] == day for row in rows)} for day in covered],
+        )
+
+    def test_statistics_count_full_set_with_unique_stocks_and_coverage_gaps(self):
+        self.seed_statistics()
+        result = self.read(include_statistics=True, limit=1, offset=4, stock_limit=1, stock_offset=1)
+        self.assertEqual(result["total"], 5)
+        self.assertEqual(len(result["items"]), 1)
+        monthly = result["monthly_counts"]
+        self.assertEqual([item["month"] for item in monthly],
+                         ["2025-01", "2025-02", "2025-03", "2025-04", "2025-05"])
+        self.assertEqual([item["limit_up_count"] for item in monthly], [3, 0, 2, None, 0])
+        self.assertEqual([item["stock_count"] for item in monthly], [2, 0, 2, None, 0])
+        ranking = result["stock_counts"]
+        self.assertEqual(ranking["total"], 3)
+        self.assertEqual(ranking["items"][0]["symbol"], "600002")
+        self.assertEqual(ranking["items"][0]["limit_up_count"], 1)
+        first = self.read(include_statistics=True)["stock_counts"]["items"][0]
+        self.assertEqual((first["symbol"], first["limit_up_count"]), ("600001", 3))
+        self.assertEqual((first["first_date"], first["last_date"]), ("2025-01-02", "2025-03-03"))
+
+    def test_statistics_share_filters_and_candidate_exclusion(self):
+        self.seed_statistics()
+        result = self.read(include_statistics=True, industry="银行", minimums={"turnover_pct": 5})
+        self.assertEqual(result["total"], 3)
+        self.assertEqual(result["stock_counts"]["total"], 1)
+        self.assertEqual([m["limit_up_count"] for m in result["monthly_counts"]], [2, 0, 1, None, 0])
+        candidates = self.read(include_statistics=True, include_unverified=True)
+        self.assertEqual(candidates["total"], 6)
+        self.assertEqual(candidates["monthly_counts"][2]["limit_up_count"], 3)
+        selected = self.read(include_statistics=True, query="600002")
+        self.assertEqual(selected["stock_counts"]["items"][0]["limit_up_count"], 1)
+        empty = self.read(include_statistics=True, query="not-a-stock")
+        self.assertEqual(empty["stock_counts"]["items"], [])
+        self.assertEqual([m["limit_up_count"] for m in empty["monthly_counts"]], [0, 0, 0, None, 0])
+        self.assertNotIn("monthly_counts", self.read())
+
+    def test_statistics_date_range_clips_months_and_marks_partial_coverage(self):
+        self.seed_statistics()
+        result = self.repository.list_limit_up_history(
+            start_date=date(2025, 1, 3), end_date=date(2025, 1, 31), include_statistics=True,
+        )
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(len(result["monthly_counts"]), 1)
+        self.assertEqual(result["monthly_counts"][0]["covered_sessions"], 1)
+        self.assertEqual(result["monthly_counts"][0]["first_date"], "2025-01-03")
+        with self.repository.connection_factory() as connection:
+            connection.execute("UPDATE banxia.limit_up_history_coverage SET status='partial' WHERE trade_date='2025-03-03'")
+        result = self.read(include_statistics=True)
+        self.assertEqual(result["monthly_counts"][2]["partial_sessions"], 1)
+        outside = self.repository.list_limit_up_history(
+            start_date=date(2026, 1, 1), end_date=date(2026, 2, 1), include_statistics=True,
+        )
+        self.assertEqual(outside["monthly_counts"], [])

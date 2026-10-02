@@ -148,6 +148,180 @@
   padding-top: 25px;
 }
 
+.limit-up-analytics {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(370px, 1fr);
+  gap: 28px;
+  padding: 28px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.limit-up-analytics > section {
+  min-width: 0;
+}
+
+.analytics-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.analytics-heading h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.analytics-heading p,
+.monthly-detail {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.chart-modes {
+  display: flex;
+  gap: 4px;
+}
+
+.limit-up-main .chart-modes button.ui-button {
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.limit-up-main .chart-modes button.ui-button[aria-pressed="true"] {
+  background: var(--green-soft);
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.monthly-insight {
+  min-height: 30px;
+  margin: 24px 0 12px;
+  font: 600 14px/1.7 var(--mono);
+}
+
+.monthly-chart-wrap {
+  overflow-x: auto;
+}
+
+#monthly-chart {
+  display: block;
+  width: 100%;
+  min-width: 620px;
+  overflow: visible;
+}
+
+#monthly-chart text {
+  fill: var(--muted);
+  font: 11px var(--mono);
+}
+
+.chart-grid {
+  stroke: var(--line);
+  stroke-dasharray: 3 5;
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.chart-area {
+  fill: var(--green-soft);
+}
+
+.chart-point {
+  fill: var(--white);
+  stroke: var(--green);
+  stroke-width: 2;
+}
+
+.chart-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.chart-datum:focus {
+  outline: none;
+}
+
+.chart-datum:hover .chart-point,
+.chart-datum:focus .chart-point {
+  fill: var(--green);
+  stroke-width: 4;
+}
+
+.monthly-detail {
+  min-height: 42px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.stock-count-table-wrap {
+  margin-top: 16px;
+  overflow-x: auto;
+}
+
+.stock-count-table {
+  width: 100%;
+  min-width: 350px;
+}
+
+.stock-count-table th,
+.stock-count-table td {
+  padding: 7px 8px;
+  white-space: nowrap;
+}
+
+.stock-count-table td:first-child {
+  width: 30px;
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+
+.limit-up-main .stock-count-table button.stock-count-name {
+  display: block;
+  min-height: 22px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.limit-up-main .stock-count-table button.stock-count-name:hover {
+  color: var(--green);
+  background: transparent;
+  border: 0;
+  text-decoration: underline;
+}
+
+.stock-count-meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.stock-count-value {
+  color: var(--green);
+  font: 700 15px var(--mono);
+}
+
+.limit-up-analytics[aria-busy="true"] {
+  opacity: 0.55;
+}
+
 .limit-up-table-wrap {
   width: 100%;
   margin-top: 13px;
@@ -283,6 +457,10 @@
   }
 
   .limit-up-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .limit-up-analytics {
     grid-template-columns: 1fr;
   }
 }

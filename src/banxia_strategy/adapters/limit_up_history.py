@@ -237,6 +237,9 @@ class LimitUpHistoryMixin:
         direction: str = "desc",
         limit: int = 100,
         offset: int = 0,
+        include_statistics: bool = False,
+        stock_limit: int = 10,
+        stock_offset: int = 0,
     ) -> dict[str, Any]:
         if sort_by not in LIMIT_UP_SORT_COLUMNS:
             raise ValueError("涨停历史排序字段无效")
@@ -323,13 +326,94 @@ class LimitUpHistoryMixin:
                     (*parameters, limit, offset),
                 )
                 rows = cursor.fetchall()
+                statistics = self._limit_up_statistics(
+                    cursor, where, parameters, start_date, end_date,
+                    stock_limit, stock_offset, int(summary[2]),
+                ) if include_statistics else {}
         return {
+            **statistics,
             "total": int(summary[0]),
             "trading_days": int(summary[1]),
             "stock_count": int(summary[2]),
             "first_date": summary[3].isoformat() if summary[3] else None,
             "last_date": summary[4].isoformat() if summary[4] else None,
             "items": [self._limit_up_mapping(row) for row in rows],
+        }
+
+    @staticmethod
+    def _limit_up_statistics(cursor, where, parameters, start_date, end_date,
+                             stock_limit, stock_offset, stock_count) -> dict[str, Any]:
+        # Aggregate the full filtered set, never the current detail page.
+        cursor.execute(
+            f"""
+            WITH facts AS (
+                SELECT date_trunc('month', history.trade_date)::date AS month,
+                       COUNT(*) AS limit_up_count,
+                       COUNT(DISTINCT history.instrument_id) AS stock_count
+                FROM banxia.limit_up_history history WHERE {where}
+                GROUP BY 1
+            ), coverage AS (
+                SELECT date_trunc('month', trade_date)::date AS month,
+                       COUNT(*) AS covered_sessions,
+                       COUNT(*) FILTER (WHERE status = 'partial') AS partial_sessions,
+                       MIN(trade_date) AS first_date, MAX(trade_date) AS last_date
+                FROM banxia.limit_up_history_coverage
+                WHERE trade_date BETWEEN %s AND %s GROUP BY 1
+            )
+            SELECT COALESCE(facts.month, coverage.month) AS month,
+                   COALESCE(facts.limit_up_count, 0), COALESCE(facts.stock_count, 0),
+                   COALESCE(coverage.covered_sessions, 0),
+                   COALESCE(coverage.partial_sessions, 0),
+                   coverage.first_date, coverage.last_date
+            FROM facts FULL OUTER JOIN coverage USING (month) ORDER BY 1
+            """,
+            (*parameters, start_date, end_date),
+        )
+        observations = {
+            row[0]: {
+                "month": row[0].strftime("%Y-%m"),
+                "limit_up_count": int(row[1]), "stock_count": int(row[2]),
+                "covered_sessions": int(row[3]), "partial_sessions": int(row[4]),
+                "first_date": row[5].isoformat() if row[5] else None,
+                "last_date": row[6].isoformat() if row[6] else None,
+            }
+            for row in cursor.fetchall()
+        }
+        monthly = []
+        if observations:
+            month, last = min(observations), max(observations)
+            while month <= last:
+                monthly.append(observations.get(month, {
+                    "month": month.strftime("%Y-%m"),
+                    "limit_up_count": None, "stock_count": None,
+                    "covered_sessions": 0, "partial_sessions": 0,
+                    "first_date": None, "last_date": None,
+                }))
+                month = date(month.year + (month.month == 12), month.month % 12 + 1, 1)
+        cursor.execute(
+            f"""
+            SELECT history.instrument_id, history.symbol,
+                   (array_agg(history.name ORDER BY history.trade_date DESC))[1],
+                   (array_agg(history.industry ORDER BY history.trade_date DESC))[1],
+                   COUNT(*) AS limit_up_count, MIN(history.trade_date), MAX(history.trade_date)
+            FROM banxia.limit_up_history history WHERE {where}
+            GROUP BY history.instrument_id, history.symbol
+            ORDER BY limit_up_count DESC, history.symbol ASC
+            LIMIT %s OFFSET %s
+            """,
+            (*parameters, stock_limit, stock_offset),
+        )
+        stocks = [{
+            "instrument_id": row[0], "symbol": row[1], "name": row[2], "industry": row[3],
+            "limit_up_count": int(row[4]),
+            "first_date": row[5].isoformat(), "last_date": row[6].isoformat(),
+        } for row in cursor.fetchall()]
+        return {
+            "monthly_counts": monthly,
+            "stock_counts": {
+                "items": stocks, "total": stock_count,
+                "limit": stock_limit, "offset": stock_offset,
+            },
         }
 
     def limit_up_history_options(self) -> dict[str, Any]:

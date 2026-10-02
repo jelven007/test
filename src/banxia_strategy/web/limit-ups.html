@@ -8,9 +8,9 @@
     <title>涨停档案 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260926.1">
     <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
-    <link rel="stylesheet" href="/limit-ups.css?v=20261001.1">
+    <link rel="stylesheet" href="/limit-ups.css?v=20261002.2">
     <script src="/auth.js?v=20260927.1" defer></script>
-    <script src="/limit-ups.js?v=20261001.1" defer></script>
+    <script src="/limit-ups.js?v=20261002.2" defer></script>
   </head>
   <body class="limit-up-body">
     <header class="topbar limit-up-topbar">
@@ -131,6 +131,45 @@
           <div><dt>结果区间</dt><dd id="summary-range">—</dd></div>
         </dl>
         <p>市值与换手率优先按历史股本变动计算，缺少记录时标注估算。名称和行业采用当前证券资料；5 日涨幅为本日收盘相对前第 5 个交易日收盘的不复权涨幅。范围为当前可获取的沪深 A 股，可能缺少已退市股票；新股前 5 个交易日不计入。</p>
+      </section>
+
+      <section class="limit-up-analytics" aria-label="涨停统计" aria-busy="true">
+        <section class="monthly-trend" aria-labelledby="monthly-title">
+          <div class="analytics-heading">
+            <div>
+              <h2 id="monthly-title">月度涨停趋势</h2>
+              <p>按当前筛选统计；同一股票不同日期涨停分别计次。</p>
+            </div>
+            <div class="chart-modes" role="group" aria-label="月度统计口径">
+              <button class="ui-button" type="button" data-monthly-metric="limit_up_count" aria-pressed="true">涨停次数</button>
+              <button class="ui-button" type="button" data-monthly-metric="stock_count" aria-pressed="false">去重股票数</button>
+            </div>
+          </div>
+          <p id="monthly-insight" class="monthly-insight">正在读取月度统计…</p>
+          <div class="monthly-chart-wrap" tabindex="0" role="region" aria-label="月度涨停曲线，可横向滚动">
+            <svg id="monthly-chart" viewBox="0 0 760 280" role="group" aria-label="月度涨停曲线"></svg>
+          </div>
+          <p id="monthly-detail" class="monthly-detail" aria-live="polite">悬停或聚焦数据点查看当月统计。</p>
+        </section>
+        <section class="stock-frequency" aria-labelledby="stock-count-title">
+          <div class="analytics-heading">
+            <div>
+              <h2 id="stock-count-title">个股涨停次数</h2>
+              <p id="stock-count-summary">按次数降序；点击股票查看月度分布及明细。</p>
+            </div>
+          </div>
+          <div class="stock-count-table-wrap" tabindex="0" role="region" aria-label="个股涨停次数排行">
+            <table class="data-table stock-count-table">
+              <thead><tr><th>排名</th><th>股票 / 行业</th><th class="numeric-cell">涨停次数</th><th>最近涨停</th></tr></thead>
+              <tbody id="stock-count-rows"></tbody>
+            </table>
+          </div>
+          <footer class="limit-up-pagination">
+            <button id="stock-previous-page" class="ui-button" type="button" disabled>上一页</button>
+            <span id="stock-page-label">第 1 页</span>
+            <button id="stock-next-page" class="ui-button" type="button" disabled>下一页</button>
+          </footer>
+        </section>
       </section>
 
       <section class="limit-up-ledger" aria-labelledby="limit-up-ledger-title">
