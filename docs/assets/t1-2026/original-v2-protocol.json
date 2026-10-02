@@ -1,0 +1,72 @@
+{
+  "version": 2,
+  "frozen_at": "2026-10-02",
+  "pre_outcome_source_amendment": "Transaction probe before any return replay showed the first sample volume includes the opening auction. Exclude index 0 from target exit fills; use minute-end labels throughout.",
+  "scope": "Current mootdx Shanghai/Shenzhen A-share universe; exclude unverified 5pct candidates",
+  "start": "2026-01-01",
+  "latest_complete_session": "2026-09-30",
+  "calendar": "PostgreSQL mootdx observed market sessions; D2/D3 never skip stock suspensions",
+  "primary_strategy_universe": {"board": "main", "consecutive_limit_days": 1, "minimum_d1_amount_cny": 200000000},
+  "execution": {
+    "minute_clock": "240 samples mapped to bucket ends 09:31..11:30,13:01..15:00; price samples, not OHLC. Index 1 is the 09:31 transaction bucket ending 09:32. Index 0 volume includes opening auction.",
+    "position_cny": 10000,
+    "lot_shares": 100,
+    "commission_rate_each_side": 0.0003,
+    "minimum_commission_each_side_cny": 5,
+    "transfer_fee_each_side": 0.00001,
+    "sell_stamp_tax": 0.0005,
+    "slippage_each_side": 0.001,
+    "maximum_participation_in_observed_minute_volume": 0.01,
+    "buy_deadline_exclusive": "10:00",
+    "buy_limit_vs_d1_close": 1.09,
+    "cancel_buy_if_observed_price_below_d1_close": true,
+    "signal_order": "Observe sample t; fill no earlier than sample t+1. Cancel on any observed breach before fill; no fill at upper limit or insufficient volume. First fill only per entry rule.",
+    "entry_modes": {
+      "early": "Signal after 09:31 sample",
+      "breakout": "Signal from 09:32 when price exceeds both opening and 09:31 price by at least one tick",
+      "reclaim": "After a sampled dip below opening, signal on subsequent reclaim of opening by one tick"
+    },
+    "exits": {
+      "open_benchmark": "D3 daily open, cost/slippage deducted; reference only, no auction fill assurance",
+      "early": "Observe 09:31, submit sell; first eligible sample from 09:32 through 14:57 above lower limit, with sufficient volume",
+      "target": "Before D3 continuous trading, submit limit sell at smallest cent price yielding at least 5.1% net after model costs; require sample at least one cent above slippage-adjusted target and sufficient volume. Only samples ending 09:32 onward qualify; exclude index 0 auction-mixed volume. If not filled through 14:54, submit marketable sell at 14:55 and use first eligible 14:56..14:57 sample. Unfilled D3 counted as target failure."
+    },
+    "target_net_pct": 5.1,
+    "success_strict_net_pct": 5,
+    "daily_high": "Hindsight upper boundary only; never used to determine executable success",
+    "unknown_data": "Report separately; include unknown D3 outcomes in conservative denominator after a valid buy",
+    "corporate_actions": "Any D2/D3 price/share-changing action: return unscorable without entitlement accounting; never discard from conservative buy denominator",
+    "capacity": "Independent 10000 CNY hypothetical orders; not a funded portfolio or personal queue proof"
+  },
+  "grid": {
+    "entry": ["early", "breakout", "reclaim"],
+    "exit": ["early", "target"],
+    "d2_open_gap_pct": [[0, 3], [0, 5], [1, 5], [3, 5]],
+    "d1_turnover_pct": [[0, 100], [3, 15], [5, 25]],
+    "d1_float_cap_cny": [[0, 100000000000], [2000000000, 20000000000], [2000000000, 10000000000]],
+    "d1_min_amplitude_pct": [0, 5],
+    "d1_max_return_5d_pct": [20, 35, null]
+  },
+  "selection": {
+    "train": ["2026-01-01", "2026-06-30"],
+    "validation": ["2026-07-01", "2026-08-31"],
+    "holdout": ["2026-09-01", "2026-09-30"],
+    "split_by": "D2 entry date; purge events whose D3 crosses a split boundary",
+    "minimum_train_buys": 100,
+    "minimum_validation_buys": 30,
+    "shortlist": "Top 10 training rules by Wilson 95% lower bound, then mean known return, then rule id",
+    "final_choice": "Among training shortlist passing validation sample minimum, highest validation Wilson lower bound, then training Wilson lower bound, then rule id; freeze before holdout evaluation",
+    "no_eligible_rule": "Report no qualified rule; show best training rule only as exploratory",
+    "inference": "Wilson intervals plus entry-date cluster bootstrap, fixed seed 20261002, 2000 resamples; descriptive, not multiple-testing-adjusted proof",
+    "previous_research_overlap": "This project previously inspected part of 2026; September is only a holdout from this run, not a pristine future test",
+    "deployment": "Research only, no auto orders, no strategy activation"
+  },
+  "known_limitations": [
+    "No historical order book or queue IDs; executable-price/volume proxy cannot establish individual order success",
+    "Historical names/ST changes unavailable; current universe creates survivorship bias",
+    "Industry uses current classification, not historical theme membership or point-in-time news",
+    "Market caps/turnover can depend on estimated share counts; 5d return is unadjusted",
+    "Daily capital and minute units must be cross-checked; failures are flagged rather than filled",
+    "No promise of future 80% probability; retrospective winners are not prospective selectors"
+  ]
+}

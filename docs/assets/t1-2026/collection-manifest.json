@@ -1,0 +1,14 @@
+{
+  "extracted_at": "2026-10-02T10:34:22.785938+08:00",
+  "snapshot_sha256": "159703a2b10a6c4ef1ef7ca509bf5222b7075d3bb3cbdd2065c2eb3df242fbd7",
+  "protocol_sha256": "36192f02541cd9c78fd17a3a6fc7af77b05f2d0de9208d6c278f2c1807f28cf6",
+  "events": 13234,
+  "completed_events": 13122,
+  "calendar_end": "2026-09-30",
+  "symbols": 3244,
+  "counts": {
+    "cached": 23841,
+    "symbols": 3244,
+    "no_daily_session": 76
+  }
+}

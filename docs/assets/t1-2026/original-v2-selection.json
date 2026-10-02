@@ -1,0 +1,572 @@
+{
+  "frozen_at": "2026-10-02T02:45:32.264152+00:00",
+  "protocol_sha256": "4384268c1ccbc28749f021280c628ce78a1bb304204fea4ddd6124420d9ad613",
+  "replay_sha256": "9dc064a70a9d108c003075f4dcad01cbeee102e92236b57b7bc4dce2dfbff7bc",
+  "rules_tested": 1296,
+  "eligible_train_rules": 1212,
+  "qualified_validation_rules": 10,
+  "status": "selected",
+  "selection": {
+    "rule": {
+      "id": "R0381",
+      "entry": "early",
+      "exit": "target",
+      "d2_open_gap_pct": [
+        3,
+        5
+      ],
+      "d1_turnover_pct": [
+        0,
+        100
+      ],
+      "d1_float_cap_cny": [
+        0,
+        100000000000
+      ],
+      "d1_min_amplitude_pct": 0,
+      "d1_max_return_5d_pct": null
+    },
+    "train": {
+      "signals_in_filtered_universe": 604,
+      "buys": 501,
+      "known_exits": 472,
+      "unknown_or_unfilled_exits": 29,
+      "successes": 179,
+      "success_rate": 0.35728542914171657,
+      "wilson_lower": 0.3165562132746256,
+      "wilson_upper": 0.40018654328493486,
+      "mean_known_return_pct": -0.50508779392329,
+      "median_known_return_pct": -0.40348841938283586,
+      "worst_known_return_pct": -22.257589509607676,
+      "positive_rate_known": 0.4745762711864407,
+      "entry_dates": 106
+    },
+    "validation": {
+      "signals_in_filtered_universe": 187,
+      "buys": 148,
+      "known_exits": 138,
+      "unknown_or_unfilled_exits": 10,
+      "successes": 55,
+      "success_rate": 0.3716216216216216,
+      "wilson_lower": 0.29793848274695317,
+      "wilson_upper": 0.45180048647045085,
+      "mean_known_return_pct": -0.03303926104573883,
+      "median_known_return_pct": 0.6925069034302234,
+      "worst_known_return_pct": -17.551064195949373,
+      "positive_rate_known": 0.5362318840579711,
+      "entry_dates": 39
+    }
+  },
+  "shortlist": [
+    {
+      "rule": {
+        "id": "R0384",
+        "entry": "early",
+        "exit": "target",
+        "d2_open_gap_pct": [
+          3,
+          5
+        ],
+        "d1_turnover_pct": [
+          0,
+          100
+        ],
+        "d1_float_cap_cny": [
+          0,
+          100000000000
+        ],
+        "d1_min_amplitude_pct": 5,
+        "d1_max_return_5d_pct": null
+      },
+      "train": {
+        "signals_in_filtered_universe": 560,
+        "buys": 465,
+        "known_exits": 437,
+        "unknown_or_unfilled_exits": 28,
+        "successes": 168,
+        "success_rate": 0.36129032258064514,
+        "wilson_lower": 0.3189294424795789,
+        "wilson_upper": 0.40592424190984855,
+        "mean_known_return_pct": -0.49830435568580267,
+        "median_known_return_pct": -0.39611267613647305,
+        "worst_known_return_pct": -22.257589509607676,
+        "positive_rate_known": 0.4759725400457666,
+        "entry_dates": 104
+      },
+      "validation": {
+        "signals_in_filtered_universe": 179,
+        "buys": 142,
+        "known_exits": 132,
+        "unknown_or_unfilled_exits": 10,
+        "successes": 51,
+        "success_rate": 0.3591549295774648,
+        "wilson_lower": 0.2849145468243873,
+        "wilson_upper": 0.4408150205877277,
+        "mean_known_return_pct": -0.1547660367708567,
+        "median_known_return_pct": 0.6128884127163836,
+        "worst_known_return_pct": -17.551064195949373,
+        "positive_rate_known": 0.5303030303030303,
+        "entry_dates": 39
+      }
+    },
+    {
+      "rule": {
+        "id": "R0383",
+        "entry": "early",
+        "exit": "target",
+        "d2_open_gap_pct": [
+          3,
+          5
+        ],
+        "d1_turnover_pct": [
+          0,
+          100
+        ],
+        "d1_float_cap_cny": [
+          0,
+          100000000000
+        ],
+        "d1_min_amplitude_pct": 5,
+        "d1_max_return_5d_pct": 35
+      },
+      "train": {
+        "signals_in_filtered_universe": 541,
+        "buys": 451,
+        "known_exits": 425,
+        "unknown_or_unfilled_exits": 26,
+        "successes": 163,
+        "success_rate": 0.3614190687361419,
+        "wilson_lower": 0.31842388398690424,
+        "wilson_upper": 0.4067550820552458,
+        "mean_known_return_pct": -0.510191279910859,
+        "median_known_return_pct": -0.39611267613647305,
+        "worst_known_return_pct": -22.257589509607676,
+        "positive_rate_known": 0.4776470588235294,
+        "entry_dates": 101
+      },
+      "validation": {
+        "signals_in_filtered_universe": 175,
+        "buys": 140,
+        "known_exits": 130,
+        "unknown_or_unfilled_exits": 10,
+        "successes": 50,
+        "success_rate": 0.35714285714285715,
+        "wilson_lower": 0.2825610827114282,
+        "wilson_upper": 0.4393549745369755,
+        "mean_known_return_pct": -0.1676026575453852,
+        "median_known_return_pct": 0.6128884127163836,
+        "worst_known_return_pct": -17.551064195949373,
+        "positive_rate_known": 0.5307692307692308,
+        "entry_dates": 39
+      }
+    },
+    {
+      "rule": {
+        "id": "R0380",
+        "entry": "early",
+        "exit": "target",
+        "d2_open_gap_pct": [
+          3,
+          5
+        ],
+        "d1_turnover_pct": [
+          0,
+          100
+        ],
+        "d1_float_cap_cny": [
+          0,
+          100000000000
+        ],
+        "d1_min_amplitude_pct": 0,
+        "d1_max_return_5d_pct": 35
+      },
+      "train": {
+        "signals_in_filtered_universe": 583,
+        "buys": 485,
+        "known_exits": 458,
+        "unknown_or_unfilled_exits": 27,
+        "successes": 174,
+        "success_rate": 0.35876288659793815,
+        "wilson_lower": 0.31733986187475266,
+        "wilson_upper": 0.4024056762174833,
+        "mean_known_return_pct": -0.5089274241975124,
+        "median_known_return_pct": -0.40348841938283586,
+        "worst_known_return_pct": -22.257589509607676,
+        "positive_rate_known": 0.4759825327510917,
+        "entry_dates": 103
+      },
+      "validation": {
+        "signals_in_filtered_universe": 183,
+        "buys": 146,
+        "known_exits": 136,
+        "unknown_or_unfilled_exits": 10,
+        "successes": 54,
+        "success_rate": 0.3698630136986301,
+        "wilson_lower": 0.2958290304162287,
+        "wilson_upper": 0.45056959450991935,
+        "mean_known_return_pct": -0.04351946067249228,
+        "median_known_return_pct": 0.6925069034302234,
+        "worst_known_return_pct": -17.551064195949373,
+        "positive_rate_known": 0.5367647058823529,
+        "entry_dates": 39
+      }
+    },
+    {
+      "rule": {
+        "id": "R0768",
+        "entry": "breakout",
+        "exit": "target",
+        "d2_open_gap_pct": [
+          1,
+          5
+        ],
+        "d1_turnover_pct": [
+          0,
+          100
+        ],
+        "d1_float_cap_cny": [
+          2000000000,
+          20000000000
+        ],
+        "d1_min_amplitude_pct": 5,
+        "d1_max_return_5d_pct": null
+      },
+      "train": {
+        "signals_in_filtered_universe": 1139,
+        "buys": 560,
+        "known_exits": 532,
+        "unknown_or_unfilled_exits": 28,
+        "successes": 199,
+        "success_rate": 0.35535714285714287,
+        "wilson_lower": 0.3168244311713718,
+        "wilson_upper": 0.39586076168615225,
+        "mean_known_return_pct": -0.22578020298576817,
+        "median_known_return_pct": 0.24888198783745707,
+        "worst_known_return_pct": -19.820430313839676,
+        "positive_rate_known": 0.5075187969924813,
+        "entry_dates": 108
+      },
+      "validation": {
+        "signals_in_filtered_universe": 347,
+        "buys": 193,
+        "known_exits": 181,
+        "unknown_or_unfilled_exits": 12,
+        "successes": 66,
+        "success_rate": 0.34196891191709844,
+        "wilson_lower": 0.27871286643410725,
+        "wilson_upper": 0.41139306772498757,
+        "mean_known_return_pct": -0.22891853744454813,
+        "median_known_return_pct": -0.06501727931282897,
+        "worst_known_return_pct": -14.577267930006144,
+        "positive_rate_known": 0.4972375690607735,
+        "entry_dates": 41
+      }
+    },
+    {
+      "rule": {
+        "id": "R0381",
+        "entry": "early",
+        "exit": "target",
+        "d2_open_gap_pct": [
+          3,
+          5
+        ],
+        "d1_turnover_pct": [
+          0,
+          100
+        ],
+        "d1_float_cap_cny": [
+          0,
+          100000000000
+        ],
+        "d1_min_amplitude_pct": 0,
+        "d1_max_return_5d_pct": null
+      },
+      "train": {
+        "signals_in_filtered_universe": 604,
+        "buys": 501,
+        "known_exits": 472,
+        "unknown_or_unfilled_exits": 29,
+        "successes": 179,
+        "success_rate": 0.35728542914171657,
+        "wilson_lower": 0.3165562132746256,
+        "wilson_upper": 0.40018654328493486,
+        "mean_known_return_pct": -0.50508779392329,
+        "median_known_return_pct": -0.40348841938283586,
+        "worst_known_return_pct": -22.257589509607676,
+        "positive_rate_known": 0.4745762711864407,
+        "entry_dates": 106
+      },
+      "validation": {
+        "signals_in_filtered_universe": 187,
+        "buys": 148,
+        "known_exits": 138,
+        "unknown_or_unfilled_exits": 10,
+        "successes": 55,
+        "success_rate": 0.3716216216216216,
+        "wilson_lower": 0.29793848274695317,
+        "wilson_upper": 0.45180048647045085,
+        "mean_known_return_pct": -0.03303926104573883,
+        "median_known_return_pct": 0.6925069034302234,
+        "worst_known_return_pct": -17.551064195949373,
+        "positive_rate_known": 0.5362318840579711,
+        "entry_dates": 39
+      }
+    },
+    {
+      "rule": {
+        "id": "R0767",
+        "entry": "breakout",
+        "exit": "target",
+        "d2_open_gap_pct": [
+          1,
+          5
+        ],
+        "d1_turnover_pct": [
+          0,
+          100
+        ],
+        "d1_float_cap_cny": [
+          2000000000,
+          20000000000
+        ],
+        "d1_min_amplitude_pct": 5,
+        "d1_max_return_5d_pct": 35
+      },
+      "train": {
+        "signals_in_filtered_universe": 1120,
+        "buys": 551,
+        "known_exits": 525,
+        "unknown_or_unfilled_exits": 26,
+        "successes": 194,
+        "success_rate": 0.35208711433756806,
+        "wilson_lower": 0.31335624837085135,
+        "wilson_upper": 0.39286613748608573,
+        "mean_known_return_pct": -0.24670881917587215,
+        "median_known_return_pct": 0.16574675156488805,
+        "worst_known_return_pct": -19.820430313839676,
+        "positive_rate_known": 0.5047619047619047,
+        "entry_dates": 108
+      },
+      "validation": {
+        "signals_in_filtered_universe": 344,
+        "buys": 191,
+        "known_exits": 179,
+        "unknown_or_unfilled_exits": 12,
+        "successes": 65,
+        "success_rate": 0.3403141361256545,
+        "wilson_lower": 0.27685825724718627,
+        "wilson_upper": 0.4100666899934511,
+        "mean_known_return_pct": -0.2446085414429447,
+        "median_known_return_pct": -0.06501727931282897,
+        "worst_known_return_pct": -14.577267930006144,
+        "positive_rate_known": 0.4972067039106145,
+        "entry_dates": 41
+      }
+    },
+    {
+      "rule": {
+        "id": "R0822",
+        "entry": "breakout",
+        "exit": "target",
+        "d2_open_gap_pct": [
+          3,
+          5
+        ],
+        "d1_turnover_pct": [
+          0,
+          100
+        ],
+        "d1_float_cap_cny": [
+          2000000000,
+          20000000000
+        ],
+        "d1_min_amplitude_pct": 5,
+        "d1_max_return_5d_pct": null
+      },
+      "train": {
+        "signals_in_filtered_universe": 370,
+        "buys": 193,
+        "known_exits": 180,
+        "unknown_or_unfilled_exits": 13,
+        "successes": 73,
+        "success_rate": 0.37823834196891193,
+        "wilson_lower": 0.31282678114299,
+        "wilson_upper": 0.44840238124188636,
+        "mean_known_return_pct": -0.13813828168260261,
+        "median_known_return_pct": 0.964060082481899,
+        "worst_known_return_pct": -17.117948239028014,
+        "positive_rate_known": 0.5444444444444444,
+        "entry_dates": 76
+      },
+      "validation": {
+        "signals_in_filtered_universe": 124,
+        "buys": 67,
+        "known_exits": 63,
+        "unknown_or_unfilled_exits": 4,
+        "successes": 24,
+        "success_rate": 0.3582089552238806,
+        "wilson_lower": 0.2539805707639161,
+        "wilson_upper": 0.4778149016007813,
+        "mean_known_return_pct": -0.5025997607898793,
+        "median_known_return_pct": -0.06501727931282897,
+        "worst_known_return_pct": -14.577267930006144,
+        "positive_rate_known": 0.49206349206349204,
+        "entry_dates": 32
+      }
+    },
+    {
+      "rule": {
+        "id": "R0762",
+        "entry": "breakout",
+        "exit": "target",
+        "d2_open_gap_pct": [
+          1,
+          5
+        ],
+        "d1_turnover_pct": [
+          0,
+          100
+        ],
+        "d1_float_cap_cny": [
+          0,
+          100000000000
+        ],
+        "d1_min_amplitude_pct": 5,
+        "d1_max_return_5d_pct": null
+      },
+      "train": {
+        "signals_in_filtered_universe": 1641,
+        "buys": 797,
+        "known_exits": 757,
+        "unknown_or_unfilled_exits": 40,
+        "successes": 274,
+        "success_rate": 0.3437892095357591,
+        "wilson_lower": 0.311634020945814,
+        "wilson_upper": 0.37744301514236084,
+        "mean_known_return_pct": -0.30055988925341565,
+        "median_known_return_pct": 0.18411511209230902,
+        "worst_known_return_pct": -19.820430313839676,
+        "positive_rate_known": 0.5112285336856011,
+        "entry_dates": 109
+      },
+      "validation": {
+        "signals_in_filtered_universe": 485,
+        "buys": 267,
+        "known_exits": 249,
+        "unknown_or_unfilled_exits": 18,
+        "successes": 80,
+        "success_rate": 0.299625468164794,
+        "wilson_lower": 0.2478371727633107,
+        "wilson_upper": 0.3570977568227928,
+        "mean_known_return_pct": -0.7706801612363965,
+        "median_known_return_pct": -0.48961712243410505,
+        "worst_known_return_pct": -18.035211861355993,
+        "positive_rate_known": 0.46586345381526106,
+        "entry_dates": 42
+      }
+    },
+    {
+      "rule": {
+        "id": "R0761",
+        "entry": "breakout",
+        "exit": "target",
+        "d2_open_gap_pct": [
+          1,
+          5
+        ],
+        "d1_turnover_pct": [
+          0,
+          100
+        ],
+        "d1_float_cap_cny": [
+          0,
+          100000000000
+        ],
+        "d1_min_amplitude_pct": 5,
+        "d1_max_return_5d_pct": 35
+      },
+      "train": {
+        "signals_in_filtered_universe": 1608,
+        "buys": 782,
+        "known_exits": 745,
+        "unknown_or_unfilled_exits": 37,
+        "successes": 268,
+        "success_rate": 0.34271099744245526,
+        "wilson_lower": 0.31028742424781564,
+        "wilson_upper": 0.3766723343157371,
+        "mean_known_return_pct": -0.31454725207910966,
+        "median_known_return_pct": 0.17491826410520606,
+        "worst_known_return_pct": -19.820430313839676,
+        "positive_rate_known": 0.5100671140939598,
+        "entry_dates": 109
+      },
+      "validation": {
+        "signals_in_filtered_universe": 481,
+        "buys": 265,
+        "known_exits": 247,
+        "unknown_or_unfilled_exits": 18,
+        "successes": 79,
+        "success_rate": 0.2981132075471698,
+        "wilson_lower": 0.2462424653061227,
+        "wilson_upper": 0.3557534453344141,
+        "mean_known_return_pct": -0.7864373837598648,
+        "median_known_return_pct": -0.48961712243410505,
+        "worst_known_return_pct": -18.035211861355993,
+        "positive_rate_known": 0.46558704453441296,
+        "entry_dates": 42
+      }
+    },
+    {
+      "rule": {
+        "id": "R0821",
+        "entry": "breakout",
+        "exit": "target",
+        "d2_open_gap_pct": [
+          3,
+          5
+        ],
+        "d1_turnover_pct": [
+          0,
+          100
+        ],
+        "d1_float_cap_cny": [
+          2000000000,
+          20000000000
+        ],
+        "d1_min_amplitude_pct": 5,
+        "d1_max_return_5d_pct": 35
+      },
+      "train": {
+        "signals_in_filtered_universe": 362,
+        "buys": 189,
+        "known_exits": 177,
+        "unknown_or_unfilled_exits": 12,
+        "successes": 71,
+        "success_rate": 0.37566137566137564,
+        "wilson_lower": 0.3097405838693104,
+        "wilson_upper": 0.44653589170070146,
+        "mean_known_return_pct": -0.1643060304327784,
+        "median_known_return_pct": 0.9116314250378288,
+        "worst_known_return_pct": -17.117948239028014,
+        "positive_rate_known": 0.5423728813559322,
+        "entry_dates": 75
+      },
+      "validation": {
+        "signals_in_filtered_universe": 121,
+        "buys": 65,
+        "known_exits": 61,
+        "unknown_or_unfilled_exits": 4,
+        "successes": 23,
+        "success_rate": 0.35384615384615387,
+        "wilson_lower": 0.24875458464285766,
+        "wilson_upper": 0.47524893989766986,
+        "mean_known_return_pct": -0.5576140749276439,
+        "median_known_return_pct": -0.06501727931282897,
+        "worst_known_return_pct": -14.577267930006144,
+        "positive_rate_known": 0.4918032786885246,
+        "entry_dates": 31
+      }
+    }
+  ]
+}
