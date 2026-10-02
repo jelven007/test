@@ -42,6 +42,12 @@ STRATEGY_ARCHETYPES = (
         {
             "minimum_score": 62.0,
             "minimum_industry_limit_up_count": 2,
+            "minimum_board_count": 3,
+            "minimum_amount_cny": 1_000_000_000.0,
+            "ideal_amount_min_cny": 1_200_000_000.0,
+            "ideal_amount_max_cny": 2_500_000_000.0,
+            "maximum_amount_cny": 10_000_000_000.0,
+            "max_candidates": 3,
             "max_per_industry": 2,
             "market_neutral_score": 55.0,
         },

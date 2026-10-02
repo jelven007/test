@@ -414,10 +414,12 @@ class StrategyEngine:
     ) -> List[Candidate]:
         cfg = self.config
         profile = archetype_for(cfg.strategy_archetype)
+        board_floor = cfg.minimum_board_count if cfg.strategy_archetype == "mainline_leader_relay" else 0
         eligible = [
             row
             for row in rows
             if self._passes_filters(row)
+            and row["board_count"] >= board_floor
             and accepts_candidate(
                 cfg.strategy_archetype,
                 row,

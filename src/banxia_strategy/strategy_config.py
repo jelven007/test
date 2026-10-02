@@ -50,6 +50,7 @@ class StrategyConfig:
     max_per_industry: int = param(5, "同题材数量上限", "selection", 1, 100, "只")
     minimum_score: float = param(58.0, "最低入选评分", "selection", 0, 1000, "分")
     minimum_industry_limit_up_count: int = param(2, "同题材涨停数量下限", "selection", 1, 100, "只")
+    minimum_board_count: int = param(1, "连板数下限", "selection", 1, 30, "板")
     minimum_amount_cny: float = param(200_000_000.0, "成交额下限", "selection", 0, 1e12, "亿元", 1e8)
     maximum_amount_cny: float = param(3_000_000_000.0, "成交额上限", "selection", 1, 1e12, "亿元", 1e8)
     minimum_turnover_pct: float = param(2.0, "换手率下限", "selection", 0, 100, "%")
