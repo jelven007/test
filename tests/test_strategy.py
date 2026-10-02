@@ -138,6 +138,23 @@ class StrategyEngineTest(unittest.TestCase):
             [1, 2, 3, 4],
         )
 
+    def test_first_seal_time_filter_rejects_late_board(self):
+        provider = FakeProvider()
+        provider.pools[date(2026, 9, 23)] = [
+            row("600001", "早封候选", "人工智能", first="10:30:00"),
+            row("600002", "晚封候选", "人工智能", first="10:31:00"),
+        ]
+        config = StrategyConfig(
+            lookback_sessions=3,
+            minimum_score=0,
+            max_per_industry=5,
+            maximum_first_seal_time="10:30",
+        )
+
+        report = StrategyEngine(provider, config).run(date(2026, 9, 23))
+
+        self.assertEqual([item.code for item in report.candidates], ["600001"])
+
     def test_report_files_are_consistent(self):
         report = StrategyEngine(FakeProvider(), self.config).run(date(2026, 9, 23))
         with tempfile.TemporaryDirectory() as directory:

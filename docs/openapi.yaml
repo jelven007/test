@@ -1395,6 +1395,7 @@ components:
         - minimum_float_market_cap_cny
         - maximum_float_market_cap_cny
         - minimum_industry_limit_up_count
+        - maximum_first_seal_time
         - entry_cutoff_time
       properties:
         minimum_score:
@@ -1413,6 +1414,9 @@ components:
           type: number
         minimum_industry_limit_up_count:
           type: integer
+        maximum_first_seal_time:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
         entry_cutoff_time:
           type: string
           pattern: '^\d{2}:\d{2}$'

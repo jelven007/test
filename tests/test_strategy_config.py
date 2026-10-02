@@ -43,11 +43,17 @@ class StrategyConfigTest(unittest.TestCase):
         self.path.write_text("{}", encoding="utf-8")
         self.store = StrategyConfigStore(self.path)
 
-    def test_initialization_file_matches_complete_defaults(self):
+    def test_initialization_file_matches_first_board_defaults(self):
         config_path = Path(__file__).resolve().parents[1] / "config" / "strategy.json"
+        expected = asdict(StrategyConfig())
+        expected.update({
+            "minimum_turnover_pct": 3.0,
+            "maximum_turnover_pct": 18.0,
+            "maximum_first_seal_time": "10:30",
+        })
         self.assertEqual(
             StrategyConfigStore(config_path).payload()["config"],
-            asdict(StrategyConfig()),
+            expected,
         )
         self.assertEqual(StrategyConfig().max_per_industry, 5)
 
@@ -58,6 +64,7 @@ class StrategyConfigTest(unittest.TestCase):
             {"maximum_break_count": -1}, {"position_limit_pct": 70},
             {"entry_open_min_pct": 8}, {"entry_cutoff_time": "12:00"},
             {"entry_cutoff_time": "25:00"}, {"report_schedule": "16:20,16:20"},
+            {"maximum_first_seal_time": "09:29"},
             {"report_schedule": ""}, {"quote_interval_seconds": 0},
             {"minimum_amount_cny": 2e9}, {"main_board_only": False},
             {"minimum_sector_sample_size": 1}, {"unknown": 1},

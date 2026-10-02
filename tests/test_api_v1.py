@@ -1358,6 +1358,7 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(listed.status_code, 200)
         item = listed.json()["items"][0]
         self.assertEqual(item["key_parameters"]["minimum_score"], 58)
+        self.assertEqual(item["key_parameters"]["maximum_first_seal_time"], "15:00")
         self.assertEqual(item["key_parameters"]["entry_cutoff_time"], "10:00")
         self.assertNotIn("config", item)
         self.assertTrue(item["is_initial"])

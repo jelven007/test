@@ -83,6 +83,7 @@ function renderStrategyList() {
       node("td", formatRange(parameters.minimum_turnover_pct, parameters.maximum_turnover_pct, 1, "%")),
       node("td", formatRange(parameters.minimum_float_market_cap_cny, parameters.maximum_float_market_cap_cny, 1e8, " 亿")),
       node("td", `≥ ${parameters.minimum_industry_limit_up_count} 只`),
+      node("td", parameters.maximum_first_seal_time),
       node("td", parameters.entry_cutoff_time),
       node("td", item.is_initial ? "初始策略" : parent?.name || (item.parent_strategy_id ? "已删除策略" : "历史策略"), "strategy-origin"),
     );
@@ -92,7 +93,7 @@ function renderStrategyList() {
   if (!strategies.length) {
     const row = node("tr");
     const cell = node("td", "暂无策略。");
-    cell.colSpan = 11;
+    cell.colSpan = 12;
     row.append(cell);
     body.append(row);
   }

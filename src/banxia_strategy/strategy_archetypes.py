@@ -23,12 +23,16 @@ STRATEGY_ARCHETYPES = (
         "first_board_second_board",
         "banxia-first-board-second-board",
         "一进二弱转强",
-        "前一日首板，次日竞价合格并在 10:00 前完成换手回封。",
+        "前一日 10:30 前首封且换手率 3%–18%，次日竞价合格并在 10:00 前完成换手回封。",
         "P0",
         "A/B",
         "board_reseal",
         "一进二弱转强",
-        {},
+        {
+            "minimum_turnover_pct": 3.0,
+            "maximum_turnover_pct": 18.0,
+            "maximum_first_seal_time": "10:30",
+        },
     ),
     StrategyArchetype(
         "mainline_leader_relay",

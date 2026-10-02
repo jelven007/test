@@ -404,6 +404,13 @@ class StrategyEngine:
             return False
         if row["break_count"] > cfg.maximum_break_count:
             return False
+        maximum_first_seal = _time_minutes(cfg.maximum_first_seal_time)
+        if (
+            row["first_seal_minutes"] is not None
+            and maximum_first_seal is not None
+            and row["first_seal_minutes"] > maximum_first_seal
+        ):
+            return False
         return True
 
     def _build_candidates(

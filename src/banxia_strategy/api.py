@@ -48,6 +48,7 @@ STRATEGY_LIST_PARAMETER_KEYS = (
     "minimum_float_market_cap_cny",
     "maximum_float_market_cap_cny",
     "minimum_industry_limit_up_count",
+    "maximum_first_seal_time",
     "entry_cutoff_time",
 )
 

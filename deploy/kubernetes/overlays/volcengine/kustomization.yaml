@@ -72,6 +72,7 @@ configMapGenerator:
       - ../../../../migrations/postgres/015_strategy_archetypes.sql
       - ../../../../migrations/postgres/016_limit_up_history.sql
       - ../../../../migrations/postgres/017_limit_up_exclusions.sql
+      - ../../../../migrations/postgres/018_first_board_quality_filters.sql
   - name: banxia-clickhouse-migrations
     namespace: banxia
     files:

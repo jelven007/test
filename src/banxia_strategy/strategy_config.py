@@ -58,6 +58,13 @@ class StrategyConfig:
     minimum_float_market_cap_cny: float = param(1_500_000_000.0, "流通市值下限", "selection", 0, 1e13, "亿元", 1e8)
     maximum_float_market_cap_cny: float = param(30_000_000_000.0, "流通市值上限", "selection", 1, 1e13, "亿元", 1e8)
     maximum_break_count: int = param(1, "历史炸板次数上限", "selection", 0, 30, "次")
+    maximum_first_seal_time: str = param(
+        "15:00",
+        "首板最晚首次封板时间",
+        "selection",
+        kind="time",
+        note="首封时间缺失时保留候选并提示人工核验。",
+    )
     exclude_st: bool = param(True, "排除 ST 与退市股", "selection", kind="fixed")
     main_board_only: bool = param(True, "仅沪深主板首板", "selection", kind="fixed")
     early_weight: float = param(12.0, "首封时间满分", "scoring", 0, 100, "分")
@@ -175,6 +182,8 @@ class StrategyConfig:
                 errors.update({key: description for key in sequence})
         if not "09:30" < values["entry_cutoff_time"] <= "11:30":
             errors["entry_cutoff_time"] = "入场截止时间应晚于09:30且不晚于11:30"
+        if not "09:30" <= values["maximum_first_seal_time"] <= "15:00":
+            errors["maximum_first_seal_time"] = "首板最晚首次封板时间应在09:30至15:00之间"
         if not "09:30" <= values["late_seal_time"] <= "15:00":
             errors["late_seal_time"] = "尾盘封板起点应在09:30至15:00之间"
         for keys in [

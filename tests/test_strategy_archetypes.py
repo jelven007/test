@@ -38,6 +38,16 @@ class StrategyArchetypeRegistryTest(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             StrategyConfig().strategy_archetype = "capacity_trend"
 
+    def test_first_board_strategy_uses_validated_quality_filters(self):
+        profile = STRATEGY_ARCHETYPES[0]
+        config = StrategyConfig.from_mapping(
+            initial_strategy_config(profile, asdict(StrategyConfig()))
+        )
+
+        self.assertEqual(config.minimum_turnover_pct, 3.0)
+        self.assertEqual(config.maximum_turnover_pct, 18.0)
+        self.assertEqual(config.maximum_first_seal_time, "10:30")
+
     def test_representative_candidate_predicates_cover_all_archetypes(self):
         market = {"score": 40}
         industry = {"today_count": 3, "max_board": 4}
