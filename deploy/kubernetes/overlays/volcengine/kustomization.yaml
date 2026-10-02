@@ -70,6 +70,7 @@ configMapGenerator:
       - ../../../../migrations/postgres/013_identity_and_new_boards.sql
       - ../../../../migrations/postgres/014_user_watchlist.sql
       - ../../../../migrations/postgres/015_strategy_archetypes.sql
+      - ../../../../migrations/postgres/016_limit_up_history.sql
   - name: banxia-clickhouse-migrations
     namespace: banxia
     files:

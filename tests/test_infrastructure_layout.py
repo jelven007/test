@@ -234,6 +234,7 @@ class WebAssetTest(unittest.TestCase):
             web / "stocks.html",
             web / "stock.html",
             web / "stock-history.html",
+            web / "limit-ups.html",
         ]
         for page in pages:
             html = page.read_text(encoding="utf-8")
@@ -458,6 +459,7 @@ class WebAssetTest(unittest.TestCase):
             "stocks.html",
             "stock.html",
             "stock-history.html",
+            "limit-ups.html",
         ):
             html = (web / name).read_text(encoding="utf-8")
             self.assertIn(

@@ -20,6 +20,7 @@ from .auth import AuthenticationManager, SmtpSettings, SmtpVerificationMailer
 from .catalog_bootstrap import ensure_initial_catalog
 from .application.collector import MarketCollector
 from .application.features import FeatureWorker
+from .application.limit_up_history_sync import LimitUpHistorySync
 from .application.market_sink import MarketSinkWorker
 from .application.outbox import OutboxRelay
 from .application.plans import ActivePlan, load_active_plan
@@ -767,6 +768,39 @@ def run_market_reference_sync(
         logger.info("market reference sync stopped")
 
 
+def run_limit_up_history_sync(
+    settings: RuntimeSettings,
+    logger: Any,
+) -> None:
+    repository = _postgres(settings)
+    try:
+        today = datetime.now(SHANGHAI).date()
+        if repository.latest_limit_up_history_date() and not repository.is_trading_session(today):
+            logger.info("limit-up history sync skipped: non-trading session")
+            return
+        result = LimitUpHistorySync(repository=repository).run(
+            end_date=today,
+        )
+        logger.info(
+            "limit-up history sync completed",
+            extra={
+                "run_id": result["run_id"],
+                "start_date": result["start_date"].isoformat(),
+                "end_date": result["end_date"].isoformat(),
+                "universe_count": result["universe_count"],
+                "history_count": result["history_count"],
+                "row_count": result["row_count"],
+                "missing_symbol_count": len(result["missing_symbols"]),
+            },
+        )
+        if result["missing_symbols"]:
+            raise RuntimeError(
+                f"涨停历史部分完成，{len(result['missing_symbols'])} 只采集失败，等待重试"
+            )
+    finally:
+        repository.close()
+
+
 def run_api(settings: RuntimeSettings, logger: Any) -> None:
     try:
         import uvicorn
@@ -845,6 +879,7 @@ RUNNERS = {
     "report-worker": run_report_worker,
     "report-scheduler": run_report_scheduler,
     "market-reference-sync": run_market_reference_sync,
+    "limit-up-history-sync": run_limit_up_history_sync,
     "api": run_api,
 }
 

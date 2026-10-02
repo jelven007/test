@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f6f7f5">
+    <title>涨停档案 · 一进二</title>
+    <link rel="stylesheet" href="/styles.css?v=20260926.1">
+    <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
+    <link rel="stylesheet" href="/limit-ups.css?v=20261001.1">
+    <script src="/auth.js?v=20260927.1" defer></script>
+    <script src="/limit-ups.js?v=20261001.1" defer></script>
+  </head>
+  <body class="limit-up-body">
+    <header class="topbar limit-up-topbar">
+      <a class="brand" href="/" aria-label="返回股票首页">
+        <span class="brand-mark" aria-hidden="true">BX</span>
+        <strong>一进二</strong>
+      </a>
+      <span class="app-source">mootdx · 历史涨停样本</span>
+    </header>
+    <nav class="primary-nav" aria-label="主导航">
+      <a href="/">首页</a>
+      <a href="/strategy">策略管理</a>
+      <a href="/plan">次日计划</a>
+      <a href="/monitor">当日实盘</a>
+      <a href="/limit-ups" aria-current="page">涨停档案</a>
+      <a href="/research">回测优化</a>
+      <a href="/settings">系统设置</a>
+    </nav>
+
+    <main class="page-main limit-up-main">
+      <header class="page-header">
+        <div class="page-header-copy">
+          <h1>涨停档案</h1>
+          <p>逐日检索沪深 A 股收盘涨停样本与交易特征。</p>
+          <p class="page-header-meta">
+            覆盖 <code id="coverage-range">—</code> · 最近同步 <code id="sync-time">—</code>
+          </p>
+        </div>
+      </header>
+
+      <form id="limit-up-filters" class="limit-up-filters" role="search">
+        <div class="primary-filter-row">
+          <label>开始日期
+            <input id="start-date" class="ui-control" type="date" value="2025-01-01">
+          </label>
+          <label>结束日期
+            <input id="end-date" class="ui-control" type="date">
+          </label>
+          <label>股票
+            <input id="stock-query" class="ui-control" type="search" placeholder="代码或名称" autocomplete="off">
+          </label>
+          <label>大盘
+            <select id="board" class="ui-control">
+              <option value="all">全部</option>
+              <option value="main">沪深主板</option>
+              <option value="gem">创业板</option>
+              <option value="star">科创板</option>
+            </select>
+          </label>
+          <label>所属行业
+            <select id="industry" class="ui-control">
+              <option value="">全部行业</option>
+            </select>
+          </label>
+          <div class="filter-actions">
+            <button class="ui-button primary-button" type="submit">查询</button>
+            <button class="ui-button" id="reset-filters" type="button">重置</button>
+          </div>
+        </div>
+
+        <div class="metric-filter-grid" aria-label="指标区间筛选">
+          <fieldset>
+            <legend>总市值（亿元）</legend>
+            <input id="min-total-cap" class="ui-control" type="number" step="0.01" placeholder="最低">
+            <span>至</span>
+            <input id="max-total-cap" class="ui-control" type="number" step="0.01" placeholder="最高">
+          </fieldset>
+          <fieldset>
+            <legend>流通市值（亿元）</legend>
+            <input id="min-float-cap" class="ui-control" type="number" step="0.01" placeholder="最低">
+            <span>至</span>
+            <input id="max-float-cap" class="ui-control" type="number" step="0.01" placeholder="最高">
+          </fieldset>
+          <fieldset>
+            <legend>换手率（%）</legend>
+            <input id="min-turnover" class="ui-control" type="number" step="0.01" placeholder="最低">
+            <span>至</span>
+            <input id="max-turnover" class="ui-control" type="number" step="0.01" placeholder="最高">
+          </fieldset>
+          <fieldset>
+            <legend>振幅（%）</legend>
+            <input id="min-amplitude" class="ui-control" type="number" step="0.01" placeholder="最低">
+            <span>至</span>
+            <input id="max-amplitude" class="ui-control" type="number" step="0.01" placeholder="最高">
+          </fieldset>
+          <fieldset>
+            <legend>开盘涨幅（%）</legend>
+            <input id="min-open-change" class="ui-control" type="number" step="0.01" placeholder="最低">
+            <span>至</span>
+            <input id="max-open-change" class="ui-control" type="number" step="0.01" placeholder="最高">
+          </fieldset>
+          <fieldset>
+            <legend>当天涨幅（%）</legend>
+            <input id="min-change" class="ui-control" type="number" step="0.01" placeholder="最低">
+            <span>至</span>
+            <input id="max-change" class="ui-control" type="number" step="0.01" placeholder="最高">
+          </fieldset>
+          <fieldset>
+            <legend>5 日涨幅（%）</legend>
+            <input id="min-return-5d" class="ui-control" type="number" step="0.01" placeholder="最低">
+            <span>至</span>
+            <input id="max-return-5d" class="ui-control" type="number" step="0.01" placeholder="最高">
+          </fieldset>
+        </div>
+        <label class="candidate-toggle">
+          <input id="include-unverified" type="checkbox">
+          包含 5% 待核实候选（缺少历史 ST 状态，可能含普通上涨股票）
+        </label>
+      </form>
+
+      <p id="limit-up-status" class="ui-status" role="status" aria-live="polite">正在读取涨停历史…</p>
+
+      <section class="limit-up-summary" aria-label="筛选结果摘要">
+        <dl>
+          <div><dt>样本记录</dt><dd id="summary-total">—</dd></div>
+          <div><dt>交易日</dt><dd id="summary-days">—</dd></div>
+          <div><dt>股票数</dt><dd id="summary-stocks">—</dd></div>
+          <div><dt>结果区间</dt><dd id="summary-range">—</dd></div>
+        </dl>
+        <p>市值与换手率优先按历史股本变动计算，缺少记录时标注估算。名称和行业采用当前证券资料；5 日涨幅为本日收盘相对前第 5 个交易日收盘的不复权涨幅。范围为当前可获取的沪深 A 股，可能缺少已退市股票；新股前 5 个交易日不计入。</p>
+      </section>
+
+      <section class="limit-up-ledger" aria-labelledby="limit-up-ledger-title">
+        <div class="content-heading">
+          <div>
+            <h2 id="limit-up-ledger-title">涨停明细</h2>
+            <p id="result-range">—</p>
+          </div>
+        </div>
+        <div class="limit-up-table-wrap" tabindex="0" role="region" aria-label="历史涨停明细">
+          <table class="data-table limit-up-table">
+            <thead>
+              <tr>
+                <th aria-sort="descending"><button class="sort-button" type="button" data-sort="trade_date">日期<span aria-hidden="true">↓</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="symbol">股票<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="board">大盘<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="industry">所属行业<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="close">收盘价<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="total_market_cap_cny">总市值<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="float_market_cap_cny">流通市值<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="turnover_pct">换手率<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="amplitude_pct">振幅<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="open_change_pct">开盘涨幅<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="change_pct">当天涨幅<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="return_5d_pct">5 日涨幅<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="amount_cny">成交额<span aria-hidden="true">↕</span></button></th>
+                <th aria-sort="none"><button class="sort-button" type="button" data-sort="consecutive_limit_days">连板<span aria-hidden="true">↕</span></button></th>
+                <th>数据口径</th>
+              </tr>
+            </thead>
+            <tbody id="limit-up-rows"></tbody>
+          </table>
+        </div>
+        <footer class="limit-up-pagination">
+          <button id="previous-page" class="ui-button" type="button">上一页</button>
+          <span id="page-label">第 1 页</span>
+          <button id="next-page" class="ui-button" type="button">下一页</button>
+        </footer>
+      </section>
+    </main>
+  </body>
+</html>

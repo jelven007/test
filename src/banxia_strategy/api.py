@@ -19,6 +19,7 @@ from .domain.intraday import (
 )
 from .intraday import plan_for
 from .mootdx_provider import MootdxProvider
+from .adapters.limit_up_history import LIMIT_UP_SORT_COLUMNS
 from .web_server import ReportStore
 from .strategy_config import ConfigConflict, ConfigError, StrategyConfig, StrategyConfigStore, revision_for
 from .strategy_history import HISTORY_RANGE_DAYS, history_window
@@ -1211,6 +1212,151 @@ def create_api_app(services: ApiServices):
         return {
             **metadata,
             "items": items,
+        }
+
+    @app.get("/api/v1/limit-up-history/options")
+    def limit_up_history_options():
+        reader = getattr(
+            services.repository,
+            "limit_up_history_options",
+            None,
+        )
+        if not callable(reader):
+            raise HTTPException(
+                status_code=503,
+                detail="涨停历史存储尚未启用",
+            )
+        try:
+            return reader()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"涨停历史筛选项暂不可用：{exc}",
+            ) from exc
+
+    @app.get("/api/v1/limit-up-history")
+    def limit_up_history(
+        start_date: str = "2025-01-01",
+        end_date: Optional[str] = None,
+        q: Optional[str] = None,
+        board: str = "all",
+        industry: Optional[str] = None,
+        include_unverified: bool = False,
+        min_total_market_cap_cny: Optional[float] = None,
+        max_total_market_cap_cny: Optional[float] = None,
+        min_float_market_cap_cny: Optional[float] = None,
+        max_float_market_cap_cny: Optional[float] = None,
+        min_turnover_pct: Optional[float] = None,
+        max_turnover_pct: Optional[float] = None,
+        min_amplitude_pct: Optional[float] = None,
+        max_amplitude_pct: Optional[float] = None,
+        min_open_change_pct: Optional[float] = None,
+        max_open_change_pct: Optional[float] = None,
+        min_change_pct: Optional[float] = None,
+        max_change_pct: Optional[float] = None,
+        min_return_5d_pct: Optional[float] = None,
+        max_return_5d_pct: Optional[float] = None,
+        sort: str = "trade_date",
+        direction: str = "desc",
+        limit: int = 100,
+        offset: int = 0,
+    ):
+        reader = getattr(
+            services.repository,
+            "list_limit_up_history",
+            None,
+        )
+        if not callable(reader):
+            raise HTTPException(
+                status_code=503,
+                detail="涨停历史存储尚未启用",
+            )
+        if board not in {"all", "main", "gem", "star"}:
+            raise HTTPException(status_code=400, detail="股票板块无效")
+        if sort not in LIMIT_UP_SORT_COLUMNS:
+            raise HTTPException(status_code=400, detail="涨停历史排序字段无效")
+        if direction not in STOCK_SORT_DIRECTIONS:
+            raise HTTPException(status_code=400, detail="涨停历史排序方向无效")
+        if not 1 <= limit <= 500 or offset < 0:
+            raise HTTPException(
+                status_code=400,
+                detail="limit 必须为 1 至 500，offset 不能小于 0",
+            )
+        try:
+            first = date.fromisoformat(start_date)
+            last = (
+                date.fromisoformat(end_date)
+                if end_date
+                else datetime.now(SHANGHAI).date()
+            )
+            if first > last:
+                raise ValueError("start_date 不能晚于 end_date")
+            minimums = {
+                key: value
+                for key, value in {
+                    "total_market_cap_cny": min_total_market_cap_cny,
+                    "float_market_cap_cny": min_float_market_cap_cny,
+                    "turnover_pct": min_turnover_pct,
+                    "amplitude_pct": min_amplitude_pct,
+                    "open_change_pct": min_open_change_pct,
+                    "change_pct": min_change_pct,
+                    "return_5d_pct": min_return_5d_pct,
+                }.items()
+                if value is not None
+            }
+            maximums = {
+                key: value
+                for key, value in {
+                    "total_market_cap_cny": max_total_market_cap_cny,
+                    "float_market_cap_cny": max_float_market_cap_cny,
+                    "turnover_pct": max_turnover_pct,
+                    "amplitude_pct": max_amplitude_pct,
+                    "open_change_pct": max_open_change_pct,
+                    "change_pct": max_change_pct,
+                    "return_5d_pct": max_return_5d_pct,
+                }.items()
+                if value is not None
+            }
+            for field in set(minimums) | set(maximums):
+                lower = minimums.get(field)
+                upper = maximums.get(field)
+                if lower is not None and not math.isfinite(lower):
+                    raise ValueError("筛选值必须是有限数字")
+                if upper is not None and not math.isfinite(upper):
+                    raise ValueError("筛选值必须是有限数字")
+                if lower is not None and upper is not None and lower > upper:
+                    raise ValueError("筛选下限不能大于上限")
+            result = reader(
+                start_date=first,
+                end_date=last,
+                query=(q or "").strip() or None,
+                board=None if board == "all" else board,
+                industry=(industry or "").strip() or None,
+                include_unverified=include_unverified,
+                minimums=minimums,
+                maximums=maximums,
+                sort_by=sort,
+                direction=direction,
+                limit=limit,
+                offset=offset,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"涨停历史暂不可用：{exc}",
+            ) from exc
+        return {
+            **result,
+            "limit": limit,
+            "offset": offset,
+            "sort": sort,
+            "direction": direction,
+            "source": "postgres",
+            "data_source": "mootdx",
+            "capital_basis": "xdxr_history_with_snapshot_fallback",
+            "classification_basis": "current_mootdx_f10",
         }
 
     @app.get("/api/v1/settings/new-boards")
@@ -2570,6 +2716,10 @@ def create_api_app(services: ApiServices):
     @app.get("/research")
     def research_dashboard():
         return FileResponse(static_root / "research.html")
+
+    @app.get("/limit-ups")
+    def limit_up_history_dashboard():
+        return FileResponse(static_root / "limit-ups.html")
 
     @app.get("/stocks")
     def stocks_dashboard():

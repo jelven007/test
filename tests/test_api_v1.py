@@ -23,6 +23,7 @@ class FakeRepository:
     def __init__(self):
         self.jobs = {}
         self.trading_sessions = {"2026-09-23", "2026-09-24"}
+        self.limit_up_calls = []
 
     def ready(self):
         return True
@@ -101,6 +102,40 @@ class FakeRepository:
 
     def get_job_execution(self, job_id):
         return self.jobs.get(job_id)
+
+    def limit_up_history_options(self):
+        return {
+            "first_date": "2025-01-02",
+            "last_date": "2026-09-24",
+            "total": 1000,
+            "trading_days": 420,
+            "stock_count": 600,
+            "industries": [{"name": "机器人", "count": 30}],
+            "latest_sync": {
+                "status": "succeeded",
+                "finished_at": "2026-09-24T16:40:00+08:00",
+            },
+        }
+
+    def list_limit_up_history(self, **kwargs):
+        self.limit_up_calls.append(kwargs)
+        return {
+            "total": 1,
+            "trading_days": 1,
+            "stock_count": 1,
+            "first_date": "2026-09-24",
+            "last_date": "2026-09-24",
+            "items": [
+                {
+                    "trade_date": "2026-09-24",
+                    "symbol": "002635",
+                    "name": "安洁科技",
+                    "industry": "机器人",
+                    "total_market_cap_cny": 10_000_000_000,
+                    "turnover_pct": 8.5,
+                }
+            ],
+        }
 
 
 class FakeReferenceRepository(FakeRepository):
@@ -680,6 +715,54 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(history.json()["source"], "mootdx")
         self.assertEqual(history.json()["items"][0]["close"], 10.5)
 
+    def test_limit_up_history_supports_all_metric_filters(self):
+        options = self.client.get("/api/v1/limit-up-history/options")
+        response = self.client.get(
+            "/api/v1/limit-up-history",
+            params={
+                "start_date": "2025-01-01",
+                "end_date": "2026-09-24",
+                "q": "安洁",
+                "board": "main",
+                "industry": "机器人",
+                "min_total_market_cap_cny": 1_000_000_000,
+                "max_total_market_cap_cny": 20_000_000_000,
+                "min_float_market_cap_cny": 500_000_000,
+                "max_float_market_cap_cny": 10_000_000_000,
+                "min_turnover_pct": 3,
+                "max_turnover_pct": 20,
+                "min_amplitude_pct": 1,
+                "max_amplitude_pct": 15,
+                "min_open_change_pct": -2,
+                "max_open_change_pct": 8,
+                "min_change_pct": 5,
+                "max_change_pct": 21,
+                "min_return_5d_pct": 10,
+                "max_return_5d_pct": 60,
+                "sort": "turnover_pct",
+                "direction": "desc",
+                "limit": 50,
+                "offset": 100,
+            },
+        )
+
+        self.assertEqual(options.status_code, 200)
+        self.assertEqual(options.json()["industries"][0]["name"], "机器人")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data_source"], "mootdx")
+        call = self.services.repository.limit_up_calls[-1]
+        self.assertEqual(call["start_date"], date(2025, 1, 1))
+        self.assertEqual(call["end_date"], date(2026, 9, 24))
+        self.assertEqual(call["board"], "main")
+        self.assertEqual(call["industry"], "机器人")
+        self.assertEqual(
+            call["minimums"]["total_market_cap_cny"],
+            1_000_000_000,
+        )
+        self.assertEqual(call["maximums"]["return_5d_pct"], 60)
+        self.assertEqual(call["sort_by"], "turnover_pct")
+        self.assertEqual(call["offset"], 100)
+
     def test_stock_directory_sorts_full_result_before_pagination(self):
         quotes = {
             "002635": {
@@ -1206,6 +1289,10 @@ class ApiV1Test(unittest.TestCase):
 
         history = self.client.get("/stocks/002635/history")
         self.assertIn("/stock-history.js?v=20260927.2", history.text)
+
+        limit_ups = self.client.get("/limit-ups")
+        self.assertEqual(limit_ups.status_code, 200)
+        self.assertIn("/limit-ups.js?v=20261001.1", limit_ups.text)
 
         dashboard = self.client.get("/plan")
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store")

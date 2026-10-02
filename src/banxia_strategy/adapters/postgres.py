@@ -17,6 +17,7 @@ from ..ports.storage import (
 from ..strategy_archetypes import INITIAL_STRATEGY_CODE
 from .market_reference import MarketReferenceMixin
 from .identity_settings import IdentitySettingsMixin
+from .limit_up_history import LimitUpHistoryMixin
 from .strategy_catalog import StrategyCatalogMixin
 
 
@@ -52,6 +53,7 @@ def _mapping(value: Any) -> Mapping[str, Any]:
 
 class PostgresStorage(
     IdentitySettingsMixin,
+    LimitUpHistoryMixin,
     MarketReferenceMixin,
     StrategyCatalogMixin,
 ):

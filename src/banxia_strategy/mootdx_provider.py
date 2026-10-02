@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from zoneinfo import ZoneInfo
 
 
 Server = Tuple[str, int]
@@ -938,6 +939,15 @@ class MootdxProvider:
             )
         result.sort(key=lambda item: item["time"])
         return result
+
+    def limit_up_history(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> Dict[str, Any]:
+        from .limit_up_collector import collect_limit_up_history
+
+        return collect_limit_up_history(self, start_date, end_date)
 
     def historical_minutes(
         self,

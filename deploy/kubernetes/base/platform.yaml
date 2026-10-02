@@ -304,6 +304,37 @@ spec:
 apiVersion: batch/v1
 kind: CronJob
 metadata:
+  name: limit-up-history-sync
+  namespace: banxia
+spec:
+  schedule: "35 16 * * 1-5"
+  timeZone: Asia/Shanghai
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels: {app: banxia-limit-up-history-sync, component: job}
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: limit-up-history-sync
+              image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
+              args: [limit-up-history-sync]
+              envFrom:
+                - configMapRef: {name: banxia-runtime}
+                - secretRef: {name: banxia-secrets}
+              resources:
+                requests: {cpu: 500m, memory: 384Mi}
+                limits: {cpu: "3", memory: 1536Mi}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
   name: report-worker-1630
   namespace: banxia
 spec:
