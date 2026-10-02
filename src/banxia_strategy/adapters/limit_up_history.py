@@ -81,6 +81,7 @@ class LimitUpHistoryMixin:
         successful_symbols: Sequence[str],
         coverage: Sequence[Mapping[str, Any]],
         effective_end: date,
+        excluded_symbols: Sequence[Mapping[str, Any]] = (),
     ) -> int:
         prepared = tuple(self._limit_up_row(item) for item in rows)
         status = "partial" if missing_symbols else "succeeded"
@@ -160,6 +161,7 @@ class LimitUpHistoryMixin:
                         history_count = %s,
                         row_count = %s,
                         missing_symbols = %s::jsonb,
+                        excluded_symbols = %s::jsonb,
                         error_message = NULL,
                         finished_at = now()
                     WHERE run_id = %s AND status = 'running'
@@ -171,6 +173,7 @@ class LimitUpHistoryMixin:
                         history_count,
                         len(prepared),
                         _json(list(missing_symbols)),
+                        _json(list(excluded_symbols)),
                         run_id,
                     ),
                 )
@@ -356,7 +359,8 @@ class LimitUpHistoryMixin:
                     SELECT
                         run_id, requested_start, requested_end, status,
                         row_count, universe_count, history_count,
-                        missing_symbols, error_message, started_at, finished_at
+                        missing_symbols, error_message, started_at, finished_at,
+                        excluded_symbols
                     FROM banxia.limit_up_history_sync
                     ORDER BY started_at DESC
                     LIMIT 1
@@ -399,6 +403,7 @@ class LimitUpHistoryMixin:
                         int(sync[6]) if sync[6] is not None else None
                     ),
                     "missing_symbols": list(sync[7] or []),
+                    "excluded_symbols": list(sync[11] or []),
                     "error_message": sync[8],
                     "started_at": sync[9].isoformat(),
                     "finished_at": (

@@ -56,6 +56,7 @@ class LimitUpHistorySync:
                 history_count=result["history_count"],
                 missing_symbols=result["missing_symbols"],
                 successful_symbols=result["successful_symbols"],
+                excluded_symbols=result.get("excluded_symbols", []),
                 coverage=result["coverage"],
                 effective_end=result["end_date"],
             )

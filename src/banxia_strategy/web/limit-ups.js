@@ -286,14 +286,19 @@ async function loadOptions(requestedIndustry) {
     ? requestedIndustry
     : "";
   byId("coverage-range").textContent = payload.coverage_first_date && payload.coverage_last_date
-    ? `${payload.coverage_first_date} 至 ${payload.coverage_last_date} · ${payload.covered_sessions} 个交易日`
+    ? `${payload.coverage_first_date} 至 ${payload.coverage_last_date} · ${payload.covered_sessions} 个交易日${
+      payload.partial_sessions ? ` · ${payload.partial_sessions} 日待补齐` : ""}`
     : "暂无数据";
   const labels = { running: "同步中", succeeded: "完成", partial: "部分完成", failed: "失败" };
-  byId("sync-time").textContent = payload.latest_sync
-    ? `${labels[payload.latest_sync.status] || payload.latest_sync.status} · ${
-      payload.latest_sync.finished_at
-        ? new Date(payload.latest_sync.finished_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })
-        : "采集中"} · 缺失 ${payload.latest_sync.missing_symbols?.length || 0} 只`
+  const sync = payload.latest_sync;
+  const verified = sync && ["succeeded", "partial"].includes(sync.status);
+  byId("sync-time").textContent = sync
+    ? `${labels[sync.status] || sync.status} · ${
+      sync.finished_at
+        ? new Date(sync.finished_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })
+        : "采集中"} · ${
+      verified ? `缺失 ${sync.missing_symbols?.length || 0} 只` : "完整性待核对"}${
+      sync.excluded_symbols?.length ? ` · 排除未上市 ${sync.excluded_symbols.length} 只` : ""}`
     : "尚未同步";
 }
 

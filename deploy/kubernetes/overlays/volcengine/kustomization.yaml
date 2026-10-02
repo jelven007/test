@@ -29,7 +29,7 @@ patches:
 images:
   - name: banxia-strategy
     newName: xm1001-cn-shanghai.cr.volces.com/banxia/banxia-strategy
-    newTag: 2a1b048
+    newTag: cb12646
   - name: banxia-flink
     newName: xm1001-cn-shanghai.cr.volces.com/banxia/banxia-flink
     newTag: 59f59a6
@@ -71,6 +71,7 @@ configMapGenerator:
       - ../../../../migrations/postgres/014_user_watchlist.sql
       - ../../../../migrations/postgres/015_strategy_archetypes.sql
       - ../../../../migrations/postgres/016_limit_up_history.sql
+      - ../../../../migrations/postgres/017_limit_up_exclusions.sql
   - name: banxia-clickhouse-migrations
     namespace: banxia
     files:

@@ -15,7 +15,9 @@ from banxia_strategy.limit_up_history import (
     limit_price,
     reference_price,
 )
-from banxia_strategy.limit_up_collector import daily_bars
+from banxia_strategy.limit_up_collector import (
+    collect_limit_up_history, daily_bars, unlisted_evidence,
+)
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -189,6 +191,7 @@ class FakeProvider:
             "universe_count": 5000,
             "history_count": 4990,
             "missing_symbols": ["600999"],
+            "excluded_symbols": [{"symbol": "301569", "reason": "not_yet_listed"}],
             "successful_symbols": ["300001"],
             "coverage": [{"trade_date": end, "row_count": 1, "bar_count": 4990}],
             "rows": [{"symbol": "300001"}],
@@ -208,6 +211,7 @@ class LimitUpHistorySyncTest(unittest.TestCase):
             ("begin", date(2025, 1, 1), date(2026, 9, 30)),
         )
         self.assertEqual(result["row_count"], 1)
+        self.assertEqual(repository.calls[-1][3]["excluded_symbols"], result["excluded_symbols"])
 
     def test_incremental_run_rechecks_recent_dates(self):
         repository = FakeRepository(latest=date(2026, 9, 30))
@@ -249,6 +253,58 @@ class LimitUpHistorySyncTest(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "no progress"):
             daily_bars(Client(), "600001", date(2020, 1, 1))
+
+
+class LimitUpCollectorTest(unittest.TestCase):
+    def test_unlisted_requires_empty_bars_and_explicit_source_evidence(self):
+        finance = {"ipo_date": 0, "zongguben": 0, "liutongguben": 0}
+        text = "│上市日期    ｜-          ｜"
+        self.assertEqual(unlisted_evidence([], finance, {"公司概况": text})["f10_listing_date"], "-")
+        for bars, fields, f10 in [
+            ([bar(1, 10)], finance, text),
+            ([], {}, text),
+            ([], {**finance, "ipo_date": 20250101}, text),
+            ([], {**finance, "zongguben": 100}, text),
+            ([], {**finance, "liutongguben": None}, text),
+            ([], finance, "公司概况暂缺"),
+            ([], finance, "│上市日期 ｜2025-01-01｜"),
+        ]:
+            with self.subTest(bars=bars, fields=fields, f10=f10):
+                self.assertIsNone(unlisted_evidence(bars, fields, f10))
+
+    def test_collector_excludes_unlisted_but_retries_real_missing_history(self):
+        import pandas as pd
+        from unittest.mock import Mock
+
+        securities = [
+            {"symbol": symbol, "name": symbol, "market": "sh", "board": "main"}
+            for symbol in ("600001", "600002", "600003", "600004")
+        ]
+        client = Mock()
+        client.index.return_value = pd.DataFrame([{"datetime": "2025-01-02"}])
+        client.bars.side_effect = lambda **kw: pd.DataFrame([
+            {"datetime": "2024-12-31", "open": 10, "close": 10, "high": 10, "low": 10},
+            {"datetime": "2025-01-02", "open": 10, "close": 11, "high": 11, "low": 10},
+        ] if kw["symbol"] == "600001" else [])
+        client.finance.side_effect = lambda **kw: pd.DataFrame([{
+            "ipo_date": 20200101 if kw["symbol"] == "600003" else 0,
+            "zongguben": 0, "liutongguben": 0,
+        }])
+        client.F10.side_effect = lambda **kw: "" if kw["symbol"] == "600004" else "│上市日期 ｜-｜"
+        client.client.get_xdxr_info.return_value = []
+        provider = Mock(workers=1, servers=["node"])
+        provider._first_result.side_effect = lambda action: action(client)
+        provider._client.return_value = client
+        provider.securities.return_value = securities
+        result = collect_limit_up_history(provider, date(2025, 1, 1), date(2025, 1, 2))
+        self.assertEqual(result["universe_count"], 3)
+        self.assertEqual(result["history_count"], 1)
+        self.assertEqual(result["successful_symbols"], ["600001"])
+        self.assertEqual(result["missing_symbols"], ["600003", "600004"])
+        self.assertEqual(result["excluded_symbols"][0]["symbol"], "600002")
+        self.assertEqual(result["excluded_symbols"][0]["reason"], "not_yet_listed")
+        self.assertEqual(result["coverage"][0]["bar_count"], 1)
+        client.client.get_xdxr_info.assert_called_once()
 
 
 if __name__ == "__main__":

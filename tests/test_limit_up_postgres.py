@@ -24,6 +24,7 @@ class LimitUpPostgresTest(unittest.TestCase):
         with psycopg.connect(DSN, autocommit=True) as connection:
             connection.execute("CREATE SCHEMA IF NOT EXISTS banxia")
             connection.execute(Path("migrations/postgres/016_limit_up_history.sql").read_text())
+            connection.execute(Path("migrations/postgres/017_limit_up_exclusions.sql").read_text())
             connection.execute("TRUNCATE banxia.limit_up_history, banxia.limit_up_history_coverage, banxia.limit_up_history_sync")
         self.repository = PostgresStorage(dsn=DSN)
         self.day = date(2025, 1, 2)
@@ -44,12 +45,13 @@ class LimitUpPostgresTest(unittest.TestCase):
     def tearDown(self):
         self.repository.close()
 
-    def save(self, rows=None, missing=(), symbols=("600001",)):
+    def save(self, rows=None, missing=(), symbols=("600001",), excluded=()):
         run_id = self.repository.begin_limit_up_history_sync(date(2025, 1, 1), self.day)
         self.repository.complete_limit_up_history_sync(
             run_id, self.rows if rows is None else rows, universe_count=2,
             history_count=len(symbols), missing_symbols=missing,
             successful_symbols=symbols, effective_end=self.day,
+            excluded_symbols=excluded,
             coverage=[{"trade_date": self.day, "bar_count": len(symbols), "row_count": len(self.rows if rows is None else rows)}],
         )
         return run_id
@@ -86,6 +88,16 @@ class LimitUpPostgresTest(unittest.TestCase):
         self.save()
         self.assertEqual(self.read()["total"], 0)
         self.assertEqual(self.read(include_unverified=True)["total"], 1)
+
+    def test_exclusion_evidence_is_persisted_without_blocking_watermark(self):
+        excluded = [{"symbol": "301569", "reason": "not_yet_listed",
+                     "evidence": {"ipo_date": 0, "f10_listing_date": "-"}}]
+        self.save(excluded=excluded)
+        options = self.repository.limit_up_history_options()
+        self.assertEqual(options["latest_sync"]["excluded_symbols"], excluded)
+        self.assertEqual(options["latest_sync"]["status"], "succeeded")
+        self.assertEqual(options["partial_sessions"], 0)
+        self.assertEqual(self.repository.latest_limit_up_history_date(), self.day)
 
     def test_lock_prevents_concurrent_collection(self):
         other = PostgresStorage(dsn=DSN)

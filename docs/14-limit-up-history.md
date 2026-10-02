@@ -37,6 +37,7 @@
 
 - 指数日 K 决定实际交易日期；盘中不保存当日未收盘数据，节假日不制造样本。
 - 日 K 分页回溯，至少保留范围前五个交易日；每个工作线程复用连接，失败切换节点重试。
+- 仅当日 K 为空、财务上市日期/总股本/流通股本明确为 0，且 F10 上市日期明确为 `-` 时，作为未上市证券排除。代码、原因和依据保存在同步任务的 `excluded_symbols`；有效证券总数不含这部分。其他空行情仍算失败并重试。
 - 逐股计算并释放日 K，避免全市场历史常驻内存。
 - PostgreSQL advisory lock 阻止同时回填。成功证券在事务中删除本次范围旧事实后重建，可以纠正误判和已消失的样本；失败证券原记录保留。
 - 部分失败写入 `partial`，不推进成功水位，Job 返回失败以便调度重试。初次完整回填成功前不会根据最新样本日期跳过早期历史。
@@ -51,4 +52,4 @@ BANXIA_TEST_POSTGRES_DSN=postgresql://postgres@127.0.0.1:55439/banxia_limit_test
 kubectl -n banxia create job limit-up-history-backfill --from=cronjob/limit-up-history-sync
 ```
 
-数据库测试强制要求隔离测试库，验证筛选、重复同步、旧事实清理、部分失败保留、事务回滚和并发锁。迁移脚本为 `016_limit_up_history.sql`，只创建本功能的三个表。
+数据库测试强制要求隔离测试库，验证筛选、重复同步、旧事实清理、部分失败保留、事务回滚、并发锁及排除证据持久化。`016_limit_up_history.sql` 创建本功能的三个表，`017_limit_up_exclusions.sql` 增加未上市排除证据字段。
