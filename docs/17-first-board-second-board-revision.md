@@ -117,3 +117,7 @@ Kubernetes `paper-trading-1650` CronJob 在每个工作日 16:50 运行：
 
 - `GET /api/v1/paper-trading`：目标、已完成、剩余、正收益率、Wilson 区间。
 - `GET /api/v1/paper-trading/trades`：候选拒绝、模拟持仓和 D3 结算明细。
+
+生产活动已于 `2026-10-03` 初始化，当前状态为 `running`，进度 `0/30`。
+国庆休市期间不会生成伪样本；首个可能的 D1 计划日为 `2026-10-08`，
+对应交易最早在 `2026-10-12` 完成 D3 结算。
