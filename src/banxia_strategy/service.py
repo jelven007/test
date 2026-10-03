@@ -398,7 +398,7 @@ def run_paper_trading(settings: RuntimeSettings, logger: Any) -> None:
     )
     repository = _postgres(settings)
     try:
-        result = PaperTradingWorker(
+        first_board = PaperTradingWorker(
             repository=repository,
             provider=MootdxProvider(),
             storage_settings=settings.storage,
@@ -406,18 +406,40 @@ def run_paper_trading(settings: RuntimeSettings, logger: Any) -> None:
             output_dir=settings.report_output_dir,
             logger=logger,
         ).run(target_date)
+        logger.info(
+            "paper trading reconciliation completed",
+            extra={
+                "campaign_code": "first-board-positive-v1",
+                "trade_date": first_board.trade_date,
+                "plan_generated": first_board.plan_generated,
+                "entries_processed": first_board.entries_processed,
+                "exits_processed": first_board.exits_processed,
+                **dict(first_board.summary),
+            },
+        )
+        from .application.fusion_l7 import FusionL7PaperTradingWorker
+
+        fusion = FusionL7PaperTradingWorker(
+            repository=repository,
+            provider=MootdxProvider(),
+            storage_settings=settings.storage,
+            strategy_config_path=settings.strategy_config_path,
+            output_dir=settings.report_output_dir,
+            logger=logger,
+        ).run(target_date)
+        logger.info(
+            "paper trading reconciliation completed",
+            extra={
+                "campaign_code": "fusion-l7-v1",
+                "trade_date": fusion.trade_date,
+                "plan_generated": fusion.plan_generated,
+                "entries_processed": fusion.entries_processed,
+                "exits_processed": fusion.exits_processed,
+                **dict(fusion.summary),
+            },
+        )
     finally:
         repository.close()
-    logger.info(
-        "paper trading reconciliation completed",
-        extra={
-            "trade_date": result.trade_date,
-            "plan_generated": result.plan_generated,
-            "entries_processed": result.entries_processed,
-            "exits_processed": result.exits_processed,
-            **dict(result.summary),
-        },
-    )
 
 
 def _generate_scheduled_report(

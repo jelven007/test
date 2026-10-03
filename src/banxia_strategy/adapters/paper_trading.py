@@ -11,6 +11,12 @@ def _number(value: Any) -> Optional[float]:
     return float(value) if value is not None else None
 
 
+PAPER_CAMPAIGN_IDS: Mapping[str, str] = {
+    "first-board-positive-v1": "b170b44a-4d72-532b-a28f-6654b18d7d00",
+    "fusion-l7-v1": "4b1d7c9e-5f32-4e9a-9d2b-7a0c1e34fb02",
+}
+
+
 def _wilson(successes: int, count: int) -> tuple[float, float]:
     if count == 0:
         return (0.0, 1.0)
@@ -40,6 +46,9 @@ class PaperTradingMixin:
     ) -> Mapping[str, Any]:
         if target_sample_count <= 0:
             raise ValueError("paper target sample count must be positive")
+        if code not in PAPER_CAMPAIGN_IDS:
+            raise ValueError(f"unsupported paper campaign code: {code}")
+        campaign_id = PAPER_CAMPAIGN_IDS[code]
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -129,7 +138,7 @@ class PaperTradingMixin:
                         campaign_id, code, strategy_id, started_on,
                         target_sample_count, config_snapshot
                     ) VALUES (
-                        'b170b44a-4d72-532b-a28f-6654b18d7d00',
+                        %s,
                         %s,
                         %s,
                         CURRENT_DATE,
@@ -139,6 +148,7 @@ class PaperTradingMixin:
                     ON CONFLICT (code) DO NOTHING
                     """,
                     (
+                        campaign_id,
                         code,
                         strategy_id,
                         target_sample_count,
@@ -244,21 +254,36 @@ class PaperTradingMixin:
         campaign_id: str,
         record: Mapping[str, Any],
     ) -> None:
+        plan_id = record.get("plan_id")
+        fusion_candidate_id = record.get("fusion_candidate_id")
+        if plan_id is None and fusion_candidate_id is None:
+            raise ValueError(
+                "paper entry requires plan_id or fusion_candidate_id"
+            )
+        if plan_id is not None and fusion_candidate_id is not None:
+            raise ValueError(
+                "paper entry cannot specify both plan_id and fusion_candidate_id"
+            )
+        if fusion_candidate_id is not None:
+            conflict_target = "(campaign_id, fusion_candidate_id, symbol) WHERE fusion_candidate_id IS NOT NULL"
+        else:
+            conflict_target = "(campaign_id, plan_id, symbol)"
         with self.connection_factory() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
+                    f"""
                     INSERT INTO banxia.paper_trade (
-                        campaign_id, plan_id, symbol, name, industry,
+                        campaign_id, plan_id, fusion_candidate_id,
+                        symbol, name, industry,
                         reference_date, entry_date, exit_date, status,
                         rejection_reason, entry_time, entry_price,
                         entry_sample_price, shares, target_price,
                         entry_evidence, updated_at
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s::jsonb, now()
+                        %s, %s, %s, %s, %s, %s, %s::jsonb, now()
                     )
-                    ON CONFLICT (campaign_id, plan_id, symbol) DO UPDATE SET
+                    ON CONFLICT {conflict_target} DO UPDATE SET
                         exit_date = EXCLUDED.exit_date,
                         status = EXCLUDED.status,
                         rejection_reason = EXCLUDED.rejection_reason,
@@ -273,7 +298,8 @@ class PaperTradingMixin:
                     """,
                     (
                         campaign_id,
-                        record["plan_id"],
+                        plan_id,
+                        fusion_candidate_id,
                         record["symbol"],
                         record["name"],
                         record.get("industry"),
@@ -580,3 +606,101 @@ class PaperTradingMixin:
             item["exit_evidence"] = dict(item["exit_evidence"])
             result.append(item)
         return result
+
+    def upsert_fusion_l7_candidate(
+        self,
+        campaign_id: str,
+        record: Mapping[str, Any],
+    ) -> str:
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO banxia.fusion_l7_candidate (
+                        campaign_id, d1_date, d2_date, symbol, name,
+                        industry, d1_close, d1_change_pct, r_last30_pct,
+                        close_location_day, evidence, lhb_check_enabled
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s
+                    )
+                    ON CONFLICT (campaign_id, d1_date, symbol) DO UPDATE SET
+                        d2_date = EXCLUDED.d2_date,
+                        name = EXCLUDED.name,
+                        industry = EXCLUDED.industry,
+                        d1_close = EXCLUDED.d1_close,
+                        d1_change_pct = EXCLUDED.d1_change_pct,
+                        r_last30_pct = EXCLUDED.r_last30_pct,
+                        close_location_day = EXCLUDED.close_location_day,
+                        evidence = EXCLUDED.evidence,
+                        lhb_check_enabled = EXCLUDED.lhb_check_enabled
+                    RETURNING candidate_id
+                    """,
+                    (
+                        campaign_id,
+                        record["d1_date"],
+                        record["d2_date"],
+                        record["symbol"],
+                        record["name"],
+                        record.get("industry"),
+                        record.get("d1_close"),
+                        record.get("d1_change_pct"),
+                        record.get("r_last30_pct"),
+                        record.get("close_location_day"),
+                        json.dumps(
+                            record.get("evidence", {}), ensure_ascii=False
+                        ),
+                        bool(record.get("lhb_check_enabled", False)),
+                    ),
+                )
+                row = cursor.fetchone()
+        return str(row[0])
+
+    def list_fusion_l7_candidates(
+        self,
+        campaign_id: str,
+        d2_date: date,
+    ) -> list[Mapping[str, Any]]:
+        with self.connection_factory() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        candidate.candidate_id, candidate.d1_date,
+                        candidate.d2_date, candidate.symbol, candidate.name,
+                        candidate.industry, candidate.d1_close,
+                        candidate.d1_change_pct, candidate.r_last30_pct,
+                        candidate.close_location_day, candidate.evidence,
+                        candidate.lhb_check_enabled
+                    FROM banxia.fusion_l7_candidate AS candidate
+                    LEFT JOIN banxia.paper_trade AS trade
+                      ON trade.campaign_id = candidate.campaign_id
+                     AND trade.fusion_candidate_id = candidate.candidate_id
+                    WHERE candidate.campaign_id = %s
+                      AND candidate.d2_date = %s
+                      AND (
+                        trade.status IS NULL
+                        OR trade.status = 'entry_data_missing'
+                      )
+                    ORDER BY candidate.d1_change_pct DESC NULLS LAST,
+                             candidate.symbol
+                    """,
+                    (campaign_id, d2_date),
+                )
+                rows = cursor.fetchall()
+        return [
+            {
+                "candidate_id": str(row[0]),
+                "d1_date": row[1].isoformat(),
+                "d2_date": row[2].isoformat(),
+                "symbol": str(row[3]),
+                "name": str(row[4]),
+                "industry": row[5],
+                "d1_close": _number(row[6]),
+                "d1_change_pct": _number(row[7]),
+                "r_last30_pct": _number(row[8]),
+                "close_location_day": _number(row[9]),
+                "evidence": dict(row[10]),
+                "lhb_check_enabled": bool(row[11]),
+            }
+            for row in rows
+        ]

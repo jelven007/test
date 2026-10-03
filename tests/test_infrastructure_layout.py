@@ -87,6 +87,37 @@ class StorageSchemaTest(unittest.TestCase):
         self.assertIn("target_sample_count", migration)
         self.assertIn("'exit_unfilled'", migration)
 
+    def test_fusion_l7_paper_campaign_migration_seeds_second_campaign(self):
+        fusion_seed = (
+            ROOT / "migrations/postgres/021_fusion_l7_paper_campaign.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("'fusion-l7-v1'", fusion_seed)
+        self.assertIn(
+            "4b1d7c9e-5f32-4e9a-9d2b-7a0c1e34fb02", fusion_seed
+        )
+        self.assertIn("layer7_take_profit_pct", fusion_seed)
+        self.assertIn("layer7_stop_loss_pct", fusion_seed)
+
+    def test_fusion_l7_candidate_schema_relaxes_plan_requirement(self):
+        candidate_migration = (
+            ROOT / "migrations/postgres/022_fusion_l7_candidate.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "CREATE TABLE IF NOT EXISTS banxia.fusion_l7_candidate",
+            candidate_migration,
+        )
+        self.assertIn(
+            "ALTER COLUMN plan_id DROP NOT NULL",
+            candidate_migration,
+        )
+        self.assertIn("fusion_candidate_id", candidate_migration)
+        self.assertIn("paper_trade_plan_or_fusion", candidate_migration)
+        self.assertIn(
+            "UNIQUE (campaign_id, d1_date, symbol)", candidate_migration
+        )
+
     def test_clickhouse_schema_contains_history_tables_and_ttls(self):
         schema = "\n".join(
             path.read_text(encoding="utf-8")
@@ -317,7 +348,7 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('class="paper-table data-table"', paper_html)
         self.assertIn("冻结执行规则", paper_html)
         self.assertIn("@media (max-width: 480px)", paper_css)
-        self.assertIn('fetchJson("/api/v1/paper-trading")', paper_script)
+        self.assertIn("/api/v1/paper-trading?campaign=", paper_script)
         self.assertIn("/api/v1/paper-trading/trades?limit=200&offset=0", paper_script)
 
     def test_plan_and_monitor_mount_account_in_dashboard_meta(self):

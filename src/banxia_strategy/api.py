@@ -1115,7 +1115,7 @@ def create_api_app(services: ApiServices):
         return result
 
     @app.get("/api/v1/paper-trading")
-    def paper_trading_summary():
+    def paper_trading_summary(campaign: str = "first-board-positive-v1"):
         getter = getattr(services.repository, "get_paper_campaign", None)
         summarize = getattr(
             services.repository,
@@ -1127,16 +1127,20 @@ def create_api_app(services: ApiServices):
                 status_code=503,
                 detail="paper trading storage is unavailable",
             )
-        campaign = getter()
-        if campaign is None:
+        campaign_record = getter(campaign)
+        if campaign_record is None:
             raise HTTPException(
                 status_code=404,
                 detail="paper trading campaign not found",
             )
-        return summarize(campaign["campaign_id"])
+        return summarize(campaign_record["campaign_id"])
 
     @app.get("/api/v1/paper-trading/trades")
-    def paper_trading_trades(limit: int = 100, offset: int = 0):
+    def paper_trading_trades(
+        limit: int = 100,
+        offset: int = 0,
+        campaign: str = "first-board-positive-v1",
+    ):
         getter = getattr(services.repository, "get_paper_campaign", None)
         list_trades = getattr(
             services.repository,
@@ -1148,15 +1152,15 @@ def create_api_app(services: ApiServices):
                 status_code=503,
                 detail="paper trading storage is unavailable",
             )
-        campaign = getter()
-        if campaign is None:
+        campaign_record = getter(campaign)
+        if campaign_record is None:
             raise HTTPException(
                 status_code=404,
                 detail="paper trading campaign not found",
             )
         try:
             items = list_trades(
-                campaign["campaign_id"],
+                campaign_record["campaign_id"],
                 limit=limit,
                 offset=offset,
             )

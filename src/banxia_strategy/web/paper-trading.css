@@ -10,6 +10,39 @@
   padding-bottom: 56px;
 }
 
+.campaign-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-top: 14px;
+  border: 1px solid var(--ink);
+  background: var(--white);
+}
+
+.campaign-tab {
+  padding: 7px 18px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: 600 12px/1 var(--mono);
+  cursor: pointer;
+}
+
+.campaign-tab:last-child {
+  border-right: 0;
+}
+
+.campaign-tab[aria-selected="true"] {
+  background: var(--ink);
+  color: var(--white);
+}
+
+.campaign-tab:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
 .campaign-overview {
   padding: 24px 0 0;
   border-top: 1px solid var(--ink);

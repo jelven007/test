@@ -8,9 +8,9 @@
     <title>模拟盘 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260926.1">
     <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
-    <link rel="stylesheet" href="/paper-trading.css?v=20261003.1">
+    <link rel="stylesheet" href="/paper-trading.css?v=20261003.2">
     <script src="/auth.js?v=20260927.1" defer></script>
-    <script src="/paper-trading.js?v=20261003.1" defer></script>
+    <script src="/paper-trading.js?v=20261003.2" defer></script>
   </head>
   <body class="paper-trading-body">
     <header class="topbar paper-trading-topbar">
@@ -35,8 +35,12 @@
       <header class="page-header">
         <div class="page-header-copy">
           <h1>模拟盘验证</h1>
-          <p>按冻结的一进二弱转强规则，累计 30 笔新增样本。</p>
+          <p id="campaign-tagline">按冻结的一进二弱转强规则，累计 30 笔新增样本。</p>
           <p class="page-header-meta">活动 <code id="campaign-code">读取中</code> · 始于 <code id="campaign-start">—</code></p>
+        </div>
+        <div class="campaign-switch" role="tablist" aria-label="模拟盘活动切换">
+          <button type="button" class="campaign-tab" role="tab" aria-selected="true" data-campaign="first-board-positive-v1">一进二 V1</button>
+          <button type="button" class="campaign-tab" role="tab" aria-selected="false" data-campaign="fusion-l7-v1">Fusion L7 V1</button>
         </div>
       </header>
 
@@ -83,11 +87,7 @@
           <h2 id="execution-rules-title">冻结执行规则</h2>
           <p>活动期间不随生产策略调整；达到 30 笔后停止新增仓位。</p>
         </div>
-        <ol>
-          <li><span>D1</span><strong>首板筛选</strong><p>换手率 3%–15%，首封不晚于 10:30。</p></li>
-          <li><span>D2</span><strong>确认入场</strong><p>开盘 0.5%–5%，首分钟涨幅 ≥ 6.5%，09:43 前出现触板成交窗口。</p></li>
-          <li><span>D3</span><strong>隔日退出</strong><p>达到 +5.1% 止盈，否则 14:55 强制退出。</p></li>
-        </ol>
+        <ol id="execution-rules-list"></ol>
       </section>
 
       <section class="paper-ledger" aria-labelledby="paper-ledger-title">

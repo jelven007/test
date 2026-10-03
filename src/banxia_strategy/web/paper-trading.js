@@ -1,5 +1,28 @@
 const byId = (id) => document.getElementById(id);
 
+const campaignCatalog = {
+  "first-board-positive-v1": {
+    label: "一进二 V1",
+    tagline: "按冻结的一进二弱转强规则，累计 30 笔新增样本。",
+    rules: [
+      { phase: "D1", title: "首板筛选", detail: "换手率 3%–15%，首封不晚于 10:30。" },
+      { phase: "D2", title: "确认入场", detail: "开盘 0.5%–5%，首分钟涨幅 ≥ 6.5%，09:43 前出现触板成交窗口。" },
+      { phase: "D3", title: "隔日退出", detail: "达到 +5.1% 止盈，否则 14:55 强制退出。" },
+    ],
+  },
+  "fusion-l7-v1": {
+    label: "Fusion L7 V1",
+    tagline: "半夏+炒股养家融合 L2+L4+L5+L6 筛选 · Layer 7 TP5%/SL2.5% 分钟级退出。",
+    rules: [
+      { phase: "D1", title: "L2+L4 筛选", detail: "全市场扫描，排除 ST/*ST，D1 涨幅 ≥ 3%，Rule A：末 30 分钟 r_last30 < -0.5% 且 close_loc < 0.75。" },
+      { phase: "D2", title: "L6 跳空闸门", detail: "开盘跳空 ∈ [-1%, +4%] 才入场，09:31 开盘价成交，单票 20% 仓位，并发 ≤ 5。" },
+      { phase: "D2–D3", title: "L7 动态退出", detail: "TP +5.0% 或 SL -2.5%，分钟级首触即卖，未触发则 D3 09:31 开盘强制退出。" },
+    ],
+  },
+};
+const defaultCampaignCode = "first-board-positive-v1";
+let currentCampaignCode = defaultCampaignCode;
+
 const tradeStatus = {
   entry_data_missing: { label: "入场数据缺失", tone: "waiting", group: "missing" },
   rejected: { label: "未成交", tone: "neutral", group: "rejected" },
@@ -247,10 +270,13 @@ async function loadPaperTrading() {
   byId("paper-status").classList.remove("is-error");
   byId("paper-error").hidden = true;
 
+  const code = encodeURIComponent(currentCampaignCode);
   try {
     const [summary, tradePayload] = await Promise.all([
-      fetchJson("/api/v1/paper-trading"),
-      fetchJson("/api/v1/paper-trading/trades?limit=200&offset=0"),
+      fetchJson(`/api/v1/paper-trading?campaign=${code}`),
+      fetchJson(
+        `/api/v1/paper-trading/trades?limit=200&offset=0&campaign=${code}`,
+      ),
     ]);
     trades = Array.isArray(tradePayload.items) ? tradePayload.items : [];
     renderSummary(summary);
@@ -276,6 +302,42 @@ async function loadPaperTrading() {
   }
 }
 
+function renderRules() {
+  const list = byId("execution-rules-list");
+  if (!list) return;
+  const definition = campaignCatalog[currentCampaignCode];
+  list.replaceChildren();
+  for (const rule of definition.rules) {
+    const li = document.createElement("li");
+    const phase = document.createElement("span");
+    phase.textContent = rule.phase;
+    const title = document.createElement("strong");
+    title.textContent = rule.title;
+    const detail = document.createElement("p");
+    detail.textContent = rule.detail;
+    li.append(phase, title, detail);
+    list.append(li);
+  }
+}
+
+function selectCampaign(code) {
+  if (!(code in campaignCatalog) || code === currentCampaignCode) return;
+  currentCampaignCode = code;
+  const definition = campaignCatalog[code];
+  byId("campaign-tagline").textContent = definition.tagline;
+  for (const tab of document.querySelectorAll(".campaign-tab")) {
+    const active = tab.dataset.campaign === code;
+    tab.setAttribute("aria-selected", String(active));
+  }
+  trades = [];
+  renderRules();
+  loadPaperTrading();
+}
+
+renderRules();
+for (const tab of document.querySelectorAll(".campaign-tab")) {
+  tab.addEventListener("click", () => selectCampaign(tab.dataset.campaign));
+}
 byId("trade-status-filter").addEventListener("change", renderTrades);
 byId("refresh-paper").addEventListener("click", loadPaperTrading);
 loadPaperTrading();

@@ -28,10 +28,10 @@ class FakeRepository:
     def ready(self):
         return True
 
-    def get_paper_campaign(self):
+    def get_paper_campaign(self, code="first-board-positive-v1"):
         return {
-            "campaign_id": "campaign-1",
-            "code": "first-board-positive-v1",
+            "campaign_id": f"campaign-{code}",
+            "code": code,
         }
 
     def paper_campaign_summary(self, campaign_id):
@@ -651,7 +651,26 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(trades.json()["items"][0]["status"], "open")
         self.assertEqual(
             self.services.repository.paper_trade_query,
-            ("campaign-1", 20, 0),
+            ("campaign-first-board-positive-v1", 20, 0),
+        )
+
+    def test_paper_trading_summary_filters_by_campaign(self):
+        summary = self.client.get(
+            "/api/v1/paper-trading?campaign=fusion-l7-v1"
+        )
+        trades = self.client.get(
+            "/api/v1/paper-trading/trades?limit=20&offset=0"
+            "&campaign=fusion-l7-v1"
+        )
+
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(
+            summary.json()["campaign_id"], "campaign-fusion-l7-v1"
+        )
+        self.assertEqual(trades.status_code, 200)
+        self.assertEqual(
+            self.services.repository.paper_trade_query,
+            ("campaign-fusion-l7-v1", 20, 0),
         )
 
     def test_monitor_kline_returns_selected_stock_period_from_mootdx(self):
@@ -1350,8 +1369,8 @@ class ApiV1Test(unittest.TestCase):
 
         paper_trading = self.client.get("/paper-trading")
         self.assertEqual(paper_trading.status_code, 200)
-        self.assertIn("/paper-trading.css?v=20261003.1", paper_trading.text)
-        self.assertIn("/paper-trading.js?v=20261003.1", paper_trading.text)
+        self.assertIn("/paper-trading.css?v=20261003.2", paper_trading.text)
+        self.assertIn("/paper-trading.js?v=20261003.2", paper_trading.text)
 
         dashboard = self.client.get("/plan")
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store")

@@ -115,6 +115,7 @@ class PaperTradingWorker:
         output_dir: Path,
         logger: Any = None,
         report_generator: Optional[Callable[[str, date], None]] = None,
+        campaign_code: str = CAMPAIGN_CODE,
     ):
         self.repository = repository
         self.provider = provider
@@ -123,9 +124,10 @@ class PaperTradingWorker:
         self.output_dir = output_dir
         self.logger = logger
         self.report_generator = report_generator
+        self.campaign_code = campaign_code
 
     def run(self, target_date: date) -> PaperRunResult:
-        campaign = self.repository.ensure_paper_campaign(CAMPAIGN_CODE)
+        campaign = self.repository.ensure_paper_campaign(self.campaign_code)
         sessions = sorted(
             session
             for session in self.provider.trading_dates()
