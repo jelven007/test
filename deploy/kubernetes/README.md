@@ -88,7 +88,7 @@ kubectl apply --server-side --dry-run=server -f /tmp/banxia-vke.yaml
 kubectl apply --server-side -f /tmp/banxia-vke.yaml
 ```
 
-首次部署先创建 Secret、StorageClass 和数据服务，完成旧 ECS 数据恢复后
+首次部署先创建 Secret、StorageClass 和数据服务，完成生产数据恢复后
 再应用完整清单。不要在恢复前启动采集器、消费者或定时任务。完整清单应用后，
 等待数据库迁移和目录初始化完成，再检查工作负载：
 
@@ -124,8 +124,8 @@ kubectl -n banxia get albinstance banxia-alb
 kubectl -n banxia get ingress banxia-api
 ```
 
-入口由 ALB 终止 TLS，后端 Service 使用 HTTP `80 -> 8765`。不要再把域名
-解析到旧 ECS 公网 IP。
+入口由 ALB 终止 TLS，后端 Service 使用 HTTP `80 -> 8765`。域名只应解析到
+当前 ALB 公网地址。
 
 ## 可选监控
 

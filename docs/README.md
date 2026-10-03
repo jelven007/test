@@ -39,6 +39,8 @@
 | [当前生产技术方案](13-current-production-solution.md) | VKE 生产拓扑、实时与日终数据链路、存储归属、发布流程和当前风险 |
 | [涨停档案](14-limit-up-history.md) | 历史涨停指标、组合筛选、月度统计及个股排行 |
 | [2026 年涨停后隔日交易复盘](15-limit-up-t1-2026.md) | 10 点前买入、第三天卖出且净收益超过 5% 的复盘与时间留出检验 |
+| [火山引擎生产资源清单](16-volcengine-resource-inventory.md) | VKE、计算、存储、网络、入口、监控和计费方式 |
+| [一进二策略参数修正](17-first-board-second-board-revision.md) | 公开资料复核、时间顺序验证、参数取舍与收益边界 |
 | [隔日交易研究复现方法](t1-research-method.md) | 成交代理、费用、数据核验、规则冻结及逐笔清单 |
 
 ## 规范优先级

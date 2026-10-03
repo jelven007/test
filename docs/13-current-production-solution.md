@@ -258,13 +258,13 @@ Topic 保留用于短期重放，不是长期备份。
 首次部署顺序：
 
 1. 创建 Namespace、Secret、StorageClass 和数据 StatefulSet。
-2. 从旧 ECS 恢复 PostgreSQL、Redis、Kafka、ClickHouse 和 MinIO 数据。
+2. 恢复 PostgreSQL、Redis、Kafka、ClickHouse 和 MinIO 生产数据。
 3. 运行 PostgreSQL/ClickHouse Migration Job。
 4. 运行 Kafka Topic、MinIO Bucket 和策略目录 Bootstrap Job。
 5. 启动 Flink 并提交实时特征作业。
 6. 启动采集、消费者、API 和报告 CronJob。
 7. 验证工作负载、数据数量、Flink 作业、HTTPS 和页面。
-8. DNS 切换到 ALB；旧 ECS 保留为临时回滚源。
+8. DNS 切换到 ALB。
 
 应用镜像必须使用 Git Commit 标签，禁止 `latest`。当前运行镜像为 `59f59a6`，
 生产部署清单最终化提交为 `901e063`。
@@ -290,7 +290,6 @@ ServiceMonitor/PodMonitor，需集群安装 Prometheus Operator 后单独应用�
 - PostgreSQL、Redis、Kafka、ClickHouse、MinIO 数据迁移完成。
 - Flink 作业 `banxia-realtime-features-v1` 为 `RUNNING`，24/24 个任务处于运行状态。
 - 生产入口 <https://shanao.asia> 可用。
-- 旧 ECS `118.196.108.119` 暂时保留用于回滚，不再是生产域名入口。
 
 ## 11. 当前风险与演进方向
 
