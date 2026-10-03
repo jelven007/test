@@ -49,7 +49,10 @@ STRATEGY_LIST_PARAMETER_KEYS = (
     "maximum_float_market_cap_cny",
     "minimum_industry_limit_up_count",
     "maximum_first_seal_time",
+    "minimum_first_minute_change_pct",
     "entry_cutoff_time",
+    "next_day_take_profit_pct",
+    "next_day_force_exit_time",
 )
 
 STOCK_SORT_FIELDS = {
@@ -1110,6 +1113,56 @@ def create_api_app(services: ApiServices):
         if result is None:
             raise HTTPException(status_code=404, detail="此交易日暂无记录")
         return result
+
+    @app.get("/api/v1/paper-trading")
+    def paper_trading_summary():
+        getter = getattr(services.repository, "get_paper_campaign", None)
+        summarize = getattr(
+            services.repository,
+            "paper_campaign_summary",
+            None,
+        )
+        if getter is None or summarize is None:
+            raise HTTPException(
+                status_code=503,
+                detail="paper trading storage is unavailable",
+            )
+        campaign = getter()
+        if campaign is None:
+            raise HTTPException(
+                status_code=404,
+                detail="paper trading campaign not found",
+            )
+        return summarize(campaign["campaign_id"])
+
+    @app.get("/api/v1/paper-trading/trades")
+    def paper_trading_trades(limit: int = 100, offset: int = 0):
+        getter = getattr(services.repository, "get_paper_campaign", None)
+        list_trades = getattr(
+            services.repository,
+            "list_paper_trades",
+            None,
+        )
+        if getter is None or list_trades is None:
+            raise HTTPException(
+                status_code=503,
+                detail="paper trading storage is unavailable",
+            )
+        campaign = getter()
+        if campaign is None:
+            raise HTTPException(
+                status_code=404,
+                detail="paper trading campaign not found",
+            )
+        try:
+            items = list_trades(
+                campaign["campaign_id"],
+                limit=limit,
+                offset=offset,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"items": items, "limit": limit, "offset": offset}
 
     @app.get("/api/v1/strategy-config")
     def strategy_config(strategy_id: Optional[str] = None):

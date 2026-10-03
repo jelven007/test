@@ -70,6 +70,23 @@ class StorageSchemaTest(unittest.TestCase):
             migration,
         )
 
+    def test_paper_campaign_schema_freezes_strategy_and_sample_target(self):
+        migration = (
+            ROOT / "migrations/postgres/020_paper_trading_campaign.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("paper-first-board-positive-v1", migration)
+        self.assertIn(
+            "CREATE TABLE IF NOT EXISTS banxia.paper_campaign",
+            migration,
+        )
+        self.assertIn(
+            "CREATE TABLE IF NOT EXISTS banxia.paper_trade",
+            migration,
+        )
+        self.assertIn("target_sample_count", migration)
+        self.assertIn("'exit_unfilled'", migration)
+
     def test_clickhouse_schema_contains_history_tables_and_ttls(self):
         schema = "\n".join(
             path.read_text(encoding="utf-8")
@@ -134,6 +151,7 @@ class ComposeLayoutTest(unittest.TestCase):
             "projection-worker",
             "report-worker",
             "report-scheduler",
+            "paper-trading",
             "market-reference-sync",
             "api",
             "prometheus",
@@ -151,7 +169,7 @@ class ComposeLayoutTest(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("BANXIA_API_PORT=8765", env_example)
-        for service in ("report-worker", "report-scheduler"):
+        for service in ("report-worker", "report-scheduler", "paper-trading"):
             self.assertEqual(services[service]["network_mode"], "host")
             self.assertIn(
                 "127.0.0.1",
@@ -175,6 +193,11 @@ class ComposeLayoutTest(unittest.TestCase):
         self.assertIn("market.feature.realtime.v1", sql)
         self.assertIn("sector_rise_ratio", sql)
         self.assertIn("baseline_volume", sql)
+        self.assertIn("first_minute_change_pct", sql)
+        self.assertIn(
+            "SUBSTRING(payload_bar_time, 12, 5) = '09:31'",
+            sql,
+        )
         self.assertIn("EXACTLY_ONCE", sql)
         self.assertIn(
             "'sink.transactional-id-prefix' = 'banxia-flink-sector-v1'",
@@ -203,6 +226,7 @@ class ComposeLayoutTest(unittest.TestCase):
         }
         self.assertEqual(cron_jobs["report-worker-1630"], "30 16 * * 1-5")
         self.assertEqual(cron_jobs["report-worker-2330"], "30 23 * * 1-5")
+        self.assertEqual(cron_jobs["paper-trading-1650"], "50 16 * * 1-5")
         self.assertIn("readinessProbe", text)
         self.assertIn("resources:", text)
 

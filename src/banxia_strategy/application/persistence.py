@@ -237,6 +237,7 @@ def _bar_event(
         "close": close,
         "volume": candle.get("volume") or 0,
         "amount_cny": candle.get("amount") or 0,
+        "previous_close": stock.get("quote", {}).get("previous_close"),
         "source_time": bar_time,
         "collected_at": collected_at,
         "revision": int(collected_at.timestamp() * 1000),

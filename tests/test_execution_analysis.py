@@ -66,14 +66,39 @@ class ExecutionClassificationTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["first_touch_time"], "09:36:00")
         self.assertEqual(result["buy_window_time"], "09:37:00")
-        self.assertEqual(result["confirmation_time"], "09:38:00")
+        self.assertEqual(result["confirmation_time"], "09:36:00")
         self.assertEqual(result["break_count_before_cutoff"], 1)
+
+    def test_buy_window_does_not_depend_on_a_future_reseal(self):
+        data = minutes({5: 11.0, 6: 10.9})
+
+        result = classify_candidate(
+            candidate(),
+            "2026-09-24",
+            bar(close=10.8),
+            data,
+        )
+
+        self.assertTrue(result["buyable"])
+        self.assertFalse(result["success"])
+        self.assertEqual(result["buy_window_time"], "09:37:00")
+        self.assertEqual(result["reason_code"], "buyable_but_failed")
 
     def test_breach_before_touch_permanently_rejects_candidate(self):
         data = minutes({2: 9.99, 5: 11.0, 6: 10.9, 7: 11.0})
         result = classify_candidate(candidate(), "2026-09-24", bar(), data)
         self.assertFalse(result["buyable"])
         self.assertEqual(result["reason_code"], "breached_reference")
+
+    def test_first_minute_strength_gate_rejects_weak_start(self):
+        item = candidate()
+        item["plan"]["minimum_first_minute_change_pct"] = 6.5
+        data = minutes({0: 10.64, 5: 11.0, 6: 10.9, 7: 11.0})
+
+        result = classify_candidate(item, "2026-09-24", bar(), data)
+
+        self.assertFalse(result["buyable"])
+        self.assertEqual(result["reason_code"], "first_minute_weak")
 
     def test_touch_at_ten_oclock_is_outside_entry_window(self):
         data = minutes({29: 11.0, 30: 10.9, 31: 11.0})

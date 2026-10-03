@@ -84,7 +84,13 @@ function renderStrategyList() {
       node("td", formatRange(parameters.minimum_float_market_cap_cny, parameters.maximum_float_market_cap_cny, 1e8, " 亿")),
       node("td", `≥ ${parameters.minimum_industry_limit_up_count} 只`),
       node("td", parameters.maximum_first_seal_time),
+      node("td", parameters.minimum_first_minute_change_pct > -20
+        ? `≥ ${parameters.minimum_first_minute_change_pct}%`
+        : "关闭"),
       node("td", parameters.entry_cutoff_time),
+      node("td", parameters.next_day_take_profit_pct > 0
+        ? `${parameters.next_day_take_profit_pct}% / ${parameters.next_day_force_exit_time}`
+        : "动态"),
       node("td", item.is_initial ? "初始策略" : parent?.name || (item.parent_strategy_id ? "已删除策略" : "历史策略"), "strategy-origin"),
     );
     row.children[2].append(status);
@@ -93,7 +99,7 @@ function renderStrategyList() {
   if (!strategies.length) {
     const row = node("tr");
     const cell = node("td", "暂无策略。");
-    cell.colSpan = 12;
+    cell.colSpan = 14;
     row.append(cell);
     body.append(row);
   }

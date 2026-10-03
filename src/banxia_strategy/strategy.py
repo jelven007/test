@@ -567,18 +567,33 @@ class StrategyEngine:
                     f"{cfg.entry_cutoff_time}前未封稳"
                 ),
             }[profile.entry_mode]
+            if cfg.strategy_archetype == "first_board_second_board":
+                mode_invalidation = (
+                    f"{cfg.entry_cutoff_time}前未出现触板后的有量开板成交窗口"
+                )
             invalidation = (
                 f"竞价低于{cfg.reject_open_min_pct:g}%或高于{cfg.reject_open_max_pct:g}%、"
                 f"竞价不在{cfg.entry_open_min_pct:g}%～{cfg.entry_open_max_pct:g}%合格区间、"
-                f"板块上涨比例低于{cfg.minimum_sector_rise_ratio:.0%}、"
+                + (
+                    f"09:31首分钟涨幅低于{cfg.minimum_first_minute_change_pct:g}%、"
+                    if cfg.minimum_first_minute_change_pct > -20
+                    else ""
+                )
+                + f"板块上涨比例低于{cfg.minimum_sector_rise_ratio:.0%}、"
                 + ("当日跌破昨日收盘价、" if cfg.reject_below_previous_close else "")
                 + f"{mode_invalidation}则放弃"
+            )
+            target_exit = (
+                f"下一交易日预挂成本后净收益{cfg.next_day_take_profit_pct:g}%止盈，"
+                f"未成交则{cfg.next_day_force_exit_time}起人工退出；"
+                if cfg.next_day_take_profit_pct > 0
+                else "次日无溢价或板块退潮优先退出；"
             )
             exit_plan = (
                 f"单票不超过{self.config.position_limit_pct}%；成本回撤"
                 f"{self.config.hard_stop_pct:.1f}%触发风险预警；"
                 "A股T+1，当日新买仓位不能当日卖出，最早下一交易日按可成交情况退出；"
-                "次日无溢价或板块退潮优先退出，跳空和跌停可能导致损失超过预警阈值"
+                f"{target_exit}跳空和跌停可能导致损失超过预警阈值"
             )
             plan = {
                 **cfg.entry_rules(),
@@ -630,12 +645,19 @@ class StrategyEngine:
             f"{cfg.minimum_sector_sample_size}个有效样本，上涨比例不低于"
             f"{cfg.minimum_sector_rise_ratio:.0%}；"
         )
+        if cfg.minimum_first_minute_change_pct > -20:
+            prefix += (
+                f"09:31首分钟涨幅不低于"
+                f"{cfg.minimum_first_minute_change_pct:g}%；"
+            )
         if entry_mode == "reclaim_open":
             condition = "放量重新站上开盘价并保持在昨收之上"
         elif entry_mode == "breakout":
             condition = "放量突破计划关键价"
         elif entry_mode == "momentum_breakout":
             condition = "分钟量比达到1.5倍且涨幅达到5%"
+        elif cfg.strategy_archetype == "first_board_second_board":
+            condition = "首次触板后出现有成交量且不低于昨收的开板窗口"
         else:
             condition = (
                 f"放量封板或炸板不超过{cfg.manual_max_intraday_breaks}次后"

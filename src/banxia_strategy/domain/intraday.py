@@ -238,6 +238,25 @@ def evaluate(
             f"已到{cutoff}或之后，按原计划不新增一进二仓位。",
             "muted",
         )
+    minimum_first_minute = float(
+        plan.get("minimum_first_minute_change_pct", -20.0)
+    )
+    if minimum_first_minute > -20:
+        first_minute_change = quote.get("first_minute_change_pct")
+        if first_minute_change is None:
+            return advice(
+                DecisionState.WATCH,
+                "观察 · 等待首分钟",
+                "09:31 首根完整分钟线尚不可用，不提前确认入场。",
+            )
+        if float(first_minute_change) < minimum_first_minute:
+            return advice(
+                DecisionState.OUTSIDE_OPEN,
+                "不参与 · 首分钟强度不足",
+                f"09:31 首分钟涨幅{float(first_minute_change):+.2f}%"
+                f"低于{minimum_first_minute:g}%门槛。",
+                "muted",
+            )
     entry_mode = str(plan.get("entry_mode") or "board_reseal")
     if entry_mode != "board_reseal":
         volume_ratio = quote.get("minute_volume_ratio")

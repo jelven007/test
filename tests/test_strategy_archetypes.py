@@ -45,8 +45,11 @@ class StrategyArchetypeRegistryTest(unittest.TestCase):
         )
 
         self.assertEqual(config.minimum_turnover_pct, 3.0)
-        self.assertEqual(config.maximum_turnover_pct, 18.0)
+        self.assertEqual(config.maximum_turnover_pct, 15.0)
         self.assertEqual(config.maximum_first_seal_time, "10:30")
+        self.assertEqual(config.minimum_first_minute_change_pct, 6.5)
+        self.assertEqual(config.entry_cutoff_time, "09:43")
+        self.assertEqual(config.next_day_take_profit_pct, 5.1)
 
     def test_representative_candidate_predicates_cover_all_archetypes(self):
         market = {"score": 40}

@@ -66,7 +66,43 @@ class StrategyEventProcessor:
     def process(self, consumed: ConsumedEvent) -> Optional[EventEnvelope]:
         source = consumed.event
         if source.event_type == MARKET_FEATURE_REALTIME:
-            self.features[str(source.payload["symbol"])] = source.payload
+            symbol = str(source.payload["symbol"])
+            previous = self.features.get(symbol, {})
+            incoming_date = source.payload.get("trade_date")
+            previous_date = previous.get("trade_date")
+            if (
+                incoming_date is not None
+                and previous_date is not None
+                and str(incoming_date) != str(previous_date)
+            ):
+                previous = {}
+            merged = {
+                **previous,
+                **{
+                    key: value
+                    for key, value in source.payload.items()
+                    if value is not None
+                },
+            }
+            previous_attributes = previous.get("attributes", {})
+            incoming_attributes = source.payload.get("attributes", {})
+            merged["attributes"] = {
+                **(
+                    previous_attributes
+                    if isinstance(previous_attributes, Mapping)
+                    else {}
+                ),
+                **{
+                    key: value
+                    for key, value in (
+                        incoming_attributes.items()
+                        if isinstance(incoming_attributes, Mapping)
+                        else ()
+                    )
+                    if value is not None
+                },
+            }
+            self.features[symbol] = merged
             return None
         if source.event_type != MARKET_QUOTE_SNAPSHOT:
             return None
@@ -115,6 +151,10 @@ class StrategyEventProcessor:
         quote["minute_volume_ratio"] = feature.get(
             "minute_volume_ratio",
             feature_attributes.get("minute_volume_ratio"),
+        )
+        quote["first_minute_change_pct"] = feature.get(
+            "first_minute_change_pct",
+            feature_attributes.get("first_minute_change_pct"),
         )
         proposed = evaluate(
             quote,

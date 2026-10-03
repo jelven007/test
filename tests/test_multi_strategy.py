@@ -43,6 +43,9 @@ class MultiStrategyTest(unittest.TestCase):
         def factory():
             yield self.connection
         self.repository = PostgresStorage(connection_factory=factory)
+        self.repository.save_trading_sessions(
+            ["2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24"]
+        )
         self.a = self.repository.create_strategy("隔离测试 A", {})
         self.b = self.repository.create_strategy("隔离测试 B", {})
         self.report = StrategyEngine(FakeProvider(), StrategyConfig()).run(date(2026, 9, 23)).to_dict()
@@ -245,7 +248,7 @@ class MultiStrategyTest(unittest.TestCase):
             listed = client.get("/api/v1/strategies").json()["items"]
             summary = next(item for item in listed if item["strategy_id"] == sid)["key_parameters"]
             self.assertEqual(summary["minimum_score"], 70)
-            self.assertEqual(summary["entry_cutoff_time"], "10:00")
+            self.assertEqual(summary["entry_cutoff_time"], "09:43")
             self.assertEqual(client.patch(
                 f"/api/v1/strategies/{sid}", json={"name": "API 副本已重命名"},
             ).status_code, 200)

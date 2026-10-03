@@ -70,9 +70,11 @@ CREATE TABLE realtime_sector_features (
       change_pct DOUBLE,
       sector STRING,
       sector_sample_size BIGINT,
-      sector_rise_ratio DOUBLE
+      sector_rise_ratio DOUBLE,
+      first_minute_change_pct DOUBLE
     >,
     minute_volume_ratio DOUBLE,
+    first_minute_change_pct DOUBLE,
     sector_rise_ratio DOUBLE,
     data_state STRING,
     max_input_time TIMESTAMP_LTZ(3)
@@ -109,9 +111,11 @@ CREATE TABLE realtime_volume_features (
       change_pct DOUBLE,
       sector STRING,
       sector_sample_size BIGINT,
-      sector_rise_ratio DOUBLE
+      sector_rise_ratio DOUBLE,
+      first_minute_change_pct DOUBLE
     >,
     minute_volume_ratio DOUBLE,
+    first_minute_change_pct DOUBLE,
     sector_rise_ratio DOUBLE,
     data_state STRING,
     max_input_time TIMESTAMP_LTZ(3)
@@ -145,6 +149,7 @@ CREATE TABLE market_bars (
     `close` DOUBLE,
     volume DOUBLE,
     amount_cny DOUBLE,
+    previous_close DOUBLE,
     source_time STRING,
     collected_at STRING,
     revision BIGINT
@@ -239,8 +244,10 @@ SELECT
       END,
       symbols.industry,
       sectors.sample_size,
-      sectors.rise_ratio
+      sectors.rise_ratio,
+      CAST(NULL AS DOUBLE)
     ),
+    CAST(NULL AS DOUBLE),
     CAST(NULL AS DOUBLE),
     sectors.rise_ratio,
     'fresh',
@@ -260,6 +267,9 @@ WITH volume_windows AS (
     payload.trade_date AS trade_date,
     payload.symbol AS symbol,
     bar_ts AS bar_time,
+    payload.bar_time AS payload_bar_time,
+    payload.`close` AS close_price,
+    payload.previous_close AS previous_close,
     payload.volume AS volume,
     CASE
       WHEN COUNT(payload.volume) OVER (
@@ -309,11 +319,23 @@ SELECT
       CAST(NULL AS DOUBLE),
       CAST(NULL AS STRING),
       CAST(NULL AS BIGINT),
-      CAST(NULL AS DOUBLE)
+      CAST(NULL AS DOUBLE),
+      CASE
+        WHEN SUBSTRING(payload_bar_time, 12, 5) = '09:31'
+         AND previous_close > 0
+        THEN ROUND((close_price / previous_close - 1) * 100, 4)
+        ELSE CAST(NULL AS DOUBLE)
+      END
     ),
     CASE
       WHEN baseline_volume > 0
       THEN ROUND(CAST(volume AS DOUBLE) / baseline_volume, 4)
+      ELSE CAST(NULL AS DOUBLE)
+    END,
+    CASE
+      WHEN SUBSTRING(payload_bar_time, 12, 5) = '09:31'
+       AND previous_close > 0
+      THEN ROUND((close_price / previous_close - 1) * 100, 4)
       ELSE CAST(NULL AS DOUBLE)
     END,
     CAST(NULL AS DOUBLE),

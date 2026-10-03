@@ -18,6 +18,7 @@ from ..strategy_archetypes import INITIAL_STRATEGY_CODE
 from .market_reference import MarketReferenceMixin
 from .identity_settings import IdentitySettingsMixin
 from .limit_up_history import LimitUpHistoryMixin
+from .paper_trading import PaperTradingMixin
 from .strategy_catalog import StrategyCatalogMixin
 
 
@@ -55,6 +56,7 @@ class PostgresStorage(
     IdentitySettingsMixin,
     LimitUpHistoryMixin,
     MarketReferenceMixin,
+    PaperTradingMixin,
     StrategyCatalogMixin,
 ):
     """Transactional report catalog and decision repository."""

@@ -170,6 +170,19 @@ def normalize_quote(raw, bars, now, plan):
         baseline = sum(candle["volume"] for candle in candles[-6:-1]) / 5
         if baseline > 0:
             ratio = round(candles[-1]["volume"] / baseline, 2)
+    opening_minute = next(
+        (
+            candle
+            for candle in candles
+            if datetime.fromisoformat(candle["time"]).strftime("%H:%M") == "09:31"
+        ),
+        None,
+    )
+    first_minute_change = (
+        round((opening_minute["close"] / reference - 1) * 100, 4)
+        if opening_minute is not None and reference
+        else None
+    )
     return {
         "price": price if price > 0 else None,
         "open": opening if opening > 0 else None,
@@ -191,6 +204,7 @@ def normalize_quote(raw, bars, now, plan):
         "bar_time": candles[-1]["time"] if candles else None,
         "fresh": fresh, "candles": candles,
         "minute_volume_ratio": ratio,
+        "first_minute_change_pct": first_minute_change,
     }
 
 

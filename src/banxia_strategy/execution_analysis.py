@@ -25,9 +25,9 @@ METRIC = {
     "strict_buyable": [
         "次日开盘涨幅位于计划竞价区间",
         "首次入场确认前未跌破昨收",
-        "10:00 前先触及涨停确认",
+        "计划截止时间前先触及涨停确认",
         "确认后开板并出现有成交量的非涨停分钟，证明存在可买窗口",
-        "10:00 前再次触及涨停，且炸板次数不超过计划上限",
+        "截至可买窗口的炸板次数不超过计划上限；不使用之后是否回封的信息",
     ],
     "limitation": (
         "mootdx 历史分钟线没有逐笔委托、买卖队列和板块分钟成分数据；"
@@ -163,8 +163,23 @@ def classify_candidate(
         )
         return result
     result["auction_qualified"] = True
+    first_minute_change = 100 * (float(prices[0]) / reference - 1)
+    result["first_minute_change_pct"] = round(first_minute_change, 3)
+    minimum_first_minute = float(
+        plan.get("minimum_first_minute_change_pct", -20.0)
+    )
+    if first_minute_change < minimum_first_minute:
+        result.update(
+            reason_code="first_minute_weak",
+            reason=(
+                f"09:31 首分钟涨幅 {first_minute_change:+.2f}%"
+                f"低于 {minimum_first_minute:g}% 门槛"
+            ),
+        )
+        return result
 
-    cutoff = _cutoff_index(str(plan.get("entry_cutoff_time", "10:00")))
+    cutoff_time = str(plan.get("entry_cutoff_time", "10:00"))
+    cutoff = _cutoff_index(cutoff_time)
     window_prices = prices[:cutoff]
     window_volumes = volumes[:cutoff]
     if entry_mode != "board_reseal":
@@ -237,7 +252,10 @@ def classify_candidate(
         if _at_price_limit(price, limit_price)
     ]
     if not touch_indices:
-        result.update(reason_code="no_early_touch", reason="10:00 前未触及涨停确认")
+        result.update(
+            reason_code="no_early_touch",
+            reason=f"{cutoff_time} 前未触及涨停确认",
+        )
         return result
     first_touch = touch_indices[0]
     result["first_touch_time"] = _minute_label(first_touch)
@@ -267,37 +285,39 @@ def classify_candidate(
     if buy_index is None:
         result.update(
             reason_code="no_proven_fill_window",
-            reason="触板后 10:00 前无有量开板分钟，无法证明排队可成交",
+            reason=(
+                f"触板后 {cutoff_time} 前无有量开板分钟，"
+                "无法证明排队可成交"
+            ),
         )
         return result
     result["buy_window_time"] = _minute_label(buy_index)
+    result["buy_index"] = buy_index
+    result["buy_sample_price"] = float(window_prices[buy_index])
 
-    confirmation = next(
-        (
-            index for index in range(buy_index + 1, len(window_prices))
-            if _at_price_limit(window_prices[index], limit_price)
-        ),
-        None,
-    )
-    if confirmation is None:
-        result.update(reason_code="no_reseal", reason="出现可买窗口后 10:00 前未回封")
-        return result
-    result["confirmation_time"] = _minute_label(confirmation)
+    result["confirmation_time"] = _minute_label(first_touch)
 
-    flags = [_at_price_limit(price, limit_price) for price in window_prices[: confirmation + 1]]
+    flags = [_at_price_limit(price, limit_price) for price in window_prices[: buy_index + 1]]
     breaks = sum(flags[index - 1] and not flags[index] for index in range(1, len(flags)))
     result["break_count_before_cutoff"] = breaks
     maximum_breaks = int(plan.get("manual_max_intraday_breaks", 1))
     if breaks > maximum_breaks:
         result.update(
             reason_code="too_many_breaks",
-            reason=f"10:00 前炸板 {breaks} 次，超过计划上限 {maximum_breaks} 次",
+            reason=(
+                f"{cutoff_time} 前炸板 {breaks} 次，"
+                f"超过计划上限 {maximum_breaks} 次"
+            ),
         )
         return result
 
     result.update(
         reason_code="success" if closed_limit else "buyable_but_failed",
-        reason="可买后收盘封板" if closed_limit else "已证明可买，但收盘未封板",
+        reason=(
+            "触板后出现有量开板窗口，且收盘封板"
+            if closed_limit
+            else "触板后出现有量开板窗口，但收盘未封板"
+        ),
         buyable=True,
         success=bool(closed_limit),
     )

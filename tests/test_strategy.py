@@ -155,6 +155,29 @@ class StrategyEngineTest(unittest.TestCase):
 
         self.assertEqual([item.code for item in report.candidates], ["600001"])
 
+    def test_positive_return_profile_describes_executable_entry_and_exit(self):
+        config = StrategyConfig(
+            lookback_sessions=3,
+            minimum_score=0,
+            maximum_first_seal_time="10:30",
+            maximum_turnover_pct=15,
+            ideal_turnover_max_pct=15,
+            minimum_first_minute_change_pct=6.5,
+            entry_cutoff_time="09:43",
+            next_day_take_profit_pct=5.1,
+            next_day_force_exit_time="14:55",
+        )
+
+        candidate = StrategyEngine(FakeProvider(), config).run(
+            date(2026, 9, 23)
+        ).candidates[0]
+
+        self.assertIn("09:31首分钟涨幅不低于6.5%", candidate.entry_trigger)
+        self.assertIn("触板后出现有成交量", candidate.entry_trigger)
+        self.assertIn("09:43前未出现触板后", candidate.invalidation)
+        self.assertIn("净收益5.1%止盈", candidate.exit_plan)
+        self.assertIn("14:55起人工退出", candidate.exit_plan)
+
     def test_report_files_are_consistent(self):
         report = StrategyEngine(FakeProvider(), self.config).run(date(2026, 9, 23))
         with tempfile.TemporaryDirectory() as directory:

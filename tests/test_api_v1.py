@@ -28,6 +28,33 @@ class FakeRepository:
     def ready(self):
         return True
 
+    def get_paper_campaign(self):
+        return {
+            "campaign_id": "campaign-1",
+            "code": "first-board-positive-v1",
+        }
+
+    def paper_campaign_summary(self, campaign_id):
+        return {
+            "campaign_id": campaign_id,
+            "status": "running",
+            "target_sample_count": 30,
+            "completed_sample_count": 0,
+            "remaining_sample_count": 30,
+            "positive_count": 0,
+            "positive_rate_pct": None,
+        }
+
+    def list_paper_trades(self, campaign_id, *, limit, offset):
+        self.paper_trade_query = (campaign_id, limit, offset)
+        return [
+            {
+                "paper_trade_id": "trade-1",
+                "symbol": "002635",
+                "status": "open",
+            }
+        ]
+
     def get_active_plan(self, trade_date=None):
         if trade_date not in (None, "2026-09-24"):
             return None
@@ -611,6 +638,21 @@ class ApiV1Test(unittest.TestCase):
         report = self.client.get("/api/v1/reports/2026-09-23").json()
         self.assertEqual(report["candidates"][0]["symbol"], "002635")
         self.assertEqual(report["strategy_version"], "v2")
+
+    def test_paper_trading_summary_and_trade_list(self):
+        summary = self.client.get("/api/v1/paper-trading")
+        trades = self.client.get(
+            "/api/v1/paper-trading/trades?limit=20&offset=0"
+        )
+
+        self.assertEqual(summary.status_code, 200)
+        self.assertEqual(summary.json()["remaining_sample_count"], 30)
+        self.assertEqual(trades.status_code, 200)
+        self.assertEqual(trades.json()["items"][0]["status"], "open")
+        self.assertEqual(
+            self.services.repository.paper_trade_query,
+            ("campaign-1", 20, 0),
+        )
 
     def test_monitor_kline_returns_selected_stock_period_from_mootdx(self):
         response = self.client.get(
@@ -1359,6 +1401,7 @@ class ApiV1Test(unittest.TestCase):
         item = listed.json()["items"][0]
         self.assertEqual(item["key_parameters"]["minimum_score"], 58)
         self.assertEqual(item["key_parameters"]["maximum_first_seal_time"], "15:00")
+        self.assertEqual(item["key_parameters"]["minimum_first_minute_change_pct"], -20)
         self.assertEqual(item["key_parameters"]["entry_cutoff_time"], "10:00")
         self.assertNotIn("config", item)
         self.assertTrue(item["is_initial"])

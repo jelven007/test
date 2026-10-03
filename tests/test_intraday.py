@@ -39,7 +39,7 @@ def raw_quote():
 def bars():
     return [
         {"datetime": f"2026-09-24 09:{minute}", "close": 17.5, "vol": 100}
-        for minute in range(39, 45)
+        for minute in (31, 40, 41, 42, 43, 44)
     ]
 
 
@@ -89,6 +89,45 @@ class RulesTest(unittest.TestCase):
             with self.subTest(fields=fields):
                 self.assertEqual(self.decision(raw={**raw_quote(), **fields})["state"], state)
 
+    def test_first_minute_strength_gate_is_required_before_entry(self):
+        plan = {
+            **self.plan,
+            "minimum_first_minute_change_pct": 6.5,
+            "entry_cutoff_time": "09:50",
+        }
+        quote = {
+            "price": 17.5,
+            "open": 17.1,
+            "high": 17.6,
+            "low": 17.0,
+            "previous_close": 16.79,
+            "change_pct": 4.23,
+            "open_change_pct": 1.85,
+            "first_minute_change_pct": None,
+            "fresh": True,
+            "bid": 17.49,
+            "ask": 17.5,
+            "bid_volume": 100,
+        }
+
+        waiting = evaluate(quote, plan, self.now, "2026-09-24")
+        rejected = evaluate(
+            {**quote, "first_minute_change_pct": 6.49},
+            plan,
+            self.now,
+            "2026-09-24",
+        )
+        accepted = evaluate(
+            {**quote, "first_minute_change_pct": 6.5},
+            plan,
+            self.now,
+            "2026-09-24",
+        )
+
+        self.assertEqual(waiting["state"], "watch")
+        self.assertEqual(rejected["state"], "outside_open")
+        self.assertEqual(accepted["state"], "watch")
+
     def test_sealed_snapshot_requires_manual_verification(self):
         raw = {**raw_quote(), "price": 18.47, "bid1": 18.47, "ask1": 0}
         self.assertEqual(self.decision(raw=raw)["state"], "sealed")
@@ -130,7 +169,24 @@ class RulesTest(unittest.TestCase):
             {"datetime": "2026-09-24 09:44", "close": 17.5, "vol": 200}
         ], self.now, self.plan)
         self.assertEqual(q["minute_volume_ratio"], 2)
+        self.assertEqual(q["first_minute_change_pct"], 4.2287)
         self.assertEqual(plan_for({**candidate(), "latest_price": 23})["auction_low"], 23.12)
+
+    def test_first_minute_strength_does_not_use_oldest_available_bar(self):
+        q = normalize_quote(
+            raw_quote(),
+            [
+                {
+                    "datetime": "2026-09-24 09:40",
+                    "close": 18.0,
+                    "vol": 100,
+                }
+            ],
+            self.now,
+            self.plan,
+        )
+
+        self.assertIsNone(q["first_minute_change_pct"])
 
     def test_non_board_entry_modes_require_price_and_volume_confirmation(self):
         quote = {

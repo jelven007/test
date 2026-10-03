@@ -17,6 +17,7 @@ tags:
   - name: Reports
   - name: Strategies
   - name: StrategyRuns
+  - name: PaperTrading
   - name: Research
 paths:
   /api/v1/health/live:
@@ -466,6 +467,62 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StrategyHistoryJob"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/paper-trading:
+    get:
+      tags: [PaperTrading]
+      operationId: getPaperTradingSummary
+      summary: 查询一进二新增样本模拟盘进度
+      responses:
+        "200":
+          description: 模拟盘活动及累计结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaperCampaignSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /api/v1/paper-trading/trades:
+    get:
+      tags: [PaperTrading]
+      operationId: listPaperTrades
+      summary: 查询模拟盘逐笔观察与交易记录
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: 模拟盘逐笔记录
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, limit, offset]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PaperTrade"
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -1396,7 +1453,10 @@ components:
         - maximum_float_market_cap_cny
         - minimum_industry_limit_up_count
         - maximum_first_seal_time
+        - minimum_first_minute_change_pct
         - entry_cutoff_time
+        - next_day_take_profit_pct
+        - next_day_force_exit_time
       properties:
         minimum_score:
           type: number
@@ -1417,7 +1477,14 @@ components:
         maximum_first_seal_time:
           type: string
           pattern: '^\d{2}:\d{2}$'
+        minimum_first_minute_change_pct:
+          type: number
         entry_cutoff_time:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+        next_day_take_profit_pct:
+          type: number
+        next_day_force_exit_time:
           type: string
           pattern: '^\d{2}:\d{2}$'
     RenameStrategyRequest:
@@ -1529,6 +1596,119 @@ components:
             actuals:
               type: object
               additionalProperties: true
+    PaperCampaignSummary:
+      type: object
+      required:
+        - campaign_id
+        - code
+        - strategy_id
+        - started_on
+        - target_sample_count
+        - status
+        - completed_sample_count
+        - remaining_sample_count
+        - positive_count
+        - open_trade_count
+        - missing_data_count
+        - rejected_count
+      properties:
+        campaign_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        strategy_id:
+          type: string
+          format: uuid
+        started_on:
+          type: string
+          format: date
+        target_sample_count:
+          type: integer
+        status:
+          type: string
+          enum: [running, completed, cancelled]
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_sample_count:
+          type: integer
+        remaining_sample_count:
+          type: integer
+        positive_count:
+          type: integer
+        positive_rate_pct:
+          type: number
+          nullable: true
+        wilson_95_lower_pct:
+          type: number
+          nullable: true
+        wilson_95_upper_pct:
+          type: number
+          nullable: true
+        open_trade_count:
+          type: integer
+        missing_data_count:
+          type: integer
+        rejected_count:
+          type: integer
+        average_net_return_pct:
+          type: number
+          nullable: true
+        worst_net_return_pct:
+          type: number
+          nullable: true
+    PaperTrade:
+      type: object
+      required:
+        - paper_trade_id
+        - plan_id
+        - symbol
+        - name
+        - reference_date
+        - entry_date
+        - status
+      additionalProperties: true
+      properties:
+        paper_trade_id:
+          type: string
+          format: uuid
+        plan_id:
+          type: string
+          format: uuid
+        symbol:
+          $ref: "#/components/schemas/Symbol"
+        name:
+          type: string
+        industry:
+          type: string
+          nullable: true
+        reference_date:
+          type: string
+          format: date
+        entry_date:
+          type: string
+          format: date
+        exit_date:
+          type: string
+          format: date
+          nullable: true
+        status:
+          type: string
+          enum:
+            - entry_data_missing
+            - rejected
+            - open
+            - exit_data_missing
+            - closed
+            - exit_unfilled
+        net_return_pct:
+          type: number
+          nullable: true
+        positive:
+          type: boolean
+          nullable: true
     ResearchSummary:
       type: object
       required: [run_id, start_date, end_date, created_at]

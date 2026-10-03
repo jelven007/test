@@ -48,8 +48,12 @@ class StrategyConfigTest(unittest.TestCase):
         expected = asdict(StrategyConfig())
         expected.update({
             "minimum_turnover_pct": 3.0,
-            "maximum_turnover_pct": 18.0,
+            "maximum_turnover_pct": 15.0,
+            "ideal_turnover_max_pct": 15.0,
             "maximum_first_seal_time": "10:30",
+            "minimum_first_minute_change_pct": 6.5,
+            "entry_cutoff_time": "09:43",
+            "next_day_take_profit_pct": 5.1,
         })
         self.assertEqual(
             StrategyConfigStore(config_path).payload()["config"],
@@ -65,6 +69,7 @@ class StrategyConfigTest(unittest.TestCase):
             {"entry_open_min_pct": 8}, {"entry_cutoff_time": "12:00"},
             {"entry_cutoff_time": "25:00"}, {"report_schedule": "16:20,16:20"},
             {"maximum_first_seal_time": "09:29"},
+            {"next_day_force_exit_time": "15:00"},
             {"report_schedule": ""}, {"quote_interval_seconds": 0},
             {"minimum_amount_cny": 2e9}, {"main_board_only": False},
             {"minimum_sector_sample_size": 1}, {"unknown": 1},

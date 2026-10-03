@@ -22,12 +22,20 @@ class RealtimeFeatureProcessor:
             lambda: deque(maxlen=max_bars)
         )
         self._quotes: Dict[str, Mapping[str, object]] = {}
+        self._first_minute_changes: Dict[str, tuple[str, float]] = {}
 
     def process(self, event: EventEnvelope) -> Optional[EventEnvelope]:
         if event.event_type not in {MARKET_QUOTE_SNAPSHOT, MARKET_BAR_1M}:
             return None
         payload = event.payload
         symbol = str(payload["symbol"])
+        trade_date = str(payload["trade_date"])
+        source_time = datetime.fromisoformat(
+            str(payload.get("source_time") or payload.get("bar_time"))
+        )
+        first_minute = self._first_minute_changes.get(symbol)
+        if first_minute is not None and first_minute[0] != trade_date:
+            self._first_minute_changes.pop(symbol, None)
         attributes: Dict[str, object] = {}
         value = None
         if event.event_type == MARKET_BAR_1M:
@@ -40,6 +48,26 @@ class RealtimeFeatureProcessor:
                 if baseline > 0:
                     value = round(volume / baseline, 4)
                     attributes["minute_volume_ratio"] = value
+            quote = self._quotes.get(symbol, {})
+            previous_close = payload.get("previous_close") or (
+                quote.get("previous_close")
+                if str(quote.get("trade_date")) == trade_date
+                else None
+            )
+            close = payload.get("close")
+            if (
+                source_time.hour == 9
+                and source_time.minute == 31
+                and close is not None
+                and previous_close
+            ):
+                self._first_minute_changes[symbol] = (
+                    trade_date,
+                    round(
+                        (float(close) / float(previous_close) - 1) * 100,
+                        4,
+                    ),
+                )
         else:
             self._quotes[symbol] = payload
             price = payload.get("price")
@@ -67,9 +95,9 @@ class RealtimeFeatureProcessor:
                 attributes["sector_rise_ratio"] = (
                     round(rising / len(peers), 4) if peers else None
                 )
-        source_time = datetime.fromisoformat(
-            str(payload.get("source_time") or payload.get("bar_time"))
-        )
+        first_minute = self._first_minute_changes.get(symbol)
+        if first_minute is not None and first_minute[0] == trade_date:
+            attributes["first_minute_change_pct"] = first_minute[1]
         computed_at = datetime.now(timezone.utc)
         age = (computed_at - source_time.astimezone(timezone.utc)).total_seconds()
         data_state = "fresh" if age <= 10 else "delayed" if age <= 180 else "stale"
@@ -87,6 +115,9 @@ class RealtimeFeatureProcessor:
             "value": value,
             "attributes": attributes,
             "minute_volume_ratio": attributes.get("minute_volume_ratio"),
+            "first_minute_change_pct": attributes.get(
+                "first_minute_change_pct"
+            ),
             "sector_rise_ratio": attributes.get("sector_rise_ratio"),
             "data_state": data_state,
             "max_input_time": source_time,

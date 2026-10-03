@@ -23,6 +23,7 @@ from .application.features import FeatureWorker
 from .application.limit_up_history_sync import LimitUpHistorySync
 from .application.market_sink import MarketSinkWorker
 from .application.outbox import OutboxRelay
+from .application.paper_trading import PaperTradingWorker
 from .application.plans import ActivePlan, load_active_plan
 from .application.projection import ProjectionWorker
 from .application.reference_sync import MarketReferenceSync
@@ -43,6 +44,7 @@ from .contracts.topics import (
     STRATEGY_DECISION,
     STRATEGY_PLAN_CREATED,
 )
+from .mootdx_provider import MootdxProvider
 from .observability import configure_logging, start_metrics_server
 from .web_server import ReportStore
 from .ports.storage import ReportIdentity
@@ -388,6 +390,36 @@ def run_report_worker(settings: RuntimeSettings, logger: Any) -> None:
     _generate_report(settings, logger, requested_date)
 
 
+def run_paper_trading(settings: RuntimeSettings, logger: Any) -> None:
+    target_date = (
+        date.fromisoformat(settings.report_date)
+        if settings.report_date
+        else datetime.now(SHANGHAI).date()
+    )
+    repository = _postgres(settings)
+    try:
+        result = PaperTradingWorker(
+            repository=repository,
+            provider=MootdxProvider(),
+            storage_settings=settings.storage,
+            strategy_config_path=settings.strategy_config_path,
+            output_dir=settings.report_output_dir,
+            logger=logger,
+        ).run(target_date)
+    finally:
+        repository.close()
+    logger.info(
+        "paper trading reconciliation completed",
+        extra={
+            "trade_date": result.trade_date,
+            "plan_generated": result.plan_generated,
+            "entries_processed": result.entries_processed,
+            "exits_processed": result.exits_processed,
+            **dict(result.summary),
+        },
+    )
+
+
 def _generate_scheduled_report(
     settings: RuntimeSettings,
     logger: Any,
@@ -646,7 +678,6 @@ def run_report_scheduler(settings: RuntimeSettings, logger: Any) -> None:
                         calendar_date != now.date()
                         and now.timestamp() - calendar_attempt >= 300
                     ):
-                        from .mootdx_provider import MootdxProvider
                         calendar_attempt = now.timestamp()
                         try:
                             repository.save_trading_sessions(
@@ -876,6 +907,7 @@ RUNNERS = {
     "strategy-engine": run_strategy_engine,
     "outbox-relay": run_outbox_relay,
     "projection-worker": run_projection_worker,
+    "paper-trading": run_paper_trading,
     "report-worker": run_report_worker,
     "report-scheduler": run_report_scheduler,
     "market-reference-sync": run_market_reference_sync,

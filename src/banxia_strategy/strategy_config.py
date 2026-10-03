@@ -115,6 +115,15 @@ class StrategyConfig:
     entry_open_max_pct: float = param(5.0, "竞价合格涨幅上限", "entry", -10, 10, "%")
     reject_open_min_pct: float = param(-2.0, "开盘直接放弃下限", "entry", -10, 10, "%")
     reject_open_max_pct: float = param(7.0, "开盘直接放弃上限", "entry", -10, 10, "%")
+    minimum_first_minute_change_pct: float = param(
+        -20.0,
+        "首分钟涨幅下限",
+        "entry",
+        -20,
+        20,
+        "%",
+        note="09:31 首根完整分钟线相对昨日收盘价的涨幅；-20% 表示不启用。",
+    )
     entry_cutoff_time: str = param("10:00", "入场截止时间", "entry", kind="time", note="到达此时刻即停止新增仓位。")
     reject_below_previous_close: bool = param(True, "跌破昨日收盘价即放弃", "entry")
     minimum_sector_sample_size: int = param(2, "板块确认最小样本", "entry", 2, 100, "只")
@@ -125,6 +134,22 @@ class StrategyConfig:
     position_limit_pct: int = param(20, "单票仓位上限", "risk", 1, 100, "%")
     portfolio_risk_limit_pct: int = param(60, "组合仓位上限", "risk", 1, 100, "%")
     hard_stop_pct: float = param(4.0, "成本回撤预警线", "risk", 0.1, 100, "%", note="写入退出计划，需人工核验持仓成本并执行；T+1 约束不变。")
+    next_day_take_profit_pct: float = param(
+        0.0,
+        "隔日净止盈目标",
+        "risk",
+        0,
+        20,
+        "%",
+        note="大于 0 时按实际成交价和费用计算目标卖价；系统不自动下单。",
+    )
+    next_day_force_exit_time: str = param(
+        "14:55",
+        "隔日强制退出时间",
+        "risk",
+        kind="time",
+        note="止盈未成交时开始人工退出；受跌停和流动性约束。",
+    )
     report_schedule: str = param("16:30,23:30", "工作日报告时间", "runtime", kind="schedule", note="多个时间用英文逗号分隔；非交易日跳过。")
     quote_interval_seconds: float = param(1.0, "交易时段行情间隔", "runtime", 1, 60, "秒")
     bar_interval_seconds: float = param(60.0, "分钟线采集间隔", "runtime", 1, 600, "秒")
@@ -186,6 +211,8 @@ class StrategyConfig:
             errors["maximum_first_seal_time"] = "首板最晚首次封板时间应在09:30至15:00之间"
         if not "09:30" <= values["late_seal_time"] <= "15:00":
             errors["late_seal_time"] = "尾盘封板起点应在09:30至15:00之间"
+        if not "14:30" <= values["next_day_force_exit_time"] < "15:00":
+            errors["next_day_force_exit_time"] = "隔日强制退出时间应在14:30至15:00之前"
         for keys in [
             ("market_breadth_weight", "market_break_weight", "market_height_weight"),
             tuple(key for key in descriptors if key.endswith("_weight") and key not in {
@@ -213,7 +240,9 @@ class StrategyConfig:
             **{key: getattr(self, key) for key in (
                 "entry_cutoff_time", "reject_below_previous_close", "minimum_sector_sample_size",
                 "minimum_sector_rise_ratio", "near_limit_pct", "quote_max_age_seconds",
-                "manual_max_intraday_breaks", "hard_stop_pct",
+                "manual_max_intraday_breaks", "minimum_first_minute_change_pct",
+                "hard_stop_pct", "next_day_take_profit_pct",
+                "next_day_force_exit_time",
             )},
         }
 

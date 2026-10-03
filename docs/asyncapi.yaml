@@ -250,6 +250,7 @@ components:
         - close
         - volume
         - amount_cny
+        - previous_close
         - revision
       properties:
         trade_date:
@@ -274,6 +275,9 @@ components:
         amount_cny:
           type: number
           minimum: 0
+        previous_close:
+          type: number
+          exclusiveMinimum: 0
         revision:
           type: integer
           minimum: 1
@@ -322,6 +326,8 @@ components:
           type: object
           additionalProperties: true
         minute_volume_ratio:
+          type: number
+        first_minute_change_pct:
           type: number
         sector_rise_ratio:
           type: number

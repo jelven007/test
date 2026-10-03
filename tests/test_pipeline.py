@@ -183,6 +183,58 @@ class CollectorTest(unittest.TestCase):
 
 
 class FeatureProcessorTest(unittest.TestCase):
+    def test_opening_minute_change_is_retained_for_later_features(self):
+        processor = RealtimeFeatureProcessor()
+        quote = event(
+            "market.quote.snapshot.v1",
+            {
+                "trade_date": "2026-09-24",
+                "symbol": "002635",
+                "industry": "电子",
+                "source_time": "2026-09-24T09:30:10+08:00",
+                "collected_at": "2026-09-24T09:30:10+08:00",
+                "price": 10.5,
+                "previous_close": 10.0,
+            },
+        )
+        processor.process(quote)
+        opening_bar = event(
+            "market.bar.1m.v1",
+            {
+                "trade_date": "2026-09-24",
+                "symbol": "002635",
+                "bar_time": "2026-09-24T09:31:00+08:00",
+                "source_time": "2026-09-24T09:31:00+08:00",
+                "close": 10.65,
+                "previous_close": 10.0,
+                "volume": 100,
+            },
+        )
+
+        first = processor.process(opening_bar)
+        later = processor.process(quote)
+
+        self.assertEqual(first.payload["first_minute_change_pct"], 6.5)
+        self.assertEqual(later.payload["first_minute_change_pct"], 6.5)
+
+    def test_opening_minute_does_not_depend_on_cross_topic_order(self):
+        processor = RealtimeFeatureProcessor()
+        opening_bar = event(
+            "market.bar.1m.v1",
+            {
+                "trade_date": "2026-09-24",
+                "symbol": "002635",
+                "bar_time": "2026-09-24T09:31:00+08:00",
+                "close": 10.65,
+                "previous_close": 10.0,
+                "volume": 100,
+            },
+        )
+
+        feature = processor.process(opening_bar)
+
+        self.assertEqual(feature.payload["first_minute_change_pct"], 6.5)
+
     def test_volume_window_and_sector_breadth_are_deterministic(self):
         processor = RealtimeFeatureProcessor()
         first = event(
@@ -239,6 +291,69 @@ class FakeDecisionRepository:
 
 
 class StrategyProcessorTest(unittest.TestCase):
+    def test_feature_updates_merge_without_erasing_opening_minute(self):
+        processor = StrategyEventProcessor(
+            repository=FakeDecisionRepository(),
+            plan_id="plan",
+            strategy_version_id="version",
+            candidates=[],
+        )
+        opening = event(
+            "market.feature.realtime.v1",
+            {
+                "trade_date": "2026-09-24",
+                "symbol": "002635",
+                "first_minute_change_pct": 6.5,
+                "sector_rise_ratio": None,
+                "attributes": {"first_minute_change_pct": 6.5},
+            },
+        )
+        sector = event(
+            "market.feature.realtime.v1",
+            {
+                "trade_date": "2026-09-24",
+                "symbol": "002635",
+                "first_minute_change_pct": None,
+                "sector_rise_ratio": 0.75,
+                "attributes": {
+                    "first_minute_change_pct": None,
+                    "sector_sample_size": 4,
+                },
+            },
+        )
+
+        processor.process(
+            ConsumedEvent(opening.event_type, 1, 1, "002635", opening)
+        )
+        processor.process(
+            ConsumedEvent(sector.event_type, 1, 2, "002635", sector)
+        )
+
+        merged = processor.features["002635"]
+        self.assertEqual(merged["first_minute_change_pct"], 6.5)
+        self.assertEqual(merged["sector_rise_ratio"], 0.75)
+        self.assertEqual(
+            merged["attributes"],
+            {"first_minute_change_pct": 6.5, "sector_sample_size": 4},
+        )
+        next_day = event(
+            "market.feature.realtime.v1",
+            {
+                "trade_date": "2026-09-25",
+                "symbol": "002635",
+                "first_minute_change_pct": None,
+                "sector_rise_ratio": 0.5,
+                "attributes": {"sector_sample_size": 2},
+            },
+        )
+        processor.process(
+            ConsumedEvent(next_day.event_type, 1, 3, "002635", next_day)
+        )
+        self.assertNotIn(
+            "first_minute_change_pct",
+            processor.features["002635"],
+        )
+
     def test_quote_is_applied_with_real_kafka_coordinates(self):
         repository = FakeDecisionRepository()
         candidate = {

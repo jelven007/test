@@ -402,6 +402,42 @@ spec:
             - name: reports
               persistentVolumeClaim: {claimName: banxia-reports}
 ---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paper-trading-1650
+  namespace: banxia
+spec:
+  schedule: "50 16 * * 1-5"
+  timeZone: Asia/Shanghai
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 10
+  failedJobsHistoryLimit: 10
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels: {app: banxia-paper-trading, component: job}
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: paper-trading
+              image: banxia-strategy:REPLACE_WITH_GIT_COMMIT
+              args: [paper-trading]
+              envFrom:
+                - configMapRef: {name: banxia-runtime}
+                - secretRef: {name: banxia-secrets}
+              resources:
+                requests: {cpu: 250m, memory: 256Mi}
+                limits: {cpu: "2", memory: 1Gi}
+              volumeMounts:
+                - {name: reports, mountPath: /app/reports}
+          volumes:
+            - name: reports
+              persistentVolumeClaim: {claimName: banxia-reports}
+---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
