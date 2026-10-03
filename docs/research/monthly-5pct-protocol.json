@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "objective": {
+    "monthly_portfolio_return_pct": 5.0,
+    "target_month_hit_rate": 0.8,
+    "no_trade_month_is_failure": true
+  },
+  "universe": {
+    "source": "mootdx",
+    "markets": ["sh", "sz"],
+    "boards": ["main", "gem", "star"],
+    "exclude_current_name_contains": ["ST", "退"],
+    "minimum_d1_change_pct": 5.0,
+    "minimum_d1_amount_cny": 100000000,
+    "candidate_collection_per_day": {
+      "top_by_change": 5,
+      "top_by_amount": 5,
+      "top_by_composite_score": 5
+    }
+  },
+  "execution": {
+    "position_fraction": 0.2,
+    "maximum_positions": 5,
+    "lot_shares": 100,
+    "minimum_shares_by_board": {
+      "main": 100,
+      "gem": 100,
+      "star": 200
+    },
+    "commission_rate_each_side": 0.0003,
+    "minimum_commission_each_side_cny": 5,
+    "transfer_fee_each_side": 0.00001,
+    "sell_stamp_tax": 0.0005,
+    "slippage_each_side": 0.001,
+    "maximum_participation_in_observed_minute_volume": 0.01,
+    "buy_deadline_exclusive": "10:00",
+    "buy_limit_vs_d1_close": 1.19,
+    "cancel_buy_if_observed_price_below_d1_close": true,
+    "target_net_pct": 5.1,
+    "position_cny": 100000
+  },
+  "selection": {
+    "train": ["2025-01-01", "2025-06-30"],
+    "validation": ["2025-07-01", "2025-12-31"],
+    "holdout": ["2026-01-01", "2026-09-30"],
+    "freeze_before_holdout": true,
+    "minimum_train_month_hit_rate": 0.8,
+    "minimum_validation_month_hit_rate": 0.8
+  },
+  "known_limitations": [
+    "mootdx does not provide point-in-time historical ST names; exclusion uses the current collected name",
+    "the current security catalog creates survivorship and delisting bias",
+    "minute samples do not prove an individual order queue fill",
+    "D2 and D3 corporate actions are excluded when mootdx action data identifies them",
+    "the 2026 period has been inspected in earlier project research and is not a pristine unseen holdout",
+    "monthly probability estimates use few calendar months and cannot prove a future 80 percent probability"
+  ]
+}
