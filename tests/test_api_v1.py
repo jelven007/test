@@ -1348,6 +1348,11 @@ class ApiV1Test(unittest.TestCase):
         self.assertEqual(limit_ups.status_code, 200)
         self.assertIn("/limit-ups.js?v=20261002.2", limit_ups.text)
 
+        paper_trading = self.client.get("/paper-trading")
+        self.assertEqual(paper_trading.status_code, 200)
+        self.assertIn("/paper-trading.css?v=20261003.1", paper_trading.text)
+        self.assertIn("/paper-trading.js?v=20261003.1", paper_trading.text)
+
         dashboard = self.client.get("/plan")
         self.assertEqual(dashboard.headers["Cache-Control"], "no-store")
         self.assertIn("/styles.css?v=20260926.1", dashboard.text)

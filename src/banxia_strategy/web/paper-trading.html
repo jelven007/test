@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#f6f7f5">
+    <title>模拟盘 · 一进二</title>
+    <link rel="stylesheet" href="/styles.css?v=20260926.1">
+    <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
+    <link rel="stylesheet" href="/paper-trading.css?v=20261003.1">
+    <script src="/auth.js?v=20260927.1" defer></script>
+    <script src="/paper-trading.js?v=20261003.1" defer></script>
+  </head>
+  <body class="paper-trading-body">
+    <header class="topbar paper-trading-topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">BX</span>
+        <strong>一进二</strong>
+      </a>
+      <span class="app-source">前向验证 · 不自动下单</span>
+    </header>
+    <nav class="primary-nav" aria-label="主导航">
+      <a href="/">首页</a>
+      <a href="/strategy">策略管理</a>
+      <a href="/plan">次日计划</a>
+      <a href="/monitor">当日实盘</a>
+      <a href="/paper-trading" aria-current="page">模拟盘</a>
+      <a href="/limit-ups">涨停档案</a>
+      <a href="/research">回测优化</a>
+      <a href="/settings">系统设置</a>
+    </nav>
+
+    <main class="page-main paper-trading-main">
+      <header class="page-header">
+        <div class="page-header-copy">
+          <h1>模拟盘验证</h1>
+          <p>按冻结的一进二弱转强规则，累计 30 笔新增样本。</p>
+          <p class="page-header-meta">活动 <code id="campaign-code">读取中</code> · 始于 <code id="campaign-start">—</code></p>
+        </div>
+      </header>
+
+      <p id="paper-status" class="ui-status" role="status" aria-live="polite">正在读取模拟盘进度…</p>
+      <div id="paper-error" class="notice is-error" role="alert" hidden></div>
+
+      <section class="campaign-overview" aria-labelledby="campaign-progress-title">
+        <div class="progress-heading">
+          <div>
+            <span id="campaign-state" class="status-badge">读取中</span>
+            <h2 id="campaign-progress-title"><strong id="progress-completed">—</strong><span> / </span><span id="progress-target">30</span> 笔有效结算</h2>
+          </div>
+          <p id="progress-caption">等待第一笔新增样本</p>
+        </div>
+        <div
+          id="sample-progress"
+          class="sample-progress"
+          role="progressbar"
+          aria-label="模拟盘样本进度"
+          aria-valuemin="0"
+          aria-valuemax="30"
+          aria-valuenow="0"
+        >
+          <span></span>
+        </div>
+        <dl class="result-metrics">
+          <div><dt>已结算</dt><dd id="metric-completed">—</dd></div>
+          <div><dt>剩余</dt><dd id="metric-remaining">—</dd></div>
+          <div class="metric-primary"><dt>正收益率</dt><dd id="metric-positive-rate">—</dd></div>
+          <div><dt>Wilson 95%</dt><dd id="metric-wilson">—</dd></div>
+          <div><dt>平均净收益</dt><dd id="metric-average">—</dd></div>
+          <div><dt>最差净收益</dt><dd id="metric-worst">—</dd></div>
+        </dl>
+        <div class="campaign-counters" aria-label="模拟盘运行状态">
+          <span>持仓中 <strong id="counter-open">—</strong></span>
+          <span>数据异常 <strong id="counter-missing">—</strong></span>
+          <span>未成交 <strong id="counter-rejected">—</strong></span>
+          <span>最近刷新 <strong id="last-refreshed">—</strong></span>
+        </div>
+      </section>
+
+      <section class="execution-rules" aria-labelledby="execution-rules-title">
+        <div class="rules-heading">
+          <h2 id="execution-rules-title">冻结执行规则</h2>
+          <p>活动期间不随生产策略调整；达到 30 笔后停止新增仓位。</p>
+        </div>
+        <ol>
+          <li><span>D1</span><strong>首板筛选</strong><p>换手率 3%–15%，首封不晚于 10:30。</p></li>
+          <li><span>D2</span><strong>确认入场</strong><p>开盘 0.5%–5%，首分钟涨幅 ≥ 6.5%，09:43 前出现触板成交窗口。</p></li>
+          <li><span>D3</span><strong>隔日退出</strong><p>达到 +5.1% 止盈，否则 14:55 强制退出。</p></li>
+        </ol>
+      </section>
+
+      <section class="paper-ledger" aria-labelledby="paper-ledger-title">
+        <div class="ledger-heading">
+          <div>
+            <h2 id="paper-ledger-title">逐笔记录</h2>
+            <p id="ledger-count">共 0 笔记录</p>
+          </div>
+          <div class="ledger-actions">
+            <label for="trade-status-filter">状态</label>
+            <select id="trade-status-filter" class="ui-control">
+              <option value="all">全部</option>
+              <option value="open">持仓中</option>
+              <option value="settled">已结算</option>
+              <option value="rejected">未成交</option>
+              <option value="missing">数据异常</option>
+            </select>
+            <button id="refresh-paper" class="ui-button" type="button">刷新</button>
+          </div>
+        </div>
+        <div class="paper-table-wrap" tabindex="0" role="region" aria-label="模拟盘逐笔记录">
+          <table class="paper-table data-table">
+            <thead>
+              <tr>
+                <th>入场日</th>
+                <th>股票</th>
+                <th>状态</th>
+                <th>模拟入场</th>
+                <th>止盈目标</th>
+                <th>模拟退出</th>
+                <th>净收益</th>
+                <th>结果说明</th>
+              </tr>
+            </thead>
+            <tbody id="paper-trade-rows">
+              <tr><td class="table-empty" colspan="8">正在读取逐笔记录…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="table-footnote">模拟成交按分钟行情与冻结规则推演，不代表券商真实成交、排队结果或可实现收益。</p>
+      </section>
+    </main>
+  </body>
+</html>

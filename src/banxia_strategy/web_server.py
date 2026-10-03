@@ -185,6 +185,8 @@ def make_handler(store: ReportStore, static_root: Path, monitor=None, config_sto
                 path = "/index.html"
             elif path in ("/monitor", "/monitor/"):
                 path = "/monitor.html"
+            elif path in ("/paper-trading", "/paper-trading/"):
+                path = "/paper-trading.html"
             elif path in ("/strategy", "/strategy/"):
                 path = "/strategy.html"
             elif path in ("/research", "/research/"):

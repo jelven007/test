@@ -259,11 +259,13 @@ class WebAssetTest(unittest.TestCase):
             web / "stock.html",
             web / "stock-history.html",
             web / "limit-ups.html",
+            web / "paper-trading.html",
         ]
         for page in pages:
             html = page.read_text(encoding="utf-8")
             self.assertIn("/ui-standard.css?v=20260926.2", html, page.name)
             self.assertIn('class="primary-nav"', html, page.name)
+            self.assertIn('<a href="/paper-trading"', html, page.name)
             self.assertRegex(html, r'<main[^>]*class="[^"]*page-main')
 
         for page in pages[1:]:
@@ -307,6 +309,16 @@ class WebAssetTest(unittest.TestCase):
         self.assertEqual(research_html.count('class="research-table-scroll" tabindex="0" role="region"'), 2)
         self.assertIn('data-period="year"', research_html)
         self.assertIn("成功标准：当日存在符合计划约束的严格可买窗口", research_html)
+
+        paper_html = (web / "paper-trading.html").read_text(encoding="utf-8")
+        paper_css = (web / "paper-trading.css").read_text(encoding="utf-8")
+        paper_script = (web / "paper-trading.js").read_text(encoding="utf-8")
+        self.assertIn('aria-valuemax="30"', paper_html)
+        self.assertIn('class="paper-table data-table"', paper_html)
+        self.assertIn("冻结执行规则", paper_html)
+        self.assertIn("@media (max-width: 480px)", paper_css)
+        self.assertIn('fetchJson("/api/v1/paper-trading")', paper_script)
+        self.assertIn("/api/v1/paper-trading/trades?limit=200&offset=0", paper_script)
 
     def test_plan_and_monitor_mount_account_in_dashboard_meta(self):
         web = ROOT / "src/banxia_strategy/web"
@@ -484,6 +496,7 @@ class WebAssetTest(unittest.TestCase):
             "stock.html",
             "stock-history.html",
             "limit-ups.html",
+            "paper-trading.html",
         ):
             html = (web / name).read_text(encoding="utf-8")
             self.assertIn(

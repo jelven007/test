@@ -2774,6 +2774,10 @@ def create_api_app(services: ApiServices):
     def monitor_dashboard():
         return FileResponse(static_root / "monitor.html")
 
+    @app.get("/paper-trading")
+    def paper_trading_dashboard():
+        return FileResponse(static_root / "paper-trading.html")
+
     @app.get("/strategy")
     def strategy_dashboard():
         return FileResponse(static_root / "strategy.html")

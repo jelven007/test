@@ -151,6 +151,7 @@ class SharedNavigationTest(unittest.TestCase):
             "stock-history.html",
             "limit-ups.html",
             "settings.html",
+            "paper-trading.html",
         ):
             html = (web_root / filename).read_text(encoding="utf-8")
             match = re.search(
@@ -166,7 +167,7 @@ class SharedNavigationTest(unittest.TestCase):
         self.assertEqual(blocks[0], blocks[3])
         self.assertEqual(
             blocks[0],
-            '<a href="/">首页</a> <a href="/strategy">策略管理</a> <a href="/plan">次日计划</a> <a href="/monitor">当日实盘</a> <a href="/limit-ups">涨停档案</a> <a href="/research">回测优化</a> <a href="/settings">系统设置</a>',
+            '<a href="/">首页</a> <a href="/strategy">策略管理</a> <a href="/plan">次日计划</a> <a href="/monitor">当日实盘</a> <a href="/paper-trading">模拟盘</a> <a href="/limit-ups">涨停档案</a> <a href="/research">回测优化</a> <a href="/settings">系统设置</a>',
         )
 
 
