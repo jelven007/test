@@ -1,4 +1,4 @@
-# mootdx 非实时数据持久化设计
+# mootdx 非实时数据持久化设计（CURRENT + TARGET）
 
 ## 1. 目标与边界
 
@@ -14,24 +14,40 @@
 不在当前范围；`quotes()`、当日 `minute()` 和当日 `transaction()` 属于实时链路，不在本文
 重复设计。
 
+### 1.1 当前实施边界
+
+截至 `2026-10-04`，本文同时包含已上线实现和目标设计，不能把后文所有表名都理解为生产表。
+
+| 阶段 | 状态 | 当前边界 |
+| --- | --- | --- |
+| 阶段一：主数据与每日快照 | `CURRENT` | PostgreSQL 迁移 `011`、`012`；`market-reference-sync`；MinIO 原始归档 |
+| 现有历史行情兼容表 | `CURRENT` | ClickHouse `market_history_bar`、`market_history_sync`，支持日/周/月/年和历史分时 |
+| 阶段二：公司资料 | `TARGET` | `finance()`、`xdxr()`、F10 当前仍由股票详情同步直读 mootdx |
+| 阶段三：历史行情模型升级 | `TARGET` | `market_kline_v2`、独立历史分时表和统一指数模型尚未部署 |
+| 阶段四：历史分笔与财务包 | `TARGET` | `transactions()`、`Affair.*` 尚未进入生产链路 |
+
+完整接口能力和项目调用位置见
+[mootdx 能力与项目使用矩阵](26-mootdx-capability-matrix.md)。
+
 ## 2. mootdx 数据能力清单
 
-| 数据域 | mootdx 接口或文件 | 主要原始字段 | 权威存储 | 同步方式 |
+| 数据域 | mootdx 接口或文件 | 主要原始字段 | 目标权威存储 | 状态 |
 | --- | --- | --- | --- | --- |
-| 沪深证券目录 | `stock_count()`、`stocks()`、`get_security_list()` | `code`、`name`、`volunit`、`decimal_point`、`pre_close`、`market` | PostgreSQL + MinIO | 每交易日完整快照 |
-| 交易日历 | 指数日线 `index()` + mootdx 休市日历 | 交易日、是否已有指数行情、推测/确认状态 | PostgreSQL | 每日校验 |
-| 通达信板块 | `block.dat`、`block_gn.dat`、`block_fg.dat`、`block_zs.dat` | `blockname`、`code` 及文件原始字段 | PostgreSQL + MinIO | 每交易日完整快照 |
-| 通达信行业 | `tdxhy.cfg` | 市场、证券代码、行业代码 | PostgreSQL + MinIO | 每交易日完整快照 |
-| 当前财务摘要 | `finance()` | 股本、资产负债、收入、利润、现金流、股东人数、更新日期等 | PostgreSQL + MinIO | 夜间分片扫描 |
-| 除权除息与股本事件 | `xdxr()` | 日期、类别、分红、配股、送转、缩股、变动前后股本等 | PostgreSQL + MinIO | 每日增量 |
-| F10 栏目目录 | `F10C()` | `name`、`filename`、`start`、`length` | PostgreSQL | 每周全量、按需刷新 |
-| F10 栏目正文 | `F10()` | GBK 文本内容 | MinIO + PostgreSQL 元数据 | 内容哈希去重 |
-| 股票 K 线 | `bars()` | OHLC、成交量、成交额、时间 | ClickHouse + MinIO | 增量水位 |
-| 指数 K 线 | `index()` / `index_bars()` | OHLC、成交量、成交额、时间 | ClickHouse + MinIO | 增量水位 |
-| 历史分时 | `minutes()` | 240 个分钟位置的价格、成交量 | ClickHouse + MinIO | 按股票和交易日 |
-| 历史分笔 | `transactions()` | 分钟时间、价格、成交量、买卖方向 | ClickHouse + MinIO | 按股票、交易日和分页位置 |
-| 历史财务包目录 | `Affair.files()` | 文件名、MD5、文件大小 | PostgreSQL | 每日检查 |
-| 历史财务报表 | `Affair.fetch()`、`Affair.parse()` | 报告期、约 264 个财务指标 | ClickHouse + MinIO | 仅下载新增或哈希变化文件 |
+| 沪深证券目录 | `stock_count()`、`stocks()`、`get_security_list()` | `code`、`name`、`volunit`、`decimal_point`、`pre_close`、`market` | PostgreSQL + MinIO | `CURRENT`，每交易日完整快照 |
+| 交易日历 | 指数日线 `index()` + mootdx 休市日历 | 交易日、是否已有指数行情、推测/确认状态 | PostgreSQL | `CURRENT` |
+| 通达信板块 | `block.dat`、`block_gn.dat`、`block_fg.dat`、`block_zs.dat` | `blockname`、`code` 及文件原始字段 | PostgreSQL + MinIO | `CURRENT` |
+| 通达信行业 | `tdxhy.cfg` | 市场、证券代码、行业代码 | PostgreSQL + MinIO | `CURRENT` |
+| 每日行情快照 | `quotes()` | 开高低现价、昨收、成交量额、源时间 | PostgreSQL + MinIO | `CURRENT` |
+| 当前财务摘要 | `finance()` | 股本、资产负债、收入、利润、现金流、股东人数、更新日期等 | PostgreSQL + MinIO | `TARGET`，当前同步直读 |
+| 除权除息与股本事件 | `xdxr()` | 日期、类别、分红、配股、送转、缩股、变动前后股本等 | PostgreSQL + MinIO | `TARGET`，当前同步直读 |
+| F10 栏目目录 | `F10C()` | `name`、`filename`、`start`、`length` | PostgreSQL | `TARGET`，当前同步直读 |
+| F10 栏目正文 | `F10()` | GBK 文本内容 | MinIO + PostgreSQL 元数据 | `TARGET`，当前同步直读 |
+| 股票 K 线 | `bars()` | OHLC、成交量、成交额、时间 | ClickHouse + MinIO | `CURRENT` 兼容表，目标模型待升级 |
+| 指数 K 线 | `index()` / `index_bars()` | OHLC、成交量、成交额、时间 | ClickHouse + MinIO | `TARGET`，当前按需读取 |
+| 历史分时 | `minutes()` | 240 个分钟位置的价格、成交量 | ClickHouse + MinIO | `CURRENT` 兼容表，目标独立分模 |
+| 历史分笔 | `transactions()` | 分钟时间、价格、成交量、买卖方向 | ClickHouse + MinIO | `TARGET` |
+| 历史财务包目录 | `Affair.files()` | 文件名、MD5、文件大小 | PostgreSQL | `TARGET` |
+| 历史财务报表 | `Affair.fetch()`、`Affair.parse()` | 报告期、动态指标集合 | ClickHouse + MinIO | `TARGET` |
 
 以下接口不形成新的持久化副本：
 
@@ -40,7 +56,9 @@
 - `Reader` 读取本地通达信文件，是另一种导入通道，不是新的数据事实来源。
 - `stock_count()` 只用于完整性校验，计数写入采集快照，不单独建立业务表。
 
-## 3. 总体存储归属
+## 3. 总体目标存储归属
+
+本节定义完成四个阶段后的归属。当前生产物理表以 1.1 节状态表和数据库 migration 为准。
 
 ### 3.1 PostgreSQL
 
@@ -136,6 +154,9 @@ Redis 清空后必须能由 PostgreSQL、ClickHouse 和 MinIO 重建。
 “当前快照”指针；查询继续读取上一个已发布版本，并返回过期状态。
 
 ## 5. PostgreSQL 数据模型
+
+`source_snapshot`、`source_sync_state`、证券、板块和每日快照表已部署；公司资料、公司行为、
+F10 与历史财务包清单是目标表。
 
 ### 5.1 证券主数据
 
@@ -259,6 +280,9 @@ MD5 用于匹配 mootdx 目录，MinIO 对象和内部幂等仍使用 SHA-256。
 
 ## 6. ClickHouse 数据模型
 
+本节均为目标模型。当前生产仍使用 `market_history_bar` 和 `market_history_sync` 兼容表，
+以及实时链路的 `market_quote_snapshot`、`market_bar_1m`、`market_feature_realtime`。
+
 ### 6.1 `market_kline_v2`
 
 统一保存股票和指数的原生 K 线：
@@ -312,10 +336,14 @@ mootdx 历史分笔只返回分钟级时间，且没有交易所成交序号。`
 - `snapshot_id`、`fetched_at`、`revision`。
 - 排序键 `(instrument_id, report_date, source_hash)`。
 
-历史财务包约有 264 个指标，字段会随版本扩展。第一阶段不使用 264 行 EAV 展开，避免把单个
-报告期膨胀为数百行；研究需要的指标通过物化视图逐步投影。
+`mootdx 0.11.7` 的财务字段标签表包含 581 个标签（含 `report_date`），但历史财务包记录宽度
+和字段集合会随文件版本变化。第一阶段不按固定 581 列建表，也不使用数百行 EAV 展开，避免
+Schema 漂移或把单个报告期膨胀为数百行；原始 zip、`metric_schema_hash` 和完整
+`metrics_json` 必须保留，研究需要的稳定指标再通过物化视图逐步投影。
 
 ## 7. MinIO 对象布局
+
+证券目录、五个参考文件、每日行情和 manifest 路径已使用；其余路径随对应阶段实施。
 
 ```text
 market-raw/
@@ -360,17 +388,18 @@ market-raw/
 
 ## 9. 查询路径
 
-改造后的读取路径：
+| 路径 | 当前读取 | 目标读取 | 状态 |
+| --- | --- | --- | --- |
+| `/api/v1/stock-blocks` | PostgreSQL 已发布板块快照 | 不变 | `CURRENT` |
+| `/api/v1/stocks` | PostgreSQL 证券和最近每日快照，Redis 覆盖盘中价格 | 不变 | `CURRENT` |
+| `/api/v1/stocks/{symbol}` | PostgreSQL 证券与行情；财务、除权除息、F10 直接读 mootdx | 全部改为 PostgreSQL/MinIO | 部分 `CURRENT` |
+| `/api/v1/stocks/{symbol}/daily-history` | PostgreSQL 每日行情快照 | 不变 | `CURRENT` |
+| `/api/v1/stocks/{symbol}/company` | mootdx `F10()` | PostgreSQL 定位版本，MinIO 返回正文 | `TARGET` |
+| `/api/v1/stocks/{symbol}/history` | ClickHouse 兼容表；缺失时回源 mootdx 并回填 | ClickHouse 统一历史模型 | `CURRENT` 兼容模式 |
+| 研究任务 | 当前行情历史 + 部分最新分类/财务 | 全部按参考时点读取版本 | 部分 `TARGET` |
 
-- `/api/v1/stock-blocks`：PostgreSQL 当前已发布板块快照。
-- `/api/v1/stocks`：PostgreSQL 证券主数据和最近每日行情，盘中价格由 Redis 覆盖。
-- `/api/v1/stocks/{symbol}`：PostgreSQL 当前财务摘要、除权除息和 F10 目录。
-- `/api/v1/stocks/{symbol}/daily-history`：PostgreSQL 每日行情快照历史。
-- `/api/v1/stocks/{symbol}/company`：PostgreSQL 定位版本，MinIO 返回正文。
-- `/api/v1/stocks/{symbol}/history`：ClickHouse。
-- 研究任务：按参考时点读取证券、板块和财务版本，按区间读取 ClickHouse 行情。
-
-API 不再因 mootdx 暂时不可用而返回整个股票目录或公司资料不可用。响应统一增加：
+证券目录、板块和最近每日行情已经不再同步依赖 mootdx；公司资料仍受 mootdx 节点可用性影响。
+目标响应统一增加：
 
 - `source_as_of`
 - `fetched_at`
@@ -378,7 +407,8 @@ API 不再因 mootdx 暂时不可用而返回整个股票目录或公司资料�
 - `data_state`
 - `stale_after`
 
-只有显式管理接口可以触发后台刷新；普通 GET 不直接访问 mootdx。
+目标态只有显式管理接口可以触发后台刷新，普通 GET 不再直接访问 mootdx。当前股票详情和
+公司正文 GET 仍会同步回源。
 
 ## 10. 时点一致性与研究约束
 
@@ -442,12 +472,14 @@ API 不再因 mootdx 暂时不可用而返回整个股票目录或公司资料�
 
 ### 阶段二：公司资料
 
+- 状态：`TARGET`，尚未部署对应 migration 和后台同步服务。
 - 增加当前财务摘要、除权除息、F10 目录和正文版本。
 - 原始响应和正文写 MinIO。
 - 股票详情 API 改为持久化读取，并支持后台刷新。
 
 ### 阶段三：历史行情模型升级
 
+- 状态：`TARGET`；当前仍使用 `market_history_bar` 和 `market_history_sync`。
 - 新建 `market_kline_v2`，引入无冲突的 `instrument_id`。
 - 覆盖股票和指数全部原生周期。
 - 将历史分时从伪 OHLC 中拆出。
@@ -455,6 +487,7 @@ API 不再因 mootdx 暂时不可用而返回整个股票目录或公司资料�
 
 ### 阶段四：大体量冷数据
 
+- 状态：`TARGET`；当前没有生产调用 `transactions()` 或 `Affair.*`。
 - 接入历史财务包目录、原始 zip 和 ClickHouse 报告期数据。
 - 增加历史分笔按需回填、覆盖率和 MinIO 归档。
 - 完成 Redis 投影重建和跨存储对账。

@@ -2,8 +2,10 @@
 
 ## 1. 范围与状态
 
-当前 FastAPI 服务以 `/api/v1/*` 为正式接口，契约见 [OpenAPI](openapi.yaml)。
-Kafka 事件契约见 [AsyncAPI](asyncapi.yaml)。旧 `/api/*` 只保留只读兼容代理。
+当前 FastAPI 服务以 `/api/v1/*` 为正式接口。运行时完整契约由
+`/api/openapi.json` 生成；仓库 [OpenAPI](openapi.yaml) 当前覆盖核心接口，市场、自选股、
+认证和部分运维接口仍需同步补齐。Kafka 事件契约见 [AsyncAPI](asyncapi.yaml)。旧 `/api/*`
+只保留只读兼容代理。
 
 ## 2. 通用约定
 
@@ -231,7 +233,50 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 
 研究接口只读取 `research_*` 表和 MinIO 归档，不会激活策略，也不会生成实时交易事件。
 
-### 4.7 页面和机器文档
+### 4.7 市场、股票与公司资料
+
+| 方法 | 路径 | 当前读取路径 |
+| --- | --- | --- |
+| GET | `/api/v1/stock-blocks` | PostgreSQL 已发布板块快照 |
+| GET | `/api/v1/stocks` | PostgreSQL 证券与每日快照，Redis 覆盖盘中行情 |
+| GET | `/api/v1/stocks/{symbol}` | PostgreSQL/Redis 行情；财务、除权除息和 F10 目录直读 mootdx |
+| GET | `/api/v1/stocks/{symbol}/daily-history` | PostgreSQL 每日行情快照 |
+| GET | `/api/v1/stocks/{symbol}/company?section=...` | mootdx F10 正文 |
+| GET | `/api/v1/stocks/{symbol}/history` | ClickHouse；缺口可回源 mootdx 并回填 |
+| GET | `/api/v1/limit-up-history/options` | PostgreSQL 涨停历史筛选项 |
+| GET | `/api/v1/limit-up-history` | PostgreSQL 涨停历史、统计和排行 |
+
+股票与板块响应携带 `source_as_of`、`fetched_at`、`snapshot_id`、`data_state` 和
+`stale_after`。证券主数据已与 mootdx 请求解耦；公司资料尚未完成持久化，节点不可用时相关
+详情接口可能返回 `503`。
+
+历史行情 `period` 支持 `minute`、`day`、`week`、`month`、`year`。`minute` 是指定交易日
+的 240 点历史分时兼容表示，不等同交易所 Level-2 逐笔或原生分钟 OHLC。
+
+### 4.8 自选股与分类设置
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/watchlist` | 当前用户自选股 |
+| POST | `/api/v1/watchlist` | 批量加入自选股 |
+| DELETE | `/api/v1/watchlist` | 批量移出自选股 |
+| GET | `/api/v1/settings/new-boards` | 用户维护的新板块定义 |
+| PUT | `/api/v1/settings/new-boards` | 替换新板块设置 |
+| PUT | `/api/v1/stocks/{symbol}/new-board` | 设置单只股票的新板块 |
+
+上述写接口要求已登录用户。自选股和人工分类是应用数据，不改变 mootdx 原始证券与板块快照。
+
+### 4.9 模拟盘
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/v1/paper-trading` | 按可选 `campaign` 返回进度、胜率和收益摘要 |
+| GET | `/api/v1/paper-trading/trades` | 按活动和状态分页查询逐笔模拟记录 |
+
+模拟盘由工作日 16:50 CronJob 驱动，使用冻结策略和 mootdx 历史行情生成成交代理。接口只读，
+不包含券商账户、委托或自动下单能力。
+
+### 4.10 页面和机器文档
 
 | 路径 | 说明 |
 | --- | --- |
@@ -239,6 +284,9 @@ SSE 不是权威存储。客户端重连时先调用普通查询，再使用 `La
 | `/` | 次日计划 |
 | `/monitor` | 当日实盘 |
 | `/research` | 回测优化 |
+| `/stocks` | 全市场股票 |
+| `/limit-ups` | 涨停档案 |
+| `/paper-trading` | 模拟盘 |
 | `/api/docs` | FastAPI Swagger UI |
 | `/api/openapi.json` | 运行时生成的 OpenAPI |
 | `/metrics` | Prometheus 指标，不进入公开 OpenAPI |

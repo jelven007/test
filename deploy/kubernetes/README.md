@@ -7,11 +7,13 @@ StatefulSet 运行，并使用独立 EBS 云盘持久化。
 
 截至 `2026-10-01`，该 overlay 已部署到集群 `cdaus2p98m08ce3b12nn0`，生产入口为
 <https://shanao.asia>。架构和数据链路说明见
-[当前生产技术方案](../../docs/13-current-production-solution.md)。
+[当前生产技术方案](../../docs/13-current-production-solution.md)，mootdx 接口和数据落点见
+[mootdx 能力与项目使用矩阵](../../docs/26-mootdx-capability-matrix.md)。
 
 VKE overlay 包含：
 
 - API、业务 Worker、工作日报 CronJob 和 Flink 工作负载。
+- 工作日 16:20 参考数据同步、16:30/23:30 报告、16:35 涨停历史和 16:50 模拟盘任务。
 - 使用 NAS CSI 的 RWX 报告目录。
 - 使用独立 RWO 云盘保存每个 `market-collector` 副本的本地 WAL。
 - 使用 `Retain` 回收策略的 EBS 云盘保存五个数据服务的数据。
@@ -114,6 +116,10 @@ kubectl apply --server-side -f /tmp/banxia-vke.yaml
 
 PostgreSQL Job 使用 `banxia.schema_migration` 记录已完成脚本；ClickHouse
 脚本使用 `IF NOT EXISTS`，可重复执行。
+
+当前 overlay 的 PostgreSQL migration ConfigMap 包含 `001` 至 `020`。仓库中的 `021`、
+`022` 属于 Fusion L7 模拟盘待发布迁移；在它们加入 Kustomize、更新应用镜像并完成生产验证
+前，不得将对应能力视为已上线。
 
 ## DNS 与入口
 

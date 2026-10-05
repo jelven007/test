@@ -2,15 +2,20 @@
 
 ## 1. 文档范围
 
-本文描述 `2026-10-01` 已部署并运行的生产方案，事实来源为：
+本文描述截至 `2026-10-04` 的生产技术方案。事实口径分为两层：
 
-- 火山引擎 VKE 集群 `cdaus2p98m08ce3b12nn0` 的只读运行状态。
-- `deploy/kubernetes/overlays/volcengine/` 渲染后的 Kubernetes 清单。
+- 运行状态：`2026-10-01` 对火山引擎 VKE 集群
+  `cdaus2p98m08ce3b12nn0` 的只读验收快照。
+- 部署定义：当前 `deploy/kubernetes/overlays/volcengine/` 渲染后的 Kubernetes 清单。
 - `src/banxia_strategy/` 中的生产服务实现和事件契约。
-- 上线提交 `901e063`；当前应用镜像标签为 `59f59a6`。
+- 当前 overlay 的应用镜像标签为 `f65154b`，Flink 镜像标签为 `59f59a6`。
 
 生产入口为 <https://shanao.asia>。系统只提供行情研究、策略筛选、盘中监控和报告，
 不连接券商、不读取交易账户、不自动下单。
+
+仓库 `HEAD` 中存在 Fusion L7 模拟盘代码和 PostgreSQL 迁移 `021`、`022`，但当前生产
+Kustomize migration ConfigMap 尚未纳入这两个脚本，应用镜像也未指向该提交。因此本文不把
+Fusion L7 写成当前生产能力。
 
 ## 2. 方案概览
 
@@ -34,6 +39,8 @@ flowchart LR
         PR[projection-worker x2]
         RS[参考数据同步 x1]
         CR[报告 CronJob]
+        LH[涨停历史 CronJob]
+        PT[模拟盘 CronJob]
         PG[(PostgreSQL)]
         CH[(ClickHouse)]
         RD[(Redis)]
@@ -57,6 +64,8 @@ flowchart LR
         CR --> PG
         CR --> MI
         CR --> NAS
+        LH --> PG
+        PT --> PG
         API --> PG
         API --> CH
         API --> RD
@@ -65,11 +74,31 @@ flowchart LR
 
     TDX[mootdx 节点池] -->|经 VPC NAT 出网| MC
     TDX -->|参考数据| RS
+    TDX -->|报告/历史研究| CR
+    TDX -->|涨停历史| LH
+    TDX -->|模拟成交代理| PT
+    TDX -->|公司资料直读| API
 ```
 
 当前方案的核心取舍是：应用层保留多副本、消息解耦和持久 WAL，数据层先采用单副本
 StatefulSet 控制成本。EBS `Retain` 可以避免 Pod 或 StatefulSet 删除时自动删除数据卷，
 但不能替代数据库级复制和经过验证的备份。
+
+### 2.1 数据源边界
+
+沪深行情、证券目录、板块、公司资料和历史研究数据只使用 `mootdx 0.11.x`。系统没有混用
+AkShare、聚宽、Tushare 或券商行情作为生产事实来源。mootdx 原生接口与项目使用状态见
+[mootdx 能力与项目使用矩阵](26-mootdx-capability-matrix.md)。
+
+当前已持久化的 mootdx 数据包括：
+
+- 候选股票实时盘口和一分钟 K 线。
+- 沪深 A 股证券目录、四类板块文件、行业文件和全市场每日快照。
+- 股票日/周/月/年历史和按交易日获取的历史分时。
+- 基于上述数据计算的涨停历史、策略计划、研究结果和模拟盘记录。
+
+当前仍同步直读 mootdx 的数据包括当前财务摘要、除权除息、F10 目录与正文。历史分笔、
+统一股票/指数 K 线模型和 `Affair` 历史财务包尚未进入生产持久化。
 
 ## 3. 生产组件
 
@@ -100,6 +129,8 @@ StatefulSet 控制成本。EBS `Retain` 可以避免 Pod 或 StatefulSet 删除�
 | `flink-taskmanager` | 2 | 执行 1 秒板块窗口和分钟量比计算 |
 | `report-worker-1630` | CronJob | 工作日 16:30 生成初版报告 |
 | `report-worker-2330` | CronJob | 工作日 23:30 基于完整日线覆盖更新 |
+| `limit-up-history-sync` | CronJob | 工作日 16:35 增量同步涨停历史及辅助指标 |
+| `paper-trading-1650` | CronJob | 工作日 16:50 执行冻结规则的模拟成交和样本结算 |
 
 采集器运行两个副本，但只有取得 advisory lease 的副本请求 mootdx。两个副本各自拥有独立
 10Gi EBS WAL 卷；主实例故障后，备用实例接管采集，新主使用自己的 WAL，不共享旧主未确认
@@ -127,7 +158,7 @@ StatefulSet 控制成本。EBS `Retain` 可以避免 Pod 或 StatefulSet 删除�
 
 1. `market-collector` 从 PostgreSQL 读取所有有效监控计划及候选股票。
 2. 两个采集 Pod 使用固定 lease key 竞争 Leader；Standby 不访问 mootdx。
-3. Leader 通过 mootdx 长连接批量请求候选股票。交易时段目标周期为 1 秒，非交易时段为
+3. Leader 通过 mootdx 连接批量请求候选股票。交易时段目标周期为 1 秒，其他时段为
    60 秒；交易日历不可用时停止采集。
 4. 采集器规范化盘口字段，生成稳定 `event_id`，并产生：
    `market.quote.snapshot.v1` 和去重后的 `market.bar.1m.v1`。
@@ -136,6 +167,9 @@ StatefulSet 控制成本。EBS `Retain` 可以避免 Pod 或 StatefulSet 删除�
 
 事件同时保存 `source_time`、`collected_at` 和 `published_at`，用于识别行情源时间、采集延迟
 和消息发布延迟。策略不能用服务接收时间冒充盘口时间。
+
+mootdx 原始盘口包含五档买卖盘，当前事件契约和策略状态机只保留并使用买一、卖一及其委托量；
+完整五档能力不等同 Level-2 逐笔委托。
 
 ### 4.2 分流和实时计算
 
@@ -192,7 +226,7 @@ API 查询最新状态时优先使用 Redis，历史行情读 ClickHouse，策�
 
 `market-reference-sync` 每个工作日 16:20 执行：
 
-1. 从 mootdx 获取证券目录、当日收盘快照和四类板块文件。
+1. 从 mootdx 获取证券目录、当日收盘快照、四类板块文件和行业配置。
 2. 规范化数据并计算 SHA-256。
 3. 先将原始文件写入 MinIO `market-raw`。
 4. 校验记录数、字段和完整性。
@@ -216,6 +250,26 @@ API 查询最新状态时优先使用 Redis，历史行情读 ClickHouse，策�
 
 16:30 是初版，23:30 使用更完整的收盘数据覆盖更新。唯一键
 `(trade_date, strategy_version_id)`、任务状态和内容哈希共同保证重试幂等。
+
+### 5.3 16:35 涨停历史同步
+
+`limit-up-history-sync` 使用 mootdx 日线重建涨停事实，并按需补充历史分时、当前财务摘要、
+除权除息和板块分类。结果写入 PostgreSQL 的涨停历史表，供涨停档案页面和策略研究查询。
+
+该链路是派生数据，不是 mootdx 原生“涨停池”接口。当前分类可能使用最新 F10 信息解释历史
+样本，接口会通过 `classification_basis` 暴露这一限制；尚不能视为完整时点一致分类。
+
+### 5.4 16:50 模拟盘链路
+
+`paper-trading-1650` 每个工作日执行：
+
+1. 读取 PostgreSQL 中状态为 `running` 的模拟盘活动及冻结配置。
+2. 使用 mootdx 交易日历、日线和 240 点历史分时评估计划与成交代理。
+3. 写入开仓、拒绝、行情缺失、平仓等状态及逐笔证据。
+4. 刷新样本数、胜率和收益指标；达到目标样本数后停止新增仓位。
+
+模拟盘只生成研究记录，不连接券商，也不会触发真实委托。当前生产镜像支持
+`first-board-positive-v1`；Fusion L7 仍属于仓库待发布能力。
 
 ## 6. Kafka 事件和保留
 
@@ -248,6 +302,10 @@ Topic 保留用于短期重放，不是长期备份。
 系统按“至少一次 + 幂等”设计。ClickHouse 的 `ReplacingMergeTree` 去重为最终收敛语义，
 查询最新值使用 `argMax` 等方式，不在高频请求中依赖 `FINAL`。
 
+公司财务摘要、F10、历史分笔、统一 `market_kline_v2` 和历史财务报表的目标归属已经完成
+设计，但对应表尚未全部部署。当前物理表和目标模型的边界见
+[mootdx 非实时数据持久化设计](11-mootdx-persistence.md)。
+
 ## 8. 部署、迁移和发布
 
 生产清单使用 Kustomize：
@@ -266,8 +324,9 @@ Topic 保留用于短期重放，不是长期备份。
 7. 验证工作负载、数据数量、Flink 作业、HTTPS 和页面。
 8. DNS 切换到 ALB。
 
-应用镜像必须使用 Git Commit 标签，禁止 `latest`。当前运行镜像为 `59f59a6`，
-生产部署清单最终化提交为 `901e063`。
+应用镜像必须使用 Git Commit 标签，禁止 `latest`。当前 overlay 的应用镜像为
+`f65154b`、Flink 镜像为 `59f59a6`。PostgreSQL migration ConfigMap 当前包含 `001` 至
+`020`；新增迁移必须先加入 Kustomize、重建镜像并完成生产验证，不能仅凭源码已合并认定上线。
 
 ## 9. 网络、安全和隔离
 
@@ -291,6 +350,8 @@ ServiceMonitor/PodMonitor，需集群安装 Prometheus Operator 后单独应用�
 - Flink 作业 `banxia-realtime-features-v1` 为 `RUNNING`，24/24 个任务处于运行状态。
 - 生产入口 <https://shanao.asia> 可用。
 
+上述是最后一次完整集群验收快照，不是对 `2026-10-04` 每个 Pod 状态的实时声明。
+
 ## 11. 当前风险与演进方向
 
 当前成本优先方案存在明确单点：
@@ -300,6 +361,9 @@ ServiceMonitor/PodMonitor，需集群安装 Prometheus Operator 后单独应用�
 - Kafka 复制因子为 1，Broker 故障期间实时链路停止。
 - MinIO 单实例不是高可用对象存储。
 - Flink Checkpoint 与业务对象位于同一个单实例 MinIO。
+- 股票详情的财务、除权除息和 F10 仍同步依赖 mootdx，节点不可用时相关详情会返回 `503`。
+- 历史分时当前写入兼容 K 线表，尚未与原生分钟 OHLC 明确分模。
+- 历史分类存在使用最新 F10 解释历史样本的时点偏差。
 
 后续生产增强按优先级推进：
 

@@ -10,6 +10,15 @@
 
 ## 2. 存储职责
 
+下表同时包含当前物理实现和目标归属：
+
+- `CURRENT`：SQLite WAL、Kafka、实时 ClickHouse 三表、历史兼容两表、PostgreSQL
+  策略/参考数据/每日快照、Redis 投影、MinIO 和 NAS。
+- `TARGET`：公司资料版本表、统一 `market_kline_v2`、独立历史分时、历史分笔和历史财务包。
+
+详细状态矩阵见 [mootdx 非实时数据持久化设计](11-mootdx-persistence.md) 和
+[mootdx 能力与项目使用矩阵](26-mootdx-capability-matrix.md)。
+
 | 数据类型 | 主存储 | 辅助存储 | 说明 |
 | --- | --- | --- | --- |
 | 待发布采集事件 | SQLite WAL / EBS | Kafka | Kafka 确认前的每 Pod 本地持久缓冲 |
@@ -318,6 +327,9 @@ flink-state/
 证券目录、板块原始文件、行业配置、F10、财务、除权除息、股票和指数多周期 K 线、
 历史分时、历史分笔及历史财务包的表级设计、同步水位和读取改造见
 [mootdx 非实时数据持久化设计](11-mootdx-persistence.md)。
+
+当前只完成证券目录、板块/行业、每日快照和历史行情兼容表。F10、财务、公司行为、统一历史
+模型、历史分笔和历史财务包仍是目标态，不应根据本章的目标归属推断对应生产表已经存在。
 
 ## 13. 备份与恢复
 
