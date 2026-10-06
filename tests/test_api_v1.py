@@ -473,6 +473,28 @@ class FakeMarketHistory:
             "completed": completed,
         }
 
+    def get_board_capital_history(
+        self,
+        granularity,
+        *,
+        start_date,
+        end_date,
+    ):
+        self.board_capital_query = (granularity, start_date, end_date)
+        return [
+            {
+                "board_code": "sh_main",
+                "bucket": "2026-09-01",
+                "trade_date": "2026-09-30",
+                "total_market_cap_cny": 50_120_000_000_000,
+                "float_market_cap_cny": 43_780_000_000_000,
+                "stock_count": 1702,
+                "total_cap_stock_count": 1700,
+                "float_cap_stock_count": 1698,
+                "estimated_stock_count": 300,
+            },
+        ]
+
 
 def write_report(root: Path):
     directory = root / "2026-09-23"
@@ -899,6 +921,57 @@ class ApiV1Test(unittest.TestCase):
         )
         self.assertEqual(invalid_field.status_code, 400)
         self.assertEqual(invalid_direction.status_code, 400)
+
+    def test_stock_directory_accepts_two_hundred_rows_per_page(self):
+        response = self.client.get("/api/v1/stocks?limit=200")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["limit"], 200)
+        self.assertEqual(
+            self.client.get("/api/v1/stocks?limit=201").status_code,
+            400,
+        )
+
+    def test_market_cap_dashboard_returns_all_four_boards(self):
+        market_history = FakeMarketHistory()
+        services = ApiServices(
+            reports=self.services.reports,
+            repository=self.services.repository,
+            cache=self.services.cache,
+            history_provider=self.services.history_provider,
+            market_history=market_history,
+        )
+        client = TestClient(create_api_app(services))
+
+        response = client.get(
+            "/api/v1/market-cap-dashboard?granularity=month"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(payload["granularity"], "month")
+        self.assertEqual(payload["end_date"], "2026-09-30")
+        self.assertEqual(len(payload["boards"]), 4)
+        self.assertEqual(payload["boards"][0]["code"], "sh_main")
+        self.assertEqual(
+            payload["boards"][0]["total_market_cap_cny"],
+            50_120_000_000_000,
+        )
+        self.assertEqual(
+            payload["series"]["sh_main"][0]["trade_date"],
+            "2026-09-30",
+        )
+        self.assertEqual(
+            market_history.board_capital_query[0],
+            "month",
+        )
+        self.assertEqual(
+            client.get(
+                "/api/v1/market-cap-dashboard?granularity=hour"
+            ).status_code,
+            400,
+        )
 
     def test_stock_directory_and_blocks_prefer_persisted_reference_data(self):
         repository = FakeReferenceRepository()
@@ -1354,8 +1427,8 @@ class ApiV1Test(unittest.TestCase):
     def test_web_assets_are_not_served_from_stale_browser_cache(self):
         home = self.client.get("/")
         self.assertEqual(home.headers["Cache-Control"], "no-store")
-        self.assertIn("/market.css?v=20260928.1", home.text)
-        self.assertIn("/stocks.js?v=20260928.2", home.text)
+        self.assertIn("/market.css?v=20261006.1", home.text)
+        self.assertIn("/stocks.js?v=20261006.1", home.text)
 
         stock = self.client.get("/stocks/002635")
         self.assertIn("/stock.js?v=20260927.2", stock.text)

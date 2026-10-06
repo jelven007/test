@@ -70,6 +70,29 @@ STOCK_SORT_FIELDS = {
 STOCK_QUOTE_SORT_FIELDS = STOCK_SORT_FIELDS - {"symbol", "board"}
 STOCK_SORT_DIRECTIONS = {"asc", "desc"}
 STOCK_BOARD_ORDER = {"main": 0, "gem": 1, "star": 2}
+MARKET_CAP_GRANULARITIES = {"day", "week", "month", "quarter", "year"}
+MARKET_CAP_BOARDS = {
+    "sh_main": {
+        "name": "沪市主板",
+        "exchange": "sh",
+        "board": "main",
+    },
+    "sz_main": {
+        "name": "深市主板",
+        "exchange": "sz",
+        "board": "main",
+    },
+    "sh_star": {
+        "name": "科创板（沪市）",
+        "exchange": "sh",
+        "board": "star",
+    },
+    "sz_gem": {
+        "name": "创业板（深市）",
+        "exchange": "sz",
+        "board": "gem",
+    },
+}
 
 
 def _stock_sort_value(item: Mapping[str, Any], sort_by: str):
@@ -480,6 +503,7 @@ def create_api_app(services: ApiServices):
             }
             or request.url.path.startswith("/stocks/")
             or request.url.path.startswith("/api/v1/stocks")
+            or request.url.path == "/api/v1/market-cap-dashboard"
             or request.url.path.startswith("/api/v1/research")
             or request.url.path.endswith((".css", ".js"))
         ):
@@ -1505,10 +1529,10 @@ def create_api_app(services: ApiServices):
             raise HTTPException(status_code=400, detail="交易市场无效")
         if watchlist not in {"all", "only", "plan"}:
             raise HTTPException(status_code=400, detail="股票范围筛选条件无效")
-        if not 1 <= limit <= 100 or offset < 0:
+        if not 1 <= limit <= 200 or offset < 0:
             raise HTTPException(
                 status_code=400,
-                detail="limit 必须为 1 至 100，offset 不能小于 0",
+                detail="limit 必须为 1 至 200，offset 不能小于 0",
             )
         blockname = (block or "").strip()
         if len(blockname) > 40:
@@ -1669,6 +1693,84 @@ def create_api_app(services: ApiServices):
             "direction": direction if sort_by else None,
             "plan_scope": plan_scope,
             "items": items,
+        }
+
+    @app.get("/api/v1/market-cap-dashboard")
+    def market_cap_dashboard(granularity: str = "month"):
+        if granularity not in MARKET_CAP_GRANULARITIES:
+            raise HTTPException(status_code=400, detail="市值趋势统计维度无效")
+        reader = getattr(
+            market_history,
+            "get_board_capital_history",
+            None,
+        )
+        if not callable(reader):
+            raise HTTPException(status_code=503, detail="板块市值历史暂不可用")
+        start = date(2016, 1, 1)
+        end = datetime.now(SHANGHAI).date()
+        try:
+            rows = reader(
+                granularity,
+                start_date=start,
+                end_date=end,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"板块市值历史暂不可用：{exc}",
+            ) from exc
+        series = {code: [] for code in MARKET_CAP_BOARDS}
+        latest = {}
+        for row in rows:
+            code = str(row["board_code"])
+            if code not in series:
+                continue
+            item = {
+                key: row[key]
+                for key in (
+                    "trade_date",
+                    "total_market_cap_cny",
+                    "float_market_cap_cny",
+                    "stock_count",
+                    "total_cap_stock_count",
+                    "float_cap_stock_count",
+                    "estimated_stock_count",
+                )
+            }
+            series[code].append(item)
+            latest[code] = item
+        latest_date = max(
+            (item["trade_date"] for item in latest.values()),
+            default=None,
+        )
+        return {
+            "source": "mootdx",
+            "granularity": granularity,
+            "start_date": start.isoformat(),
+            "end_date": latest_date,
+            "unit": "CNY",
+            "boards": [
+                {
+                    "code": code,
+                    **metadata,
+                    **latest.get(
+                        code,
+                        {
+                            "trade_date": None,
+                            "total_market_cap_cny": 0,
+                            "float_market_cap_cny": 0,
+                            "stock_count": 0,
+                            "total_cap_stock_count": 0,
+                            "float_cap_stock_count": 0,
+                            "estimated_stock_count": 0,
+                        },
+                    ),
+                }
+                for code, metadata in MARKET_CAP_BOARDS.items()
+            ],
+            "series": series,
         }
 
     @app.get("/api/v1/watchlist")

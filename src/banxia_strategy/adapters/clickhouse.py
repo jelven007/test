@@ -78,6 +78,20 @@ HISTORY_COLUMNS = (
     "revision",
 )
 
+BOARD_CAPITAL_COLUMNS = (
+    "trade_date",
+    "board_code",
+    "total_market_cap_cny",
+    "float_market_cap_cny",
+    "stock_count",
+    "total_cap_stock_count",
+    "float_cap_stock_count",
+    "estimated_stock_count",
+    "source",
+    "calculated_at",
+    "revision",
+)
+
 
 def _datetime(value: Any) -> datetime:
     if isinstance(value, datetime):
@@ -314,6 +328,163 @@ class ClickHouseMarketHistoryStore:
             str(row[0])
             for row in getattr(result, "result_rows", ())
         }
+
+    def get_history_dates(
+        self,
+        *,
+        start_date: date,
+        end_date: date,
+        period: str = "day",
+    ) -> list[date]:
+        result = self.client.query(
+            """
+            SELECT DISTINCT trade_date
+            FROM banxia.market_history_bar
+            WHERE period = {period:String}
+              AND trade_date >= {start_date:Date}
+              AND trade_date <= {end_date:Date}
+            ORDER BY trade_date
+            """,
+            parameters={
+                "period": period,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        )
+        return [
+            row[0] if isinstance(row[0], date) else date.fromisoformat(str(row[0]))
+            for row in getattr(result, "result_rows", ())
+        ]
+
+    def get_history_bars_for_symbols(
+        self,
+        symbols: Sequence[str],
+        *,
+        start_date: date,
+        end_date: date,
+        period: str = "day",
+    ) -> dict[str, list[dict[str, Any]]]:
+        requested = tuple(dict.fromkeys(str(symbol) for symbol in symbols))
+        if not requested:
+            return {}
+        result = self.client.query(
+            """
+            SELECT
+                symbol,
+                trade_date,
+                argMax(close, revision) AS close
+            FROM banxia.market_history_bar
+            WHERE period = {period:String}
+              AND symbol IN {symbols:Array(String)}
+              AND trade_date >= {start_date:Date}
+              AND trade_date <= {end_date:Date}
+            GROUP BY symbol, trade_date
+            ORDER BY symbol, trade_date
+            """,
+            parameters={
+                "period": period,
+                "symbols": list(requested),
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        )
+        rows: dict[str, list[dict[str, Any]]] = {}
+        for symbol, trade_date, close in getattr(result, "result_rows", ()):
+            rows.setdefault(str(symbol), []).append(
+                {
+                    "trade_date": (
+                        trade_date
+                        if isinstance(trade_date, date)
+                        else date.fromisoformat(str(trade_date))
+                    ),
+                    "close": float(close),
+                }
+            )
+        return rows
+
+    def upsert_board_capital_history(
+        self,
+        rows: Iterable[Mapping[str, Any]],
+    ) -> None:
+        calculated_at = datetime.now().astimezone()
+        revision = int(calculated_at.timestamp() * 1000)
+        values = [
+            (
+                _date(row["trade_date"]),
+                str(row["board_code"]),
+                _decimal(row["total_market_cap_cny"]),
+                _decimal(row["float_market_cap_cny"]),
+                max(0, int(row["stock_count"])),
+                max(0, int(row["total_cap_stock_count"])),
+                max(0, int(row["float_cap_stock_count"])),
+                max(0, int(row["estimated_stock_count"])),
+                str(row.get("source") or "mootdx"),
+                calculated_at,
+                revision,
+            )
+            for row in rows
+        ]
+        self._insert(
+            "banxia.market_board_capital_history",
+            values,
+            BOARD_CAPITAL_COLUMNS,
+        )
+
+    def get_board_capital_history(
+        self,
+        granularity: str,
+        *,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict[str, Any]]:
+        bucket_expressions = {
+            "day": "trade_date",
+            "week": "toStartOfWeek(trade_date, 1)",
+            "month": "toStartOfMonth(trade_date)",
+            "quarter": "toStartOfQuarter(trade_date)",
+            "year": "toStartOfYear(trade_date)",
+        }
+        try:
+            bucket = bucket_expressions[granularity]
+        except KeyError as exc:
+            raise ValueError("granularity must be day, week, month, quarter, or year") from exc
+        result = self.client.query(
+            f"""
+            SELECT
+                board_code,
+                {bucket} AS bucket,
+                max(trade_date) AS period_end,
+                argMax(total_market_cap_cny, trade_date) AS total_market_cap_cny,
+                argMax(float_market_cap_cny, trade_date) AS float_market_cap_cny,
+                argMax(stock_count, trade_date) AS stock_count,
+                argMax(total_cap_stock_count, trade_date) AS total_cap_stock_count,
+                argMax(float_cap_stock_count, trade_date) AS float_cap_stock_count,
+                argMax(estimated_stock_count, trade_date) AS estimated_stock_count
+            FROM banxia.market_board_capital_history FINAL
+            WHERE trade_date >= {{start_date:Date}}
+              AND trade_date <= {{end_date:Date}}
+            GROUP BY board_code, bucket
+            ORDER BY period_end, board_code
+            """,
+            parameters={
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        )
+        return [
+            {
+                "board_code": str(row[0]),
+                "bucket": row[1].isoformat(),
+                "trade_date": row[2].isoformat(),
+                "total_market_cap_cny": float(row[3]),
+                "float_market_cap_cny": float(row[4]),
+                "stock_count": int(row[5]),
+                "total_cap_stock_count": int(row[6]),
+                "float_cap_stock_count": int(row[7]),
+                "estimated_stock_count": int(row[8]),
+            }
+            for row in getattr(result, "result_rows", ())
+        ]
 
     def get_history_bars(
         self,

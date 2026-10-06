@@ -29,7 +29,7 @@ patches:
 images:
   - name: banxia-strategy
     newName: xm1001-cn-shanghai.cr.volces.com/banxia/banxia-strategy
-    newTag: f65154b
+    newTag: dashboard-20261006-r4
   - name: banxia-flink
     newName: xm1001-cn-shanghai.cr.volces.com/banxia/banxia-flink
     newTag: 59f59a6
@@ -80,6 +80,7 @@ configMapGenerator:
     files:
       - ../../../../migrations/clickhouse/001_initial.sql
       - ../../../../migrations/clickhouse/002_stock_history.sql
+      - ../../../../migrations/clickhouse/003_market_board_capital.sql
 generatorOptions:
   disableNameSuffixHash: true
   labels:

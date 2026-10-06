@@ -11,6 +11,7 @@ from unittest.mock import Mock, call, patch
 
 from banxia_strategy.adapters.clickhouse import (
     BAR_COLUMNS,
+    BOARD_CAPITAL_COLUMNS,
     HISTORY_COLUMNS,
     QUOTE_COLUMNS,
     ClickHouseMarketHistoryStore,
@@ -169,6 +170,59 @@ class ClickHouseAdapterTest(unittest.TestCase):
         statement, parameters = client.queries[-1]
         self.assertIn("argMax(completed, revision) = 1", statement)
         self.assertEqual(parameters, {"period": "day"})
+
+    def test_board_capital_history_is_written_and_grouped(self):
+        client = FakeClickHouseClient()
+        store = ClickHouseMarketHistoryStore(client=client)
+        store.upsert_board_capital_history(
+            [{
+                "trade_date": "2026-09-30",
+                "board_code": "sh_main",
+                "total_market_cap_cny": 50_000_000_000_000,
+                "float_market_cap_cny": 40_000_000_000_000,
+                "stock_count": 1700,
+                "total_cap_stock_count": 1699,
+                "float_cap_stock_count": 1698,
+                "estimated_stock_count": 300,
+                "source": "mootdx",
+            }]
+        )
+
+        table, rows, columns = client.inserts[-1]
+        self.assertEqual(table, "banxia.market_board_capital_history")
+        self.assertEqual(columns, list(BOARD_CAPITAL_COLUMNS))
+        self.assertEqual(rows[0][1], "sh_main")
+
+        client.query_result = SimpleNamespace(
+            result_rows=[(
+                "sh_main",
+                date(2026, 9, 1),
+                date(2026, 9, 30),
+                50_000_000_000_000,
+                40_000_000_000_000,
+                1700,
+                1699,
+                1698,
+                300,
+            )],
+        )
+        result = store.get_board_capital_history(
+            "month",
+            start_date=date(2016, 1, 1),
+            end_date=date(2026, 9, 30),
+        )
+
+        self.assertEqual(result[0]["board_code"], "sh_main")
+        self.assertEqual(result[0]["trade_date"], "2026-09-30")
+        self.assertEqual(result[0]["total_market_cap_cny"], 50_000_000_000_000)
+        self.assertIn("toStartOfMonth(trade_date)", client.queries[-1][0])
+        self.assertIn("max(trade_date) AS period_end", client.queries[-1][0])
+        with self.assertRaises(ValueError):
+            store.get_board_capital_history(
+                "hour",
+                start_date=date(2016, 1, 1),
+                end_date=date(2026, 9, 30),
+            )
 
     def test_quote_and_bar_events_are_mapped_to_schema_columns(self):
         client = FakeClickHouseClient()

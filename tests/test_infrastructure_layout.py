@@ -129,6 +129,7 @@ class StorageSchemaTest(unittest.TestCase):
             "market_feature_realtime",
             "market_history_bar",
             "market_history_sync",
+            "market_board_capital_history",
         ):
             self.assertIn(f"banxia.{table}", schema)
         self.assertIn("INTERVAL 90 DAY DELETE", schema)
@@ -563,7 +564,14 @@ class WebAssetTest(unittest.TestCase):
         self.assertIn('<option value="">全部板块</option>', html)
         self.assertIn('id="stock-plan-only" type="checkbox"', html)
         self.assertIn("次日计划中的股票", html)
+        self.assertIn('id="stock-page-size"', html)
+        self.assertIn('<option value="200">200 条</option>', html)
+        self.assertIn('class="market-cap-dashboard"', html)
+        self.assertIn('data-cap-granularity="quarter"', html)
+        self.assertIn('data-cap-metric="float_market_cap_cny"', html)
         self.assertIn(".stock-plan-toggle {", css)
+        self.assertIn(".market-cap-cards {", css)
+        self.assertIn(".stock-table tr,", css)
         self.assertNotIn('id="stock-market"', html)
         for sort_key in (
             "symbol",

@@ -1,5 +1,5 @@
 const byId = (id) => document.getElementById(id);
-const pageSize = 50;
+let pageSize = 50;
 let offset = 0;
 let total = 0;
 let loading = false;
@@ -10,11 +10,22 @@ let sortDirection = "asc";
 let currentItems = [];
 let currentListPath = "/";
 const selectedSymbols = new Set();
+let marketCapPayload = null;
+let marketCapBoard = "sh_main";
+let marketCapMetric = "total_market_cap_cny";
+let marketCapGranularity = "month";
 
 const boardLabels = {
   main: "沪深主板",
   gem: "创业板",
   star: "科创板",
+};
+
+const marketCapBoards = {
+  sh_main: { name: "沪市主板", color: "#126044" },
+  sz_main: { name: "深市主板", color: "#315a78" },
+  sh_star: { name: "科创板（沪市）", color: "#a66c16" },
+  sz_gem: { name: "创业板（深市）", color: "#a33c32" },
 };
 
 const sortLabels = {
@@ -52,6 +63,10 @@ function compact(value) {
   return number.toLocaleString("zh-CN");
 }
 
+function trillion(value) {
+  return numeric(value) ? `${(Number(value) / 1_000_000_000_000).toFixed(2)} 万亿` : "—";
+}
+
 function tone(value) {
   return Number(value) > 0 ? "up" : Number(value) < 0 ? "down" : "";
 }
@@ -68,6 +83,219 @@ function cell(text, className) {
   node.textContent = text;
   if (className) node.className = className;
   return node;
+}
+
+function svgNode(tag, attributes, text) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [key, value] of Object.entries(attributes)) {
+    node.setAttribute(key, value);
+  }
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function renderMarketCapCards() {
+  const root = byId("market-cap-cards");
+  root.replaceChildren();
+  for (const board of marketCapPayload?.boards || []) {
+    const definition = marketCapBoards[board.code];
+    if (!definition) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "market-cap-card";
+    button.dataset.board = board.code;
+    button.setAttribute("aria-pressed", String(board.code === marketCapBoard));
+
+    const heading = document.createElement("span");
+    heading.className = "market-cap-card-name";
+    heading.textContent = definition.name;
+    const count = document.createElement("small");
+    count.textContent = `${Number(board.stock_count).toLocaleString("zh-CN")} 只`;
+    const total = document.createElement("strong");
+    total.textContent = trillion(board.total_market_cap_cny);
+    const totalLabel = document.createElement("span");
+    totalLabel.className = "market-cap-card-label";
+    totalLabel.textContent = "总市值";
+    const floating = document.createElement("b");
+    floating.textContent = trillion(board.float_market_cap_cny);
+    const floatLabel = document.createElement("span");
+    floatLabel.className = "market-cap-card-label";
+    floatLabel.textContent = "流通市值";
+    button.append(heading, count, totalLabel, total, floatLabel, floating);
+    root.append(button);
+  }
+}
+
+function showMarketCapTooltip(event, item, tooltip, root) {
+  tooltip.replaceChildren();
+  for (const text of [
+    item.trade_date,
+    `${marketCapMetric === "total_market_cap_cny" ? "总市值" : "流通市值"} ${trillion(item[marketCapMetric])}`,
+    `覆盖 ${Number(item.stock_count).toLocaleString("zh-CN")} 只`,
+  ]) {
+    const line = document.createElement("span");
+    line.textContent = text;
+    tooltip.append(line);
+  }
+  const bounds = root.getBoundingClientRect();
+  tooltip.style.left = `${Math.max(90, Math.min(bounds.width - 90, event.clientX - bounds.left))}px`;
+  tooltip.style.top = `${Math.max(8, event.clientY - bounds.top - 76)}px`;
+  tooltip.hidden = false;
+}
+
+function renderMarketCapChart() {
+  const root = byId("market-cap-chart");
+  root.replaceChildren();
+  const board = marketCapBoards[marketCapBoard];
+  const items = marketCapPayload?.series?.[marketCapBoard] || [];
+  byId("market-cap-chart-title").textContent = `${board.name}历史趋势`;
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "market-cap-chart-empty";
+    empty.textContent = "暂无板块市值历史";
+    root.append(empty);
+    return;
+  }
+
+  const values = items.map((item) => Number(item[marketCapMetric]));
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const span = Math.max(maximum - minimum, maximum * 0.02, 1);
+  const floor = Math.max(0, minimum - span * 0.08);
+  const ceiling = maximum + span * 0.08;
+  const width = 1200;
+  const height = 320;
+  const left = 34;
+  const right = 1100;
+  const top = 24;
+  const bottom = 274;
+  const x = (index) => left + index / Math.max(1, items.length - 1) * (right - left);
+  const y = (value) => top + (ceiling - value) / (ceiling - floor) * (bottom - top);
+  const svg = svgNode("svg", {
+    viewBox: `0 0 ${width} ${height}`,
+    "aria-hidden": "true",
+  });
+
+  for (const value of [ceiling, (ceiling + floor) / 2, floor]) {
+    const position = y(value);
+    svg.append(
+      svgNode("line", {
+        x1: left,
+        x2: right,
+        y1: position,
+        y2: position,
+        stroke: "#d7dcd8",
+      }),
+      svgNode("text", {
+        x: right + 14,
+        y: position + 4,
+        fill: "#66716b",
+        "font-size": 11,
+      }, `${(value / 1_000_000_000_000).toFixed(2)}万亿`),
+    );
+  }
+  const points = items
+    .map((item, index) => `${x(index)},${y(Number(item[marketCapMetric]))}`)
+    .join(" ");
+  svg.append(
+    svgNode("polyline", {
+      points,
+      fill: "none",
+      stroke: board.color,
+      "stroke-width": 2.5,
+      "stroke-linejoin": "round",
+      "stroke-linecap": "round",
+    }),
+  );
+  for (const index of [0, Math.floor((items.length - 1) / 2), items.length - 1]) {
+    svg.append(svgNode("text", {
+      x: x(index),
+      y: 309,
+      fill: "#66716b",
+      "font-size": 10,
+      "text-anchor": index === 0 ? "start" : index === items.length - 1 ? "end" : "middle",
+    }, items[index].trade_date));
+  }
+
+  const tooltip = document.createElement("div");
+  tooltip.className = "market-cap-tooltip";
+  tooltip.hidden = true;
+  const crosshair = svgNode("line", {
+    y1: top,
+    y2: bottom,
+    stroke: board.color,
+    "stroke-width": 1,
+    "stroke-dasharray": "3 3",
+    visibility: "hidden",
+  });
+  const point = svgNode("circle", {
+    r: 4,
+    fill: "#ffffff",
+    stroke: board.color,
+    "stroke-width": 2,
+    visibility: "hidden",
+  });
+  const hit = svgNode("rect", {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+    fill: "transparent",
+  });
+  hit.addEventListener("pointermove", (event) => {
+    const bounds = root.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    const index = Math.round(ratio * (items.length - 1));
+    const positionX = x(index);
+    const positionY = y(Number(items[index][marketCapMetric]));
+    crosshair.setAttribute("x1", positionX);
+    crosshair.setAttribute("x2", positionX);
+    crosshair.setAttribute("visibility", "visible");
+    point.setAttribute("cx", positionX);
+    point.setAttribute("cy", positionY);
+    point.setAttribute("visibility", "visible");
+    showMarketCapTooltip(event, items[index], tooltip, root);
+  });
+  hit.addEventListener("pointerleave", () => {
+    tooltip.hidden = true;
+    crosshair.setAttribute("visibility", "hidden");
+    point.setAttribute("visibility", "hidden");
+  });
+  svg.append(crosshair, point, hit);
+  root.append(svg, tooltip);
+
+  const first = items[0];
+  const latest = items.at(-1);
+  const change = Number(first[marketCapMetric])
+    ? (Number(latest[marketCapMetric]) / Number(first[marketCapMetric]) - 1) * 100
+    : null;
+  byId("market-cap-chart-summary").textContent = `${first.trade_date} 至 ${latest.trade_date} · ${trillion(latest[marketCapMetric])} · ${percent(change)}`;
+}
+
+function updateMarketCapControls() {
+  document.querySelectorAll("[data-cap-metric]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.capMetric === marketCapMetric));
+  });
+  document.querySelectorAll("[data-cap-granularity]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.capGranularity === marketCapGranularity));
+  });
+}
+
+async function loadMarketCapDashboard() {
+  byId("market-cap-as-of").textContent = "正在读取板块市值…";
+  try {
+    marketCapPayload = await fetchJson(
+      `/api/v1/market-cap-dashboard?granularity=${encodeURIComponent(marketCapGranularity)}`,
+    );
+    byId("market-cap-as-of").textContent = `截至 ${marketCapPayload.end_date || "—"} · 单位：万亿元`;
+    renderMarketCapCards();
+    renderMarketCapChart();
+  } catch (error) {
+    byId("market-cap-as-of").textContent = error.message;
+    byId("market-cap-cards").replaceChildren();
+    renderMarketCapChart();
+  }
+  updateMarketCapControls();
 }
 
 async function fetchJson(url, options = {}) {
@@ -98,6 +326,8 @@ function queryParameters() {
 function visibleQueryParameters(parameters) {
   const visibleParameters = new URLSearchParams(parameters);
   visibleParameters.delete("limit");
+  if (pageSize !== 50) visibleParameters.set("page_size", String(pageSize));
+  else visibleParameters.delete("page_size");
   if (!visibleParameters.get("q")) visibleParameters.delete("q");
   if (visibleParameters.get("board") === "all") visibleParameters.delete("board");
   if (!visibleParameters.get("block")) visibleParameters.delete("block");
@@ -311,6 +541,11 @@ function restoreFilters() {
   sortBy = Object.hasOwn(sortLabels, requestedSort) ? requestedSort : "";
   sortDirection = parameters.get("direction") === "desc" ? "desc" : "asc";
   const requestedOffset = Number(parameters.get("offset"));
+  const requestedPageSize = Number(parameters.get("page_size"));
+  pageSize = [50, 100, 200].includes(requestedPageSize)
+    ? requestedPageSize
+    : 50;
+  byId("stock-page-size").value = String(pageSize);
   offset = Number.isInteger(requestedOffset) && requestedOffset >= 0
     ? requestedOffset
     : 0;
@@ -372,6 +607,8 @@ byId("stock-reset").addEventListener("click", () => {
   byId("stock-block").value = "";
   byId("stock-scope").value = "all";
   byId("stock-plan-only").checked = false;
+  pageSize = 50;
+  byId("stock-page-size").value = "50";
   sortBy = "";
   sortDirection = "asc";
   offset = 0;
@@ -411,6 +648,36 @@ byId("next-page").addEventListener("click", () => {
   }
 });
 
+byId("stock-page-size").addEventListener("change", (event) => {
+  pageSize = Number(event.target.value);
+  offset = 0;
+  loadStocks();
+});
+
+byId("market-cap-cards").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-board]");
+  if (!button) return;
+  marketCapBoard = button.dataset.board;
+  renderMarketCapCards();
+  renderMarketCapChart();
+});
+
+document.querySelectorAll("[data-cap-metric]").forEach((button) => {
+  button.addEventListener("click", () => {
+    marketCapMetric = button.dataset.capMetric;
+    updateMarketCapControls();
+    renderMarketCapChart();
+  });
+});
+
+document.querySelectorAll("[data-cap-granularity]").forEach((button) => {
+  button.addEventListener("click", () => {
+    marketCapGranularity = button.dataset.capGranularity;
+    updateMarketCapControls();
+    loadMarketCapDashboard();
+  });
+});
+
 byId("select-page").addEventListener("change", (event) => {
   for (const item of currentItems) {
     if (item.watchlisted) continue;
@@ -433,6 +700,7 @@ byId("add-watchlist").addEventListener("click", addSelectedToWatchlist);
 async function initialize() {
   restoreFilters();
   updateSortHeaders();
+  loadMarketCapDashboard();
   if (requestedBlock) {
     await loadBlocks().catch(disableBlockFilter);
     loadStocks();

@@ -8,9 +8,9 @@
     <title>沪深股票 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260926.1">
     <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
-    <link rel="stylesheet" href="/market.css?v=20260928.1">
+    <link rel="stylesheet" href="/market.css?v=20261006.1">
     <script src="/auth.js?v=20260927.1" defer></script>
-    <script src="/stocks.js?v=20260928.2" defer></script>
+    <script src="/stocks.js?v=20261006.1" defer></script>
   </head>
   <body class="market-body">
     <header class="topbar market-topbar">
@@ -39,6 +39,39 @@
           <p class="page-header-meta">共 <code id="stock-total">—</code> 只 · 数据源 mootdx</p>
         </div>
       </header>
+
+      <section class="market-cap-dashboard" aria-labelledby="market-cap-title">
+        <header class="market-cap-heading">
+          <div>
+            <p class="eyebrow">MARKET CAPITAL</p>
+            <h2 id="market-cap-title">四大板块市值</h2>
+          </div>
+          <p id="market-cap-as-of">正在读取板块市值…</p>
+        </header>
+        <div id="market-cap-cards" class="market-cap-cards" aria-label="板块最新市值"></div>
+        <div class="market-cap-trend">
+          <header>
+            <div>
+              <h3 id="market-cap-chart-title">历史趋势</h3>
+              <p id="market-cap-chart-summary">2016 年至今</p>
+            </div>
+            <div class="market-cap-controls">
+              <div class="segmented-control" aria-label="市值口径">
+                <button type="button" data-cap-metric="total_market_cap_cny" aria-pressed="true">总市值</button>
+                <button type="button" data-cap-metric="float_market_cap_cny" aria-pressed="false">流通市值</button>
+              </div>
+              <div class="segmented-control" aria-label="统计周期">
+                <button type="button" data-cap-granularity="year" aria-pressed="false">年</button>
+                <button type="button" data-cap-granularity="quarter" aria-pressed="false">季</button>
+                <button type="button" data-cap-granularity="month" aria-pressed="true">月</button>
+                <button type="button" data-cap-granularity="week" aria-pressed="false">周</button>
+                <button type="button" data-cap-granularity="day" aria-pressed="false">日</button>
+              </div>
+            </div>
+          </header>
+          <div id="market-cap-chart" class="market-cap-chart" role="img" aria-label="板块市值历史趋势"></div>
+        </div>
+      </section>
 
       <form id="stock-filters" class="stock-filters" role="search">
         <label>股票搜索
@@ -112,6 +145,13 @@
           </table>
         </div>
         <footer class="stock-pagination">
+          <label for="stock-page-size">每页
+            <select id="stock-page-size" class="ui-control">
+              <option value="50">50 条</option>
+              <option value="100">100 条</option>
+              <option value="200">200 条</option>
+            </select>
+          </label>
           <button id="previous-page" class="ui-button" type="button">上一页</button>
           <span id="page-label">第 1 页</span>
           <button id="next-page" class="ui-button" type="button">下一页</button>
