@@ -130,6 +130,7 @@ class ClickHouseMarketHistoryStore:
         database: str = "banxia",
         username: str = "banxia",
         password: str = "",
+        send_receive_timeout: int = 5,
         client: Any = None,
     ):
         if client is None:
@@ -146,7 +147,7 @@ class ClickHouseMarketHistoryStore:
                 username=username,
                 password=password,
                 connect_timeout=3,
-                send_receive_timeout=5,
+                send_receive_timeout=send_receive_timeout,
             )
         self.client = client
 
@@ -252,40 +253,67 @@ class ClickHouseMarketHistoryStore:
         period: str,
         bars: Iterable[Mapping[str, Any]],
     ) -> None:
+        self.upsert_history_bars_batch({symbol: bars}, period)
+
+    def upsert_history_bars_batch(
+        self,
+        bars_by_symbol: Mapping[str, Iterable[Mapping[str, Any]]],
+        period: str,
+    ) -> None:
         fetched_at = datetime.now().astimezone()
         revision = int(fetched_at.timestamp() * 1000)
-        rows_by_year: dict[int, List[Sequence[Any]]] = {}
-        for item in bars:
-            bar_time = _datetime(item["time"])
-            rows_by_year.setdefault(bar_time.year, []).append(
-                (
-                    symbol,
-                    period,
-                    bar_time.date(),
-                    bar_time,
-                    _decimal(item.get("open")),
-                    _decimal(item.get("high")),
-                    _decimal(item.get("low")),
-                    _decimal(item.get("close")),
-                    _integer(item.get("volume")),
-                    _decimal(item.get("amount")),
-                    json.dumps(
-                        item.get("raw", {}),
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                        allow_nan=False,
-                    ),
-                    fetched_at,
-                    revision,
+        rows_by_period_group: dict[int, List[Sequence[Any]]] = {}
+        for symbol, bars in bars_by_symbol.items():
+            for item in bars:
+                bar_time = _datetime(item["time"])
+                # The table is partitioned by month. Keep each INSERT below
+                # ClickHouse's default 100-partition safety limit.
+                group = bar_time.year // 4
+                rows_by_period_group.setdefault(group, []).append(
+                    (
+                        symbol,
+                        period,
+                        bar_time.date(),
+                        bar_time,
+                        _decimal(item.get("open")),
+                        _decimal(item.get("high")),
+                        _decimal(item.get("low")),
+                        _decimal(item.get("close")),
+                        _integer(item.get("volume")),
+                        _decimal(item.get("amount")),
+                        json.dumps(
+                            item.get("raw", {}),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            allow_nan=False,
+                        ),
+                        fetched_at,
+                        revision,
+                    )
                 )
-            )
-        for rows in rows_by_year.values():
+        for rows in rows_by_period_group.values():
             self._insert(
                 "banxia.market_history_bar",
                 rows,
                 HISTORY_COLUMNS,
             )
+
+    def completed_history_symbols(self, period: str) -> set[str]:
+        result = self.client.query(
+            """
+            SELECT symbol
+            FROM banxia.market_history_sync
+            WHERE period = {period:String}
+            GROUP BY symbol
+            HAVING argMax(completed, revision) = 1
+            """,
+            parameters={"period": period},
+        )
+        return {
+            str(row[0])
+            for row in getattr(result, "result_rows", ())
+        }
 
     def get_history_bars(
         self,

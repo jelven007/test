@@ -137,6 +137,39 @@ class ClickHouseAdapterTest(unittest.TestCase):
         self.assertIn("period = {period:String}", statement)
         self.assertEqual(parameters["symbol"], "688001")
 
+    def test_stock_history_batch_limits_partition_span_and_lists_completed(self):
+        client = FakeClickHouseClient()
+        store = ClickHouseMarketHistoryStore(client=client)
+        store.upsert_history_bars_batch(
+            {
+                "600001": [
+                    {"time": "2016-01-04T15:00:00+08:00"},
+                    {"time": "2020-01-02T15:00:00+08:00"},
+                ],
+                "000001": [
+                    {"time": "2026-09-30T15:00:00+08:00"},
+                ],
+            },
+            "day",
+        )
+
+        self.assertEqual(len(client.inserts), 3)
+        self.assertEqual(
+            {row[0] for _, rows, _ in client.inserts for row in rows},
+            {"600001", "000001"},
+        )
+
+        client.query_result = SimpleNamespace(
+            result_rows=[("600001",), ("000001",)],
+        )
+        self.assertEqual(
+            store.completed_history_symbols("day"),
+            {"600001", "000001"},
+        )
+        statement, parameters = client.queries[-1]
+        self.assertIn("argMax(completed, revision) = 1", statement)
+        self.assertEqual(parameters, {"period": "day"})
+
     def test_quote_and_bar_events_are_mapped_to_schema_columns(self):
         client = FakeClickHouseClient()
         store = ClickHouseMarketHistoryStore(client=client)
