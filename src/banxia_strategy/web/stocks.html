@@ -8,9 +8,9 @@
     <title>沪深股票 · 一进二</title>
     <link rel="stylesheet" href="/styles.css?v=20260926.1">
     <link rel="stylesheet" href="/ui-standard.css?v=20260926.2">
-    <link rel="stylesheet" href="/market.css?v=20261006.1">
+    <link rel="stylesheet" href="/market.css?v=20261006.2">
     <script src="/auth.js?v=20260927.1" defer></script>
-    <script src="/stocks.js?v=20261006.1" defer></script>
+    <script src="/stocks.js?v=20261006.2" defer></script>
   </head>
   <body class="market-body">
     <header class="topbar market-topbar">
@@ -48,7 +48,14 @@
           </div>
           <p id="market-cap-as-of">正在读取板块市值…</p>
         </header>
-        <div id="market-cap-cards" class="market-cap-cards" aria-label="板块最新市值"></div>
+        <div class="market-cap-table" role="table" aria-label="四大板块最新市值">
+          <div class="market-cap-table-head" role="row">
+            <span role="columnheader">板块</span>
+            <span role="columnheader">总市值</span>
+            <span role="columnheader">流通市值</span>
+          </div>
+          <div id="market-cap-rows" class="market-cap-rows" role="rowgroup"></div>
+        </div>
         <div class="market-cap-trend">
           <header>
             <div>
@@ -56,9 +63,9 @@
               <p id="market-cap-chart-summary">2016 年至今</p>
             </div>
             <div class="market-cap-controls">
-              <div class="segmented-control" aria-label="市值口径">
-                <button type="button" data-cap-metric="total_market_cap_cny" aria-pressed="true">总市值</button>
-                <button type="button" data-cap-metric="float_market_cap_cny" aria-pressed="false">流通市值</button>
+              <div class="market-cap-legend" aria-label="趋势图图例">
+                <span><i class="total-line"></i>总市值</span>
+                <span><i class="float-line"></i>流通市值</span>
               </div>
               <div class="segmented-control" aria-label="统计周期">
                 <button type="button" data-cap-granularity="year" aria-pressed="false">年</button>

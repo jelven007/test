@@ -29,7 +29,7 @@ patches:
 images:
   - name: banxia-strategy
     newName: xm1001-cn-shanghai.cr.volces.com/banxia/banxia-strategy
-    newTag: dashboard-20261006-r4
+    newTag: dashboard-20261006-r5
   - name: banxia-flink
     newName: xm1001-cn-shanghai.cr.volces.com/banxia/banxia-flink
     newTag: 59f59a6
