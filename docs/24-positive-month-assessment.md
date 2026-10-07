@@ -1,5 +1,9 @@
 # 目标重设计：月度正收益率 ≥ 60% 可达性评估
 
+> **部分失效**：本文 C4/C5 的 Layer 7 使用了违反普通沪深 A 股 T+1 的
+> D2 当日退出；相关数值和结论已撤销。C1-C3 不受该错误影响。修正结果见
+> [Fusion L7 T+1 退出修正](27-fusion-l7-t1-correction.md)。
+
 > 实验窗口：2025-01-01 ~ 2026-09-28（21 个月，HOLDOUT 仅 3 月）  
 > 组合：单票 20%，≤5 并发  
 > 产物：[research/fusion-mvp/positive_month_report.json](../research/fusion-mvp/positive_month_report.json)、脚本 [scripts/positive_month_assessment.py](../scripts/positive_month_assessment.py)

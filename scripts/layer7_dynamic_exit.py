@@ -1,12 +1,13 @@
-"""Layer 7: intraday dynamic exit on D2 (take-profit / stop-loss) + D3 fallback.
+"""Layer 7: T+1-compliant dynamic exit on D3.
 
-Reuses fusion sample universe (L2+L4+L5+L6) and replays each trade on D2
+Reuses the live-equivalent fusion universe (L2+L4+L6, with L5 disabled) and
+replays each trade on D3
 minute bars:
   buy at D2 minutes[0]
-  for each minute i in 1..239:
+  for each D3 minute through 14:54:
     if high_i >= buy * (1 + TP):  exit at buy*(1+TP), log 'tp'
     elif low_i  <= buy * (1 - SL): exit at buy*(1-SL), log 'sl'
-  if neither triggered: hold to D3 minutes[0], log 'd3_open'
+  if neither triggered: send 14:55 force-exit and proxy at D3 14:56
 
 Because our cached minutes only store 'prices' (close per minute) & volumes,
 we approximate per-minute high/low with close vs close transitions. Since
@@ -14,7 +15,7 @@ TDX free doesn't give OHLC per minute, we conservatively use `prices[i]` as
 both high and low proxy and additionally test whether crossing the TP/SL
 threshold happens between prices[i-1] and prices[i].
 
-Grid of (TP, SL) tested on the L4+L5+L6 fusion sample:
+Grid of (TP, SL) tested on the live-equivalent L4+L6 fusion sample:
   TP in {0.03, 0.05, 0.07}
   SL in {0.02, 0.03, 0.05}
 
@@ -35,8 +36,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "src"))
+from banxia_strategy.layer7_exit import simulate_t1_layer7_exit
 from mvp_fusion_backtest import (  # type: ignore
-    load_lhb, pass_layer4_rule_a, pass_layer5_lhb, pass_layer6_gap,
+    pass_layer4_rule_a, pass_layer6_gap,
     FEE_PCT, IN_SAMPLE_END, HOLDOUT_START, CAND_FP, MIN_DIR, DAILY_DIR,
     extract_d1_features, is_sealed, get_d1_close,
 )
@@ -53,36 +56,19 @@ def load_minutes(symbol: str, day: str) -> dict | None:
         return json.load(f)
 
 
-def simulate_intraday_exit(d2_prices: list[float], d3_open: float,
-                            tp_pct: float, sl_pct: float) -> tuple[float, str]:
-    """Return (exit_price, reason).
-
-    Walk D2 minutes 1..239. On each minute, check if price crossed
-    buy*(1+tp) upward (take profit) or buy*(1-sl) downward (stop loss).
-    Trigger logic: if intraday minute 'crosses' the threshold level
-    (prev_price < level <= cur_price for TP, or prev_price > level >= cur_price for SL),
-    assume fill at the threshold. If both triggered in same minute, assume SL triggered
-    first (conservative).
-    """
-    buy = d2_prices[0]
-    tp_level = buy * (1.0 + tp_pct)
-    sl_level = buy * (1.0 - sl_pct)
-    prev = buy
-    for i in range(1, len(d2_prices)):
-        cur = d2_prices[i]
-        hi = max(prev, cur)
-        lo = min(prev, cur)
-        sl_hit = lo <= sl_level
-        tp_hit = hi >= tp_level
-        if sl_hit and tp_hit:
-            # Both touched in same minute; conservatively assume SL first
-            return sl_level, "sl"
-        if sl_hit:
-            return sl_level, "sl"
-        if tp_hit:
-            return tp_level, "tp"
-        prev = cur
-    return d3_open, "d3_open"
+def simulate_intraday_exit(
+    buy_price: float,
+    d3_prices: list[float],
+    tp_pct: float,
+    sl_pct: float,
+) -> tuple[float, str]:
+    price, reason, _ = simulate_t1_layer7_exit(
+        buy_price,
+        d3_prices,
+        tp_pct=tp_pct,
+        sl_pct=sl_pct,
+    )
+    return price, reason
 
 
 def net_pct(buy: float, exit_price: float) -> float:
@@ -99,7 +85,7 @@ def wilson_lower(wins: int, n: int, z: float = 1.96) -> float:
     return 100.0 * (center - margin) / denom
 
 
-def build_fusion_samples(cands: list[dict], lhb_idx: dict) -> list[dict]:
+def build_fusion_samples(cands: list[dict]) -> list[dict]:
     out = []
     for c in cands:
         if c.get("d2_action") or c.get("d3_action"):
@@ -118,11 +104,10 @@ def build_fusion_samples(cands: list[dict], lhb_idx: dict) -> list[dict]:
         if d1_close is None or d1_close <= 0:
             continue
         buy = d2m["prices"][0]
-        d3_open = d3m["prices"][0]
-        if buy <= 0 or d3_open <= 0:
+        d3_prices = d3m["prices"]
+        if buy <= 0 or not d3_prices or d3_prices[0] <= 0:
             continue
         gap_pct_d2 = (buy / d1_close - 1.0) * 100.0
-        lhb = lhb_idx.get((c["symbol"], c["d1_date"]))
         sample = {
             "symbol": c["symbol"],
             "name": c.get("name", ""),
@@ -134,12 +119,11 @@ def build_fusion_samples(cands: list[dict], lhb_idx: dict) -> list[dict]:
             "close_location_day": feats.get("close_location_day"),
             "gap_pct_d2": gap_pct_d2,
             "buy": buy,
-            "d2_prices": d2m["prices"],
-            "d3_open": d3_open,
-            "lhb_bad_reason": bool(lhb and lhb["lhb_bad_reason"]),
-            "lhb_bad_inst_sell": bool(lhb and lhb["lhb_bad_inst_sell"]),
+            "d3_prices": d3_prices,
+            "lhb_bad_reason": False,
+            "lhb_bad_inst_sell": False,
         }
-        if pass_layer4_rule_a(sample) and pass_layer5_lhb(sample) and pass_layer6_gap(sample):
+        if pass_layer4_rule_a(sample) and pass_layer6_gap(sample):
             out.append(sample)
     return out
 
@@ -149,7 +133,9 @@ def evaluate_grid(samples: list[dict], grid: list[tuple[float, float]]) -> list[
     for tp, sl in grid:
         trades = []
         for s in samples:
-            exit_price, reason = simulate_intraday_exit(s["d2_prices"], s["d3_open"], tp, sl)
+            exit_price, reason = simulate_intraday_exit(
+                s["buy"], s["d3_prices"], tp, sl
+            )
             np_pct = net_pct(s["buy"], exit_price)
             trades.append({
                 "d1_date": s["d1_date"],
@@ -242,11 +228,8 @@ def main() -> None:
         cands = json.load(f)
     print(f"  n={len(cands)}")
 
-    print("loading LHB ...")
-    lhb_idx = load_lhb()
-
-    print("building fusion (L4+L5+L6) samples ...")
-    samples = build_fusion_samples(cands, lhb_idx)
+    print("building live-equivalent fusion (L4+L6; L5 disabled) samples ...")
+    samples = build_fusion_samples(cands)
     print(f"  n={len(samples)}")
 
     grid = [
@@ -254,14 +237,14 @@ def main() -> None:
         (0.05, 0.02), (0.05, 0.03), (0.05, 0.05),
         (0.07, 0.03), (0.07, 0.05),
     ]
-    # Also baseline: no dynamic exit (D3 open), for comparison
+    # Also baseline: impossible thresholds, which falls back to D3 14:56.
     print("\nevaluating grid ...")
     results = evaluate_grid(samples, grid)
 
-    # Baseline (no L7): simulate_intraday_exit with impossible TP/SL
+    # Baseline (no L7): impossible TP/SL, force exit at D3 14:56.
     baseline = evaluate_grid(samples, [(10.0, 10.0)])[0]  # 1000% TP / 1000% SL = never fires
-    baseline["label"] = "baseline (D3 open only)"
-    print(f"\nBaseline (no L7): n={baseline['n']} win%={baseline['win_pct']}  "
+    baseline["label"] = "baseline (D3 14:56 only)"
+    print(f"\nBaseline (D3 14:56): n={baseline['n']} win%={baseline['win_pct']}  "
           f"mean_net%={baseline['mean_net_pct']}")
 
     print(f"\n{'TP%':>5} {'SL%':>5} {'n':>5} {'win%':>7} {'wilL%':>7} "
@@ -327,12 +310,16 @@ def main() -> None:
     report = {
         "fee_pct": FEE_PCT,
         "note": (
-            "Dynamic exit on D2 (TP/SL on minute close proxy). "
+            "T+1-compliant dynamic exit on D3 (TP/SL on minute close proxy), "
+            "with a 14:55 force-exit instruction proxied at 14:56. "
             "Minute close prices used as both high & low proxies for threshold "
-            "crossing; results are optimistic vs real tick fills but comparable "
-            "across configs."
+            "crossing. Opening gaps beyond a threshold exit at the observed "
+            "first-minute price."
         ),
-        "sample_universe": "L4+L5+L6 fusion samples",
+        "sample_universe": (
+            "fusion-l7-v1 live-equivalent L4+L6 samples; "
+            "L5 LHB check disabled with pass-through"
+        ),
         "n_samples": len(samples),
         "grid_single_trade": slim_grid,
         "baseline_no_l7_single_trade": slim_baseline,

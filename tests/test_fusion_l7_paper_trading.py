@@ -158,40 +158,53 @@ class FusionRepository:
 
 
 class Layer7ExitSimulationTest(unittest.TestCase):
-    def test_take_profit_triggers_before_stop_loss(self):
-        prices = [10.0, 10.3, 10.6]
+    def test_take_profit_triggers_on_d3(self):
+        prices = [10.0, 10.3, 10.6] + [10.6] * 237
         price, reason, index = simulate_layer7_exit(
+            10.0,
             prices,
-            d3_open=9.0,
             tp_pct=LAYER7_TAKE_PROFIT_PCT / 100.0,
             sl_pct=LAYER7_STOP_LOSS_PCT / 100.0,
         )
-        self.assertEqual(reason, "layer7_take_profit")
+        self.assertEqual(reason, "layer7_d3_take_profit")
         self.assertAlmostEqual(price, 10.5, places=4)
         self.assertEqual(index, 2)
 
-    def test_stop_loss_wins_when_both_touched_same_minute(self):
-        prices = [10.0, 9.7, 10.6]
+    def test_stop_loss_triggers_on_d3(self):
+        prices = [10.0, 9.7] + [9.7] * 238
         price, reason, _ = simulate_layer7_exit(
+            10.0,
             prices,
-            d3_open=9.0,
             tp_pct=LAYER7_TAKE_PROFIT_PCT / 100.0,
             sl_pct=LAYER7_STOP_LOSS_PCT / 100.0,
         )
-        self.assertEqual(reason, "layer7_stop_loss")
+        self.assertEqual(reason, "layer7_d3_stop_loss")
         self.assertAlmostEqual(price, 9.75, places=4)
 
-    def test_fallback_to_d3_open_when_neither_threshold_hit(self):
-        prices = [10.0] + [10.05] * 239
+    def test_opening_gap_uses_observed_price_not_stop_threshold(self):
+        prices = [9.4] * 240
         price, reason, index = simulate_layer7_exit(
+            10.0,
             prices,
-            d3_open=10.2,
             tp_pct=LAYER7_TAKE_PROFIT_PCT / 100.0,
             sl_pct=LAYER7_STOP_LOSS_PCT / 100.0,
         )
-        self.assertEqual(reason, "layer7_d3_open_fallback")
+        self.assertEqual(reason, "layer7_d3_stop_loss")
+        self.assertAlmostEqual(price, 9.4, places=4)
+        self.assertEqual(index, 0)
+
+    def test_fallback_uses_d3_1456_when_neither_threshold_hit(self):
+        prices = [10.05] * 240
+        prices[235] = 10.2
+        price, reason, index = simulate_layer7_exit(
+            10.0,
+            prices,
+            tp_pct=LAYER7_TAKE_PROFIT_PCT / 100.0,
+            sl_pct=LAYER7_STOP_LOSS_PCT / 100.0,
+        )
+        self.assertEqual(reason, "layer7_d3_force_exit")
         self.assertAlmostEqual(price, 10.2, places=4)
-        self.assertIsNone(index)
+        self.assertEqual(index, 235)
 
 
 class FusionL7ScannerTest(unittest.TestCase):
@@ -296,7 +309,7 @@ class FusionL7WorkerTest(unittest.TestCase):
             }
         )
         d2_prices_tp = [10.6, 10.7, 11.1, 11.3] + [11.0] * 236
-        d3_prices = [11.0] * 240
+        d3_prices = [11.0, 11.1, 11.2] + [11.0] * 237
         volumes = [500_000.0] * 240
         self.provider.minutes[("600001", date(2026, 10, 9))] = _flat_minutes(
             d2_prices_tp, volumes
@@ -324,7 +337,7 @@ class FusionL7WorkerTest(unittest.TestCase):
             output_dir=Path("reports"),
         )
 
-    def test_entry_gates_on_layer6_gap_and_exit_hits_take_profit(self):
+    def test_entry_gates_on_layer6_and_exits_on_d3_take_profit(self):
         entry = self.worker.run(date(2026, 10, 9))
         self.assertEqual(entry.entries_processed, 2)
 
@@ -353,7 +366,9 @@ class FusionL7WorkerTest(unittest.TestCase):
             if trade["symbol"] == "600001"
         )
         self.assertEqual(closed["status"], "closed")
-        self.assertEqual(closed["exit_reason"], "layer7_take_profit")
+        self.assertEqual(closed["exit_reason"], "layer7_d3_take_profit")
+        self.assertEqual(closed["exit_time"], "09:33:00")
+        self.assertTrue(closed["exit_evidence"]["t1_compliant"])
         self.assertTrue(closed["positive"])
 
 

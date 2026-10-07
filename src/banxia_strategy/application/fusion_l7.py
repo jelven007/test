@@ -8,9 +8,9 @@ feed, the first version falls back to pass-through (lhb_check_enabled=false).
 
 On D2 the worker fetches minute bars, applies the Layer 6 gap gate
 (gap_pct_d2 ∈ [-1.0, +4.0]), then enters at the first-minute price with the
-10 000 CNY ≤1% participation guardrail. Layer 7 exit walks D2 minutes:
-TP 5.0% / SL 2.5% as the first touched threshold, with a fallback to D3
-09:31 open when neither triggered.
+10 000 CNY ≤1% participation guardrail. To comply with A-share T+1 rules,
+Layer 7 starts only on D3: TP 5.0% / SL 2.5% as the first touched threshold,
+then a 14:55 force-exit instruction proxied by the 14:56 minute price.
 """
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ from datetime import date, time
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
+from ..layer7_exit import simulate_t1_layer7_exit
 from ..t1_research import cash_paid, cents, target_quote
 from .paper_trading import (
     PaperRunResult,
@@ -118,30 +119,18 @@ def pass_layer6_gap(gap_pct_d2: float) -> bool:
 
 
 def simulate_layer7_exit(
-    d2_prices: Sequence[float],
-    d3_open: float,
+    buy_price: float,
+    d3_prices: Sequence[float],
     *,
     tp_pct: float = LAYER7_TAKE_PROFIT_PCT / 100.0,
     sl_pct: float = LAYER7_STOP_LOSS_PCT / 100.0,
 ) -> tuple[float, str, Optional[int]]:
-    buy = d2_prices[0]
-    tp_level = buy * (1.0 + tp_pct)
-    sl_level = buy * (1.0 - sl_pct)
-    prev = buy
-    for i in range(1, len(d2_prices)):
-        cur = d2_prices[i]
-        hi = max(prev, cur)
-        lo = min(prev, cur)
-        sl_hit = lo <= sl_level
-        tp_hit = hi >= tp_level
-        if sl_hit and tp_hit:
-            return sl_level, "layer7_stop_loss", i
-        if sl_hit:
-            return sl_level, "layer7_stop_loss", i
-        if tp_hit:
-            return tp_level, "layer7_take_profit", i
-        prev = cur
-    return d3_open, "layer7_d3_open_fallback", None
+    return simulate_t1_layer7_exit(
+        buy_price,
+        d3_prices,
+        tp_pct=tp_pct,
+        sl_pct=sl_pct,
+    )
 
 
 def _minute_index_to_time(index: int) -> time:
@@ -475,6 +464,9 @@ class FusionL7PaperTradingWorker:
                         "execution_model": model,
                         "layer7_take_profit_pct": LAYER7_TAKE_PROFIT_PCT,
                         "layer7_stop_loss_pct": LAYER7_STOP_LOSS_PCT,
+                        "layer7_exit_session": "D3",
+                        "layer7_force_exit_instruction": "14:55",
+                        "layer7_force_exit_proxy": "14:56",
                     },
                 },
             )
@@ -493,40 +485,30 @@ class FusionL7PaperTradingWorker:
         model = execution_model(LAYER7_TAKE_PROFIT_PCT)
         processed = 0
         for record in records:
-            entry_date = date.fromisoformat(record["entry_date"])
-            d2_minute = _minute_data(
-                self.provider.historical_minutes(record["symbol"], entry_date)
-            )
             exit_date = date.fromisoformat(record["exit_date"])
             d3_minute = _minute_data(
                 self.provider.historical_minutes(record["symbol"], exit_date)
             )
-            if d2_minute is None or d3_minute is None:
+            if d3_minute is None:
                 self.repository.save_paper_exit(
                     record["paper_trade_id"],
                     {
                         "status": "exit_data_missing",
-                        "exit_reason": "Layer 7 分钟数据缺失",
+                        "exit_reason": "Layer 7 D3 分钟数据缺失",
                         "exit_evidence": {},
                     },
                 )
                 processed += 1
                 continue
-            d2_prices = d2_minute["prices"]
-            d3_open = d3_minute["prices"][0]
+            buy_price = float(record["entry_price"])
             exit_price_raw, reason, minute_index = simulate_layer7_exit(
-                d2_prices, d3_open
+                buy_price,
+                d3_minute["prices"],
             )
-            if reason == "layer7_d3_open_fallback":
-                settle_date = exit_date
-                exit_time = time(hour=9, minute=31)
-            else:
-                settle_date = entry_date
-                exit_time = _minute_index_to_time(minute_index or 0)
+            exit_time = _minute_index_to_time(minute_index or 0)
             sell_price = cents(
                 exit_price_raw * (1 - model["slippage_each_side"]), up=False
             )
-            buy_price = float(record["entry_price"])
             shares = int(record["shares"])
             gross = (sell_price - buy_price) * shares
             commission_sell = max(
@@ -562,9 +544,10 @@ class FusionL7PaperTradingWorker:
                     "exit_evidence": {
                         "layer7_reason": reason,
                         "minute_index": minute_index,
-                        "d2_prices_length": len(d2_prices),
-                        "d3_open": d3_open,
-                        "exit_date": settle_date.isoformat(),
+                        "d3_prices_length": len(d3_minute["prices"]),
+                        "d3_open": d3_minute["prices"][0],
+                        "exit_date": exit_date.isoformat(),
+                        "t1_compliant": True,
                     },
                 },
             )

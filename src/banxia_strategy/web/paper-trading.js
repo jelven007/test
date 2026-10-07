@@ -12,11 +12,11 @@ const campaignCatalog = {
   },
   "fusion-l7-v1": {
     label: "Fusion L7 V1",
-    tagline: "半夏+炒股养家融合 L2+L4+L5+L6 筛选 · Layer 7 TP5%/SL2.5% 分钟级退出。",
+    tagline: "半夏+炒股养家融合 L2+L4+L6 筛选 · L5 暂停 · 遵守 T+1，D3 执行 Layer 7 退出。",
     rules: [
       { phase: "D1", title: "L2+L4 筛选", detail: "全市场扫描，排除 ST/*ST，D1 涨幅 ≥ 3%，Rule A：末 30 分钟 r_last30 < -0.5% 且 close_loc < 0.75。" },
       { phase: "D2", title: "L6 跳空闸门", detail: "开盘跳空 ∈ [-1%, +4%] 才入场，09:31 开盘价成交，单票 20% 仓位，并发 ≤ 5。" },
-      { phase: "D2–D3", title: "L7 动态退出", detail: "TP +5.0% 或 SL -2.5%，分钟级首触即卖，未触发则 D3 09:31 开盘强制退出。" },
+      { phase: "D3", title: "L7 动态退出", detail: "D2 不卖；D3 首次触及 TP +5.0% 或 SL -2.5% 时退出，未触发则 14:55 发出强退指令，以 14:56 分钟价代理。" },
     ],
   },
 };

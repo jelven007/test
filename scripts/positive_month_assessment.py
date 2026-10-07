@@ -80,7 +80,8 @@ def build_all_samples(cands: list[dict], lhb_idx: dict) -> list[dict]:
         if d1_close is None or d1_close <= 0:
             continue
         buy = d2m["prices"][0]
-        d3_open = d3m["prices"][0]
+        d3_prices = d3m["prices"]
+        d3_open = d3_prices[0]
         if buy <= 0 or d3_open <= 0:
             continue
         gap_pct_d2 = (buy / d1_close - 1.0) * 100.0
@@ -96,7 +97,7 @@ def build_all_samples(cands: list[dict], lhb_idx: dict) -> list[dict]:
             "close_location_day": feats.get("close_location_day"),
             "gap_pct_d2": gap_pct_d2,
             "buy": buy,
-            "d2_prices": d2m["prices"],
+            "d3_prices": d3_prices,
             "d3_open": d3_open,
             "d3_net_pct": d3_net,
             "lhb_bad_reason": bool(lhb and lhb["lhb_bad_reason"]),
@@ -114,7 +115,9 @@ def compute_exits(samples: list[dict], tp: float | None = None,
         if tp is None or sl is None:
             np_pct = s["d3_net_pct"]
         else:
-            exit_price, _ = simulate_intraday_exit(s["d2_prices"], s["d3_open"], tp, sl)
+            exit_price, _ = simulate_intraday_exit(
+                s["buy"], s["d3_prices"], tp, sl
+            )
             np_pct = net_pct(s["buy"], exit_price)
         out.append({**s, "net_pct": np_pct, "win": np_pct > 0})
     return out

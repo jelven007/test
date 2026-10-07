@@ -118,6 +118,17 @@ class StorageSchemaTest(unittest.TestCase):
             "UNIQUE (campaign_id, d1_date, symbol)", candidate_migration
         )
 
+    def test_fusion_l7_exit_migration_enforces_t1_snapshot(self):
+        exit_migration = (
+            ROOT / "migrations/postgres/023_fusion_l7_t1_exit.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("'fusion-l7-v1'", exit_migration)
+        self.assertIn("'layer5_lhb_check_enabled', false", exit_migration)
+        self.assertIn("'layer7_exit_session', 'D3'", exit_migration)
+        self.assertIn("'layer7_t1_compliant', true", exit_migration)
+        self.assertIn("14:56", exit_migration)
+
     def test_clickhouse_schema_contains_history_tables_and_ttls(self):
         schema = "\n".join(
             path.read_text(encoding="utf-8")

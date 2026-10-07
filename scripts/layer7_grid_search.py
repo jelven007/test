@@ -1,4 +1,4 @@
-"""Layer 7 full parameter grid search.
+"""T+1-compliant Layer 7 full parameter grid search.
 
 Prior work tested only 7 (TP, SL) combos. Here we expand to a 35-point grid
 plus 5 extra asymmetric candidates, score each by:
@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from mvp_fusion_backtest import (  # type: ignore
-    load_lhb, pass_layer4_rule_a, pass_layer5_lhb, pass_layer6_gap,
+    pass_layer4_rule_a, pass_layer6_gap,
     FEE_PCT, IN_SAMPLE_END, HOLDOUT_START, CAND_FP, MIN_DIR,
     extract_d1_features, is_sealed, get_d1_close,
 )
@@ -59,7 +59,7 @@ def net_pct(buy: float, exit_price: float) -> float:
     return (exit_price / buy - 1.0) * 100.0 - FEE_PCT
 
 
-def build_fusion_samples(cands: list[dict], lhb_idx: dict) -> list[dict]:
+def build_fusion_samples(cands: list[dict]) -> list[dict]:
     out = []
     for c in cands:
         if c.get("d2_action") or c.get("d3_action"):
@@ -78,11 +78,10 @@ def build_fusion_samples(cands: list[dict], lhb_idx: dict) -> list[dict]:
         if d1_close is None or d1_close <= 0:
             continue
         buy = d2m["prices"][0]
-        d3_open = d3m["prices"][0]
-        if buy <= 0 or d3_open <= 0:
+        d3_prices = d3m["prices"]
+        if buy <= 0 or not d3_prices or d3_prices[0] <= 0:
             continue
         gap_pct_d2 = (buy / d1_close - 1.0) * 100.0
-        lhb = lhb_idx.get((c["symbol"], c["d1_date"]))
         sample = {
             "symbol": c["symbol"],
             "d1_date": c["d1_date"],
@@ -93,12 +92,11 @@ def build_fusion_samples(cands: list[dict], lhb_idx: dict) -> list[dict]:
             "close_location_day": feats.get("close_location_day"),
             "gap_pct_d2": gap_pct_d2,
             "buy": buy,
-            "d2_prices": d2m["prices"],
-            "d3_open": d3_open,
-            "lhb_bad_reason": bool(lhb and lhb["lhb_bad_reason"]),
-            "lhb_bad_inst_sell": bool(lhb and lhb["lhb_bad_inst_sell"]),
+            "d3_prices": d3_prices,
+            "lhb_bad_reason": False,
+            "lhb_bad_inst_sell": False,
         }
-        if pass_layer4_rule_a(sample) and pass_layer5_lhb(sample) and pass_layer6_gap(sample):
+        if pass_layer4_rule_a(sample) and pass_layer6_gap(sample):
             out.append(sample)
     return out
 
@@ -106,7 +104,9 @@ def build_fusion_samples(cands: list[dict], lhb_idx: dict) -> list[dict]:
 def apply_exit(samples: list[dict], tp: float, sl: float) -> list[dict]:
     out = []
     for s in samples:
-        exit_price, reason = simulate_intraday_exit(s["d2_prices"], s["d3_open"], tp, sl)
+        exit_price, reason = simulate_intraday_exit(
+            s["buy"], s["d3_prices"], tp, sl
+        )
         np_pct = net_pct(s["buy"], exit_price)
         out.append({
             "d1_date": s["d1_date"],
@@ -182,11 +182,8 @@ def main() -> None:
         cands = json.load(f)
     print(f"  n={len(cands)}")
 
-    print("loading LHB ...")
-    lhb_idx = load_lhb()
-
-    print("building fusion (L4+L5+L6) samples ...")
-    samples = build_fusion_samples(cands, lhb_idx)
+    print("building live-equivalent fusion (L4+L6; L5 disabled) samples ...")
+    samples = build_fusion_samples(cands)
     print(f"  n={len(samples)}")
 
     # Full grid: TP 3..10, SL 2..5
@@ -300,8 +297,15 @@ def main() -> None:
 
     report = {
         "target": "P(month_return > 0) >= 60% (stretch), >= 50% (baseline)",
+        "exit_protocol": (
+            "Buy D2 09:31; evaluate TP/SL on D3 only; if neither triggers "
+            "through 14:54, send force-exit at 14:55 and proxy with 14:56."
+        ),
         "n_grid": len(grid),
-        "sample_universe": "L4+L5+L6 fusion samples",
+        "sample_universe": (
+            "fusion-l7-v1 live-equivalent L4+L6 samples; "
+            "L5 LHB check disabled with pass-through"
+        ),
         "n_samples": len(samples),
         "ranking_key": "ALL hit_rate desc, Wilson L desc, holdout hit_rate desc, mean desc",
         "results": results,

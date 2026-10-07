@@ -5,8 +5,8 @@
 
 ## 文档状态
 
-- 基线版本：`2.2`
-- 基线日期：`2026-10-04`
+- 基线版本：`2.3`
+- 基线日期：`2026-10-07`
 - 当前实现：Python 多服务运行时 + Kafka + Flink + PostgreSQL + ClickHouse + Redis + MinIO
 - 部署形态：火山引擎 VKE 生产环境已上线，本地 Compose 用于开发和集成验证
 - 数据源：仅使用 `mootdx`
@@ -50,6 +50,7 @@
 | [月度正收益评估](24-positive-month-assessment.md) | 月度正收益率目标和样本边界 |
 | [Layer 7 参数网格](25-layer7-grid-search.md) | 止盈止损参数空间与候选配置 |
 | [mootdx 能力与项目使用矩阵](26-mootdx-capability-matrix.md) | mootdx 全接口、字段、项目使用状态和四条数据链路 |
+| [Fusion L7 T+1 退出修正](27-fusion-l7-t1-correction.md) | 撤销 D2 当日退出结果，统一 D3 退出并重新回测 |
 | [隔日交易研究复现方法](t1-research-method.md) | 成交代理、费用、数据核验、规则冻结及逐笔清单 |
 
 ## 规范优先级
